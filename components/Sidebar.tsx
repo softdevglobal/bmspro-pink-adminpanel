@@ -3,6 +3,8 @@ import Link from "next/link";
 import React from "react";
 import { usePathname } from "next/navigation";
 import { useRouter } from "next/navigation";
+import { signOut } from "firebase/auth";
+import { auth } from "@/lib/firebase";
 
 type SidebarProps = {
   mobile?: boolean;
@@ -23,6 +25,7 @@ export default function Sidebar({ mobile = false, onClose }: SidebarProps) {
       if (typeof window !== "undefined") {
         localStorage.removeItem("auth");
       }
+      signOut(auth).catch(() => {});
     } catch {}
     router.replace("/login");
   };

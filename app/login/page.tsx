@@ -1,6 +1,8 @@
 "use client";
 import React, { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
+import { signInWithEmailAndPassword } from "firebase/auth";
+import { auth } from "@/lib/firebase";
 
 export default function LoginPage() {
   const router = useRouter();
@@ -21,11 +23,15 @@ export default function LoginPage() {
     e.preventDefault();
     setError(null);
     setLoading(true);
-    // Fake auth - replace with API call later
-    setTimeout(() => {
+    try {
+      await signInWithEmailAndPassword(auth, email, password);
       localStorage.setItem("auth", "1");
       router.replace("/dashboard");
-    }, 600);
+    } catch (err: any) {
+      setError(err?.message || "Unable to sign in");
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (

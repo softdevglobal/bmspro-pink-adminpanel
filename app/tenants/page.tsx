@@ -187,13 +187,6 @@ export default function TenantsPage() {
                     Manage salon subscriptions and compliance
                   </p>
                 </div>
-                <button
-                  className="hidden md:inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-white/10 hover:bg-white/20 transition"
-                  onClick={openOnboardModal}
-                >
-                  <i className="fas fa-plus" />
-                  Onboard New Salon
-                </button>
               </div>
             </div>
           </div>
