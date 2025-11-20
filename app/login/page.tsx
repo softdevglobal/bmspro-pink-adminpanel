@@ -3,6 +3,7 @@ import React, { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { signInWithEmailAndPassword } from "firebase/auth";
 import { auth } from "@/lib/firebase";
+import { ensureSuperAdminUser } from "@/lib/users";
 
 export default function LoginPage() {
   const router = useRouter();
@@ -11,6 +12,27 @@ export default function LoginPage() {
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  function friendlyAuthMessage(code?: string, fallback?: string) {
+    switch (code) {
+      case "auth/invalid-email":
+        return "The email address is not valid.";
+      case "auth/user-not-found":
+        return "No account found for this email.";
+      case "auth/wrong-password":
+        return "Incorrect password.";
+      case "auth/email-already-in-use":
+        return "An account already exists with this email.";
+      case "auth/weak-password":
+        return "Password should be at least 6 characters.";
+      case "auth/operation-not-allowed":
+        return "Email/Password sign-in is not enabled in Firebase Authentication.";
+      case "auth/invalid-api-key":
+        return "Invalid Firebase API key. Check your Firebase config/API key restrictions.";
+      default:
+        return fallback || "Something went wrong. Please try again.";
+    }
+  }
 
   useEffect(() => {
     const authed = typeof window !== "undefined" && localStorage.getItem("auth");
@@ -25,10 +47,12 @@ export default function LoginPage() {
     setLoading(true);
     try {
       await signInWithEmailAndPassword(auth, email, password);
+      await ensureSuperAdminUser(auth.currentUser);
       localStorage.setItem("auth", "1");
       router.replace("/dashboard");
     } catch (err: any) {
-      setError(err?.message || "Unable to sign in");
+      console.error("Auth error:", err);
+      setError(friendlyAuthMessage(err?.code, err?.message));
     } finally {
       setLoading(false);
     }
@@ -48,8 +72,12 @@ export default function LoginPage() {
             </div>
           </div>
 
-          <h2 className="text-xl font-bold text-slate-900 mb-1">Sign in</h2>
-          <p className="text-sm text-slate-500 mb-6">Access your admin dashboard</p>
+          <div className="flex items-center justify-between mb-2">
+            <h2 className="text-xl font-bold text-slate-900">Sign in</h2>
+          </div>
+          <p className="text-sm text-slate-500 mb-6">
+            Access your admin dashboard
+          </p>
 
           <form onSubmit={handleSubmit} className="space-y-4">
             <div>

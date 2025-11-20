@@ -1,18 +1,20 @@
 import { initializeApp, getApps, getApp } from "firebase/app";
 import { getAuth } from "firebase/auth";
+import { getFirestore } from "firebase/firestore";
 
+// Firebase configuration
 const firebaseConfig = {
-  apiKey: "AIzaSyAXkJB5pymjqwcTDc5DtH_CbDtXPIslsao",
-  authDomain: "bms-pro-e3125.firebaseapp.com",
-  projectId: "bms-pro-e3125",
-  storageBucket: "bms-pro-e3125.firebasestorage.app",
-  messagingSenderId: "95517764192",
-  appId: "1:95517764192:web:a674c4c1aa55c314b23105",
+  apiKey: "AIzaSyD08qXcZjC1N_wX8EE5YGgN4sA-ZrJQICg",
+  authDomain: "bmspro-pink.firebaseapp.com",
+  projectId: "bmspro-pink",
+  storageBucket: "bmspro-pink.firebasestorage.app",
+  messagingSenderId: "960634304944",
+  appId: "1:960634304944:web:9c9cb29b14b13924b73e75",
 };
 
+// Initialize (guarded for Next.js hot reload)
 const app = getApps().length ? getApp() : initializeApp(firebaseConfig);
 const auth = getAuth(app);
+const db = getFirestore(app);
 
-export { app, auth };
-
-
+export { app, auth, db };
