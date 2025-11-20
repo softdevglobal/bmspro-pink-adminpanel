@@ -182,10 +182,10 @@ export default function BillingPage() {
                   </div>
                   <button
                     onClick={() => setInvoiceModalOpen(true)}
-                    className="w-full sm:w-auto px-6 py-3 bg-gradient-to-r from-pink-500 to-pink-600 text-white font-semibold rounded-lg hover:from-pink-600 hover:to-pink-700 transition flex items-center justify-center sm:justify-start space-x-2 shadow-lg"
+                    className="w-full sm:w-auto h-12 sm:h-10 px-6 sm:px-5 py-3 sm:py-2.5 bg-gradient-to-r from-pink-500 to-pink-600 text-white font-semibold rounded-lg hover:from-pink-600 hover:to-pink-700 transition flex items-center justify-center sm:justify-start space-x-2 shadow-lg whitespace-nowrap"
                   >
                     <i className="fas fa-plus text-sm" />
-                    <span>New Invoice</span>
+                    <span className="whitespace-nowrap">New Invoice</span>
                   </button>
                 </div>
 

@@ -14,7 +14,9 @@ export default function Sidebar({ mobile = false, onClose }: SidebarProps) {
   const router = useRouter();
   const isDashboard = pathname === "/dashboard" || pathname === "/";
   const isTenants = pathname?.startsWith("/tenants");
+  const isStaff = pathname?.startsWith("/staff");
   const isBilling = pathname?.startsWith("/billing");
+  const isSettings = pathname?.startsWith("/settings");
 
   const handleSignOut = () => {
     try {
@@ -66,14 +68,15 @@ export default function Sidebar({ mobile = false, onClose }: SidebarProps) {
           <i className="fas fa-store w-5" />
           <span>Tenant Management</span>
         </Link>
+        <Link href="/staff" className={`flex items-center space-x-3 px-4 py-3 rounded-xl transition ${isStaff ? "bg-pink-500 text-white shadow-lg" : "hover:bg-slate-800 text-slate-400 hover:text-white"}`}>
+          <i className="fas fa-users w-5" />
+          <span>Staff Management</span>
+        </Link>
         <Link href="/billing" className={`flex items-center space-x-3 px-4 py-3 rounded-xl transition ${isBilling ? "bg-pink-500 text-white shadow-lg" : "hover:bg-slate-800 text-slate-400 hover:text-white"}`}>
           <i className="fas fa-credit-card w-5" />
           <span>Billing & Invoices</span>
         </Link>
-        <Link
-          href="#"
-          className="flex items-center space-x-3 px-4 py-3 rounded-xl hover:bg-slate-800 text-slate-400 hover:text-white transition"
-        >
+        <Link href="/settings" className={`flex items-center space-x-3 px-4 py-3 rounded-xl transition ${isSettings ? "bg-pink-500 text-white shadow-lg" : "hover:bg-slate-800 text-slate-400 hover:text-white"}`}>
           <i className="fas fa-cog w-5" />
           <span>Platform Settings</span>
         </Link>
