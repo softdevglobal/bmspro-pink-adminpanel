@@ -24,3 +24,25 @@ body {
   color: var(--foreground);
   font-family: var(--font-sans);
 }
+
+/* Ensure strong readable text inside all form fields (light backgrounds) */
+input,
+textarea,
+select {
+  color: #0f172a; /* slate-900 */
+  background-color: #ffffff;
+  caret-color: #0f172a;
+}
+
+input::placeholder,
+textarea::placeholder {
+  color: #94a3b8; /* slate-400 */
+}
+
+/* Make sure autofill text is dark as well */
+input:-webkit-autofill,
+textarea:-webkit-autofill,
+select:-webkit-autofill {
+  -webkit-text-fill-color: #0f172a;
+  transition: background-color 5000s ease-in-out 0s;
+}

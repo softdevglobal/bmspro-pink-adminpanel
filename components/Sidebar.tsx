@@ -2,6 +2,7 @@
 import Link from "next/link";
 import React from "react";
 import { usePathname } from "next/navigation";
+import { useRouter } from "next/navigation";
 
 type SidebarProps = {
   mobile?: boolean;
@@ -10,9 +11,19 @@ type SidebarProps = {
 
 export default function Sidebar({ mobile = false, onClose }: SidebarProps) {
   const pathname = usePathname();
+  const router = useRouter();
   const isDashboard = pathname === "/dashboard" || pathname === "/";
   const isTenants = pathname?.startsWith("/tenants");
   const isBilling = pathname?.startsWith("/billing");
+
+  const handleSignOut = () => {
+    try {
+      if (typeof window !== "undefined") {
+        localStorage.removeItem("auth");
+      }
+    } catch {}
+    router.replace("/login");
+  };
 
   return (
     <nav
@@ -80,6 +91,13 @@ export default function Sidebar({ mobile = false, onClose }: SidebarProps) {
           </div>
           <i className="fas fa-chevron-right text-slate-400 text-xs" />
         </div>
+        <button
+          onClick={handleSignOut}
+          className="mt-3 w-full inline-flex items-center justify-center gap-2 px-4 py-2 rounded-lg bg-rose-600 hover:bg-rose-700 text-white text-sm font-semibold transition"
+        >
+          <i className="fas fa-right-from-bracket" />
+          Sign Out
+        </button>
       </div>
     </nav>
   );

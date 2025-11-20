@@ -1,6 +1,7 @@
 "use client";
-import React, { useMemo, useState } from "react";
+import React, { useMemo, useState, useEffect } from "react";
 import Sidebar from "@/components/Sidebar";
+import { useRouter } from "next/navigation";
 
 type TenantRow = {
   initials: string;
@@ -87,6 +88,7 @@ const TENANTS: TenantRow[] = [
 ];
 
 export default function TenantsPage() {
+  const router = useRouter();
   const [mobileOpen, setMobileOpen] = useState(false);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [currentStep, setCurrentStep] = useState<1 | 2 | 3>(1);
@@ -136,6 +138,13 @@ export default function TenantsPage() {
   const nextCtaLabel = useMemo(() => {
     return currentStep === 3 ? "Complete Onboarding" : "Next Step";
   }, [currentStep]);
+
+  useEffect(() => {
+    const authed = typeof window !== "undefined" && localStorage.getItem("auth");
+    if (!authed) {
+      router.replace("/login");
+    }
+  }, [router]);
 
   return (
     <div id="app" className="flex h-screen overflow-hidden bg-white">

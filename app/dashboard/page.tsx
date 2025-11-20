@@ -1,9 +1,17 @@
- "use client";
-import React, { useState } from "react";
+"use client";
+import React, { useEffect, useState } from "react";
 import Sidebar from "@/components/Sidebar";
+import { useRouter } from "next/navigation";
 
 export default function DashboardPage() {
+  const router = useRouter();
   const [mobileOpen, setMobileOpen] = useState(false);
+  useEffect(() => {
+    const authed = typeof window !== "undefined" && localStorage.getItem("auth");
+    if (!authed) {
+      router.replace("/login");
+    }
+  }, [router]);
   return (
     <div id="app" className="flex h-screen overflow-hidden bg-white">
       <Sidebar />

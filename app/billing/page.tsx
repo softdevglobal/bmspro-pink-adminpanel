@@ -1,11 +1,13 @@
 "use client";
-import React, { useMemo, useState } from "react";
+import React, { useMemo, useState, useEffect } from "react";
 import Sidebar from "@/components/Sidebar";
+import { useRouter } from "next/navigation";
 
 type TabKey = "invoices" | "plans" | "settings";
 type Period = "monthly" | "yearly";
 
 export default function BillingPage() {
+  const router = useRouter();
   const [mobileOpen, setMobileOpen] = useState(false);
   const [activeTab, setActiveTab] = useState<TabKey>("invoices");
   const [period, setPeriod] = useState<Period>("monthly");
@@ -20,6 +22,13 @@ export default function BillingPage() {
     }),
     [period]
   );
+
+  useEffect(() => {
+    const authed = typeof window !== "undefined" && localStorage.getItem("auth");
+    if (!authed) {
+      router.replace("/login");
+    }
+  }, [router]);
 
   return (
     <div id="app" className="flex h-screen overflow-hidden bg-white">
