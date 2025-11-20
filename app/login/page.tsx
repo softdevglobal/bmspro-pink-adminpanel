@@ -3,7 +3,7 @@ import React, { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { signInWithEmailAndPassword } from "firebase/auth";
 import { auth } from "@/lib/firebase";
-import { ensureSuperAdminUser } from "@/lib/users";
+import { ensureUserDocument } from "@/lib/users";
 
 export default function LoginPage() {
   const router = useRouter();
@@ -47,7 +47,7 @@ export default function LoginPage() {
     setLoading(true);
     try {
       await signInWithEmailAndPassword(auth, email, password);
-      await ensureSuperAdminUser(auth.currentUser);
+      await ensureUserDocument(auth.currentUser);
       localStorage.setItem("auth", "1");
       router.replace("/dashboard");
     } catch (err: any) {

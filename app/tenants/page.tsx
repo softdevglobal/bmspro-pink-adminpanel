@@ -2,6 +2,10 @@
 import React, { useMemo, useState, useEffect } from "react";
 import Sidebar from "@/components/Sidebar";
 import { useRouter } from "next/navigation";
+import { db } from "@/lib/firebase";
+import { collection, onSnapshot, orderBy, query, addDoc, serverTimestamp } from "firebase/firestore";
+import { initializeApp, getApp } from "firebase/app";
+import { getAuth, createUserWithEmailAndPassword, signOut as signOutSecondary } from "firebase/auth";
 
 type TenantRow = {
   initials: string;
@@ -87,16 +91,38 @@ const TENANTS: TenantRow[] = [
   },
 ];
 
+type TenantDoc = {
+  name: string;
+  abn?: string;
+  state?: string;
+  plan?: string;
+  price?: string;
+  status?: string;
+  locationText?: string;
+};
+
 export default function TenantsPage() {
   const router = useRouter();
   const [mobileOpen, setMobileOpen] = useState(false);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [currentStep, setCurrentStep] = useState<1 | 2 | 3>(1);
-  const [isVerifyingAbn, setIsVerifyingAbn] = useState(false);
-  const [abnVerified, setAbnVerified] = useState(false);
   const [selectedPlan, setSelectedPlan] = useState<"starter" | "pro" | "enterprise" | null>(
     null
   );
+  // Onboarding form (minimal fields to persist)
+  const [formBusinessName, setFormBusinessName] = useState("");
+  const [formAbn, setFormAbn] = useState("");
+  const [formStructure, setFormStructure] = useState("");
+  const [formGst, setFormGst] = useState(false);
+  const [formAddress, setFormAddress] = useState("");
+  const [formState, setFormState] = useState("");
+  const [formPostcode, setFormPostcode] = useState("");
+  const [formPhone, setFormPhone] = useState("");
+  const [formEmail, setFormEmail] = useState("");
+  const [formOwnerPassword, setFormOwnerPassword] = useState("");
+  const [showOwnerPassword, setShowOwnerPassword] = useState(false);
+  const [tenants, setTenants] = useState<Array<{ id: string; data: TenantDoc }>>([]);
+  const [loadingTenants, setLoadingTenants] = useState(true);
 
   const stepIndicatorClass = (step: 1 | 2 | 3) => {
     const base =
@@ -106,33 +132,98 @@ export default function TenantsPage() {
     return `${base} bg-slate-200 text-slate-500`;
   };
 
+  const { totalTenants, activeProCount, pendingAbnCount, churnRate } = useMemo(() => {
+    const total = tenants.length;
+    const activePro = tenants.filter(({ data }) => {
+      const plan = (data.plan || "").toLowerCase();
+      const status = (data.status || "").toLowerCase();
+      return plan === "pro" && status.includes("active");
+    }).length;
+    const pending = tenants.filter(({ data }) => (data.status || "").toLowerCase().includes("pending")).length;
+    // If there are explicit "churned" statuses, compute percent; else 0
+    const churned = tenants.filter(({ data }) => (data.status || "").toLowerCase().includes("churn")).length;
+    const rate = total > 0 ? (churned / total) * 100 : 0;
+    return { totalTenants: total, activeProCount: activePro, pendingAbnCount: pending, churnRate: Number.isFinite(rate) ? rate : 0 };
+  }, [tenants]);
+
   const openOnboardModal = () => {
     setIsModalOpen(true);
     setCurrentStep(1);
     setSelectedPlan(null);
-    setAbnVerified(false);
-    setIsVerifyingAbn(false);
   };
 
   const closeOnboardModal = () => {
     setIsModalOpen(false);
   };
 
-  const goNext = () => {
-    if (currentStep < 3) setCurrentStep((s) => ((s + 1) as 1 | 2 | 3));
-    else closeOnboardModal();
+  const goNext = async () => {
+    if (currentStep < 3) {
+      setCurrentStep((s) => ((s + 1) as 1 | 2 | 3));
+      return;
+    }
+    // Complete onboarding: persist tenant and invite owner
+    try {
+      if (!formBusinessName.trim()) throw new Error("Business name is required.");
+      if (!formEmail.trim()) throw new Error("Contact email is required.");
+
+      const planLabel =
+        selectedPlan === "pro" ? "Pro" : selectedPlan === "starter" ? "Starter" : selectedPlan === "enterprise" ? "Enterprise" : "";
+      const price =
+        selectedPlan === "pro" ? "AU$149/mo" : selectedPlan === "starter" ? "AU$99/mo" : selectedPlan === "enterprise" ? "AU$299/mo" : "";
+
+      await addDoc(collection(db, "tenants"), {
+        name: formBusinessName.trim(),
+        abn: formAbn.trim() || null,
+        state: formState || null,
+        plan: planLabel,
+        price: price || null,
+        status: formAbn.trim() ? "Active" : "Pending ABN",
+        locationText: formAddress ? `${formAddress}${formPostcode ? `, ${formPostcode}` : ""}` : null,
+        contactEmail: formEmail.trim(),
+        contactPhone: formPhone.trim() || null,
+        businessStructure: formStructure || null,
+        gstRegistered: formGst,
+        createdAt: serverTimestamp(),
+        updatedAt: serverTimestamp(),
+      });
+
+      // Provision Auth account for owner (password required)
+      if (!formOwnerPassword.trim() || formOwnerPassword.trim().length < 6) {
+        throw new Error("Owner password is required (min 6 characters).");
+      }
+      try {
+        const options: any = getApp().options;
+        const secondaryName = `provision-${Date.now()}`;
+        const secondaryApp = initializeApp(options, secondaryName);
+        const secondaryAuth = getAuth(secondaryApp);
+        await createUserWithEmailAndPassword(secondaryAuth, formEmail.trim(), formOwnerPassword.trim());
+        await signOutSecondary(secondaryAuth);
+      } catch (e: any) {
+        if (e?.code !== "auth/email-already-in-use") {
+          console.warn("Owner auth provisioning failed:", e);
+          throw e;
+        }
+      }
+
+      setIsModalOpen(false);
+      setFormBusinessName("");
+      setFormAbn("");
+      setFormStructure("");
+      setFormGst(false);
+      setFormAddress("");
+      setFormState("");
+      setFormPostcode("");
+      setFormPhone("");
+      setFormEmail("");
+      setFormOwnerPassword("");
+      setSelectedPlan(null);
+    } catch (e: any) {
+      alert(e?.message || "Failed to save tenant");
+    }
   };
 
   const goBack = () => {
     if (currentStep > 1) setCurrentStep((s) => ((s - 1) as 1 | 2 | 3));
-  };
-
-  const verifyAbn = () => {
-    setIsVerifyingAbn(true);
-    setTimeout(() => {
-      setIsVerifyingAbn(false);
-      setAbnVerified(true);
-    }, 1500);
   };
 
   const nextCtaLabel = useMemo(() => {
@@ -145,6 +236,21 @@ export default function TenantsPage() {
       router.replace("/login");
     }
   }, [router]);
+
+  useEffect(() => {
+    // Live tenants list from Firestore
+    const q = query(collection(db, "tenants"), orderBy("name"));
+    const unsub = onSnapshot(
+      q,
+      (snap) => {
+        const rows = snap.docs.map((d) => ({ id: d.id, data: d.data() as TenantDoc }));
+        setTenants(rows);
+        setLoadingTenants(false);
+      },
+      () => setLoadingTenants(false)
+    );
+    return () => unsub();
+  }, []);
 
   return (
     <div id="app" className="flex h-screen overflow-hidden bg-white">
@@ -200,14 +306,10 @@ export default function TenantsPage() {
                 </div>
               </div>
               <div className="mb-2">
-                <h3 className="text-3xl font-bold text-slate-900">156</h3>
+                <h3 className="text-3xl font-bold text-slate-900">{totalTenants}</h3>
               </div>
               <div className="flex items-center space-x-2">
-                <span className="px-2 py-1 bg-emerald-50 text-emerald-700 rounded-lg text-xs font-semibold flex items-center">
-                  <i className="fas fa-arrow-up text-xs mr-1" />
-                  +8
-                </span>
-                <span className="text-xs text-slate-500">this month</span>
+                <span className="text-xs text-slate-500">total tenants</span>
               </div>
             </div>
             <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm min-w-0">
@@ -218,14 +320,10 @@ export default function TenantsPage() {
                 </div>
               </div>
               <div className="mb-2">
-                <h3 className="text-3xl font-bold text-slate-900">68</h3>
+                <h3 className="text-3xl font-bold text-slate-900">{activeProCount}</h3>
               </div>
               <div className="flex items-center space-x-2">
-                <span className="px-2 py-1 bg-emerald-50 text-emerald-700 rounded-lg text-xs font-semibold flex items-center">
-                  <i className="fas fa-plus text-xs mr-1" />
-                  +12
-                </span>
-                <span className="text-xs text-slate-500">upgrades this week</span>
+                <span className="text-xs text-slate-500">active on Pro</span>
               </div>
             </div>
             <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm min-w-0">
@@ -236,12 +334,10 @@ export default function TenantsPage() {
                 </div>
               </div>
               <div className="mb-2">
-                <h3 className="text-3xl font-bold text-slate-900">7</h3>
+                <h3 className="text-3xl font-bold text-slate-900">{pendingAbnCount}</h3>
               </div>
               <div className="flex items-center space-x-2">
-                <span className="px-2 py-1 bg-amber-50 text-amber-700 rounded-lg text-xs font-semibold">
-                  Requires attention
-                </span>
+                <span className="text-xs text-slate-500">requires attention</span>
               </div>
             </div>
             <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm min-w-0">
@@ -252,14 +348,10 @@ export default function TenantsPage() {
                 </div>
               </div>
               <div className="mb-2">
-                <h3 className="text-3xl font-bold text-slate-900">1.8%</h3>
+                <h3 className="text-3xl font-bold text-slate-900">{`${churnRate.toFixed(1)}%`}</h3>
               </div>
               <div className="flex items-center space-x-2">
-                <span className="px-2 py-1 bg-emerald-50 text-emerald-700 rounded-lg text-xs font-semibold flex items-center">
-                  <i className="fas fa-arrow-down text-xs mr-1" />
-                  -0.3%
-                </span>
-                <span className="text-xs text-slate-500">vs last month</span>
+                <span className="text-xs text-slate-500">of tenants churned</span>
               </div>
             </div>
           </div>
@@ -305,83 +397,101 @@ export default function TenantsPage() {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-200">
-                  {TENANTS.map((t) => (
-                    <tr key={t.name} className="hover:bg-slate-50 transition">
-                      <td className="px-6 py-4">
-                        <div className="flex items-center space-x-3">
-                          <div
-                            className={`w-10 h-10 bg-gradient-to-br ${t.badgeFrom} ${t.badgeTo} rounded-lg flex items-center justify-center`}
-                          >
-                            <span className="text-white font-semibold text-sm">{t.initials}</span>
-                          </div>
-                          <div>
-                            <p className="font-medium text-slate-900">{t.name}</p>
-                            <p className="text-xs text-slate-500">{t.subtitle}</p>
-                          </div>
-                        </div>
-                      </td>
-                      <td className="px-6 py-4">
-                        {t.abn === "PENDING" ? (
-                          <div className="font-mono text-sm text-amber-600">Pending Verification</div>
-                        ) : (
-                          <div className="font-mono text-sm text-slate-700">{t.abn}</div>
-                        )}
-                        <div className="flex items-center space-x-1 mt-1">
-                          {t.abnStatus === "verified" ? (
-                            <>
-                              <i className="fas fa-check-circle text-emerald-500 text-xs" />
-                              <span className="text-xs text-emerald-600">Verified</span>
-                            </>
-                          ) : (
-                            <>
-                              <i className="fas fa-clock text-amber-500 text-xs" />
-                              <span className="text-xs text-amber-600">Awaiting ABN</span>
-                            </>
-                          )}
-                        </div>
-                      </td>
-                      <td className="px-6 py-4">
-                        <span className={`px-2 py-1 ${t.stateCls} rounded-lg text-sm font-medium`}>
-                          {t.state}
-                        </span>
-                        <p className="text-xs text-slate-500 mt-1">
-                          {t.state === "NSW" && "Bondi Beach, 2026"}
-                          {t.state === "VIC" && "South Yarra, 3141"}
-                          {t.state === "QLD" && "Surfers Paradise, 4217"}
-                          {t.state === "WA" && "Fremantle, 6160"}
-                        </p>
-                      </td>
-                      <td className="px-6 py-4">
-                        <div className="flex items-center space-x-2">
-                          <span className="px-3 py-1 bg-pink-50 text-pink-700 rounded-lg text-sm font-semibold">
-                            {t.plan}
-                          </span>
-                          <span className="text-sm text-slate-500">{t.price}</span>
-                        </div>
-                      </td>
-                      <td className="px-6 py-4">
-                        <span
-                          className={`px-3 py-1 ${t.statusCls} rounded-lg text-sm font-medium flex items-center w-fit`}
-                        >
-                          <i className={`fas ${t.statusIcon} text-xs mr-1.5`} />
-                          {t.status}
-                        </span>
-                      </td>
-                      <td className="px-6 py-4 text-right">
-                        <div className="flex items-center justify-end space-x-2">
-                          <button className="p-2 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-lg transition">
-                            <i className="fas fa-eye text-sm" />
-                          </button>
-                          <button className="p-2 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-lg transition">
-                            <i className="fas fa-edit text-sm" />
-                          </button>
-                          <button className="p-2 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition">
-                            <i className="fas fa-trash text-sm" />
-                          </button>
-                        </div>
-                      </td>
+                  {loadingTenants && (
+                    <tr>
+                      <td className="px-6 py-6 text-slate-500" colSpan={6}>Loading tenants…</td>
                     </tr>
-                  ))}
+                  )}
+                  {!loadingTenants && tenants.length === 0 && (
+                    <tr>
+                      <td className="px-6 py-6 text-slate-500" colSpan={6}>No tenants yet.</td>
+                    </tr>
+                  )}
+                  {tenants.map(({ id, data }) => {
+                    const initials = (data.name || "?")
+                      .split(" ")
+                      .map((s) => s[0])
+                      .filter(Boolean)
+                      .slice(0, 2)
+                      .join("")
+                      .toUpperCase();
+                    const planLabel = (data.plan || "").trim() || "—";
+                    const statusLabel = (data.status || "").trim() || "—";
+                    const state = (data.state || "").trim();
+
+                    const statusCls =
+                      statusLabel.toLowerCase().includes("active")
+                        ? "bg-emerald-50 text-emerald-700"
+                        : statusLabel.toLowerCase().includes("pending")
+                        ? "bg-amber-50 text-amber-700"
+                        : "bg-slate-100 text-slate-700";
+
+                    return (
+                      <tr key={id} className="hover:bg-slate-50 transition">
+                        <td className="px-6 py-4">
+                          <div className="flex items-center space-x-3">
+                            <div className="w-10 h-10 bg-gradient-to-br from-pink-400 to-pink-600 rounded-lg flex items-center justify-center">
+                              <span className="text-white font-semibold text-sm">{initials}</span>
+                            </div>
+                            <div>
+                              <p className="font-medium text-slate-900">{data.name}</p>
+                              <p className="text-xs text-slate-500">{data.locationText || ""}</p>
+                            </div>
+                          </div>
+                        </td>
+                        <td className="px-6 py-4">
+                          <div className={`font-mono text-sm ${data.abn ? "text-slate-700" : "text-amber-600"}`}>
+                            {data.abn || "Pending Verification"}
+                          </div>
+                        </td>
+                        <td className="px-6 py-4">
+                          {state ? (
+                            <span className={`px-2 py-1 rounded-lg text-sm font-medium ${state === "NSW"
+                                ? "bg-blue-50 text-blue-700"
+                                : state === "VIC"
+                                ? "bg-purple-50 text-purple-700"
+                                : state === "QLD"
+                                ? "bg-orange-50 text-orange-700"
+                                : state === "WA"
+                                ? "bg-indigo-50 text-indigo-700"
+                                : "bg-slate-100 text-slate-700"
+                              }`}>
+                              {state}
+                            </span>
+                          ) : (
+                            <span className="text-sm text-slate-500">—</span>
+                          )}
+                        </td>
+                        <td className="px-6 py-4">
+                          <div className="flex items-center space-x-2">
+                            <span className="px-3 py-1 bg-pink-50 text-pink-700 rounded-lg text-sm font-semibold">
+                              {planLabel}
+                            </span>
+                            <span className="text-sm text-slate-500">{data.price || ""}</span>
+                          </div>
+                        </td>
+                        <td className="px-6 py-4">
+                          <span className={`px-3 py-1 ${statusCls} rounded-lg text-sm font-medium flex items-center w-fit`}>
+                            <i className={`fas ${statusLabel.toLowerCase().includes("active") ? "fa-check-circle" : statusLabel.toLowerCase().includes("pending") ? "fa-clock" : "fa-circle-info"} text-xs mr-1.5`} />
+                            {statusLabel}
+                          </span>
+                        </td>
+                        <td className="px-6 py-4 text-right">
+                          <div className="flex items-center justify-end space-x-2">
+                            <button className="p-2 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-lg transition">
+                              <i className="fas fa-eye text-sm" />
+                            </button>
+                            <button className="p-2 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-lg transition">
+                              <i className="fas fa-edit text-sm" />
+                            </button>
+                            <button className="p-2 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition">
+                              <i className="fas fa-trash text-sm" />
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })}
                 </tbody>
               </table>
             </div>
@@ -434,6 +544,8 @@ export default function TenantsPage() {
                       <input
                         type="text"
                         placeholder="e.g., Sydney Style Studio"
+                        value={formBusinessName}
+                        onChange={(e) => setFormBusinessName(e.target.value)}
                         className="w-full px-4 py-3 border border-slate-300 rounded-lg focus:ring-2 focus:ring-pink-500 focus:border-transparent"
                       />
                     </div>
@@ -447,29 +559,22 @@ export default function TenantsPage() {
                           type="text"
                           placeholder="12 345 678 901"
                           maxLength={14}
-                          className={`flex-1 px-4 py-3 border rounded-lg focus:ring-2 focus:ring-pink-500 focus:border-transparent font-mono ${
-                            abnVerified ? "border-emerald-300" : "border-slate-300"
-                          }`}
+                          value={formAbn}
+                          onChange={(e) => setFormAbn(e.target.value)}
+                          className="flex-1 px-4 py-3 border border-slate-300 rounded-lg focus:ring-2 focus:ring-pink-500 focus:border-transparent font-mono"
                         />
-                        <button
-                          disabled={isVerifyingAbn}
-                          onClick={verifyAbn}
-                          className="px-6 py-3 bg-slate-100 text-slate-700 font-semibold rounded-lg hover:bg-slate-200 transition flex items-center space-x-2 disabled:opacity-60"
-                        >
-                          <i className="fas fa-check-circle" />
-                          <span>{isVerifyingAbn ? "Verifying..." : "Verify"}</span>
-                        </button>
                       </div>
-                      {abnVerified && (
-                        <div className="mt-2 text-sm text-emerald-600">ABN verified successfully!</div>
-                      )}
                     </div>
                     <div>
                       <label className="block text-sm font-semibold text-slate-700 mb-2">
                         Business Structure *
                       </label>
-                      <select className="w-full px-4 py-3 border border-slate-300 rounded-lg focus:ring-2 focus:ring-pink-500 focus:border-transparent">
-                        <option>Select structure</option>
+                      <select
+                        className="w-full px-4 py-3 border border-slate-300 rounded-lg focus:ring-2 focus:ring-pink-500 focus:border-transparent"
+                        value={formStructure}
+                        onChange={(e) => setFormStructure(e.target.value)}
+                      >
+                        <option value="">Select structure</option>
                         <option>Pty Ltd</option>
                         <option>Sole Trader</option>
                         <option>Partnership</option>
@@ -484,7 +589,12 @@ export default function TenantsPage() {
                         </p>
                       </div>
                       <label className="relative inline-flex items-center cursor-pointer">
-                        <input type="checkbox" className="sr-only peer" />
+                        <input
+                          type="checkbox"
+                          className="sr-only peer"
+                          checked={formGst}
+                          onChange={(e) => setFormGst(e.target.checked)}
+                        />
                         <div className="w-11 h-6 bg-slate-300 peer-focus:ring-2 peer-focus:ring-pink-500 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-pink-500" />
                       </label>
                     </div>
@@ -500,6 +610,8 @@ export default function TenantsPage() {
                       <textarea
                         rows={3}
                         placeholder="Street address"
+                        value={formAddress}
+                        onChange={(e) => setFormAddress(e.target.value)}
                         className="w-full px-4 py-3 border border-slate-300 rounded-lg focus:ring-2 focus:ring-pink-500 focus:border-transparent"
                       />
                     </div>
@@ -508,8 +620,12 @@ export default function TenantsPage() {
                         <label className="block text-sm font-semibold text-slate-700 mb-2">
                           State *
                         </label>
-                        <select className="w-full px-4 py-3 border border-slate-300 rounded-lg focus:ring-2 focus:ring-pink-500 focus:border-transparent">
-                          <option>Select state</option>
+                        <select
+                          className="w-full px-4 py-3 border border-slate-300 rounded-lg focus:ring-2 focus:ring-pink-500 focus:border-transparent"
+                          value={formState}
+                          onChange={(e) => setFormState(e.target.value)}
+                        >
+                          <option value="">Select state</option>
                           <option>NSW</option>
                           <option>VIC</option>
                           <option>QLD</option>
@@ -528,6 +644,8 @@ export default function TenantsPage() {
                           type="text"
                           placeholder="2000"
                           maxLength={4}
+                          value={formPostcode}
+                          onChange={(e) => setFormPostcode(e.target.value)}
                           className="w-full px-4 py-3 border border-slate-300 rounded-lg focus:ring-2 focus:ring-pink-500 focus:border-transparent"
                         />
                       </div>
@@ -546,6 +664,8 @@ export default function TenantsPage() {
                         <input
                           type="text"
                           placeholder="412 345 678"
+                          value={formPhone}
+                          onChange={(e) => setFormPhone(e.target.value)}
                           className="flex-1 px-4 py-3 border border-slate-300 rounded-lg focus:ring-2 focus:ring-pink-500 focus:border-transparent"
                         />
                       </div>
@@ -557,8 +677,35 @@ export default function TenantsPage() {
                       <input
                         type="email"
                         placeholder="contact@salon.com.au"
+                        value={formEmail}
+                        onChange={(e) => setFormEmail(e.target.value)}
                         className="w-full px-4 py-3 border border-slate-300 rounded-lg focus:ring-2 focus:ring-pink-500 focus:border-transparent"
                       />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-semibold text-slate-700 mb-2">
+                        Owner Password *
+                      </label>
+                      <div className="relative">
+                        <input
+                          type={showOwnerPassword ? "text" : "password"}
+                          placeholder="Temporary password for owner"
+                          value={formOwnerPassword}
+                          onChange={(e) => setFormOwnerPassword(e.target.value)}
+                          className="w-full px-4 py-3 pr-12 border border-slate-300 rounded-lg focus:ring-2 focus:ring-pink-500 focus:border-transparent"
+                        />
+                        <button
+                          type="button"
+                          aria-label={showOwnerPassword ? "Hide password" : "Show password"}
+                          onClick={() => setShowOwnerPassword((s) => !s)}
+                          className="absolute inset-y-0 right-0 px-3 text-slate-500 hover:text-slate-700"
+                        >
+                          <i className={`fas ${showOwnerPassword ? "fa-eye-slash" : "fa-eye"}`} />
+                        </button>
+                      </div>
+                      <p className="text-xs text-slate-500 mt-1">
+                        A salon owner account will be created with this password.
+                      </p>
                     </div>
                   </div>
                 )}
