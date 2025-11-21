@@ -2,8 +2,8 @@
 import React, { useMemo, useState, useEffect } from "react";
 import Sidebar from "@/components/Sidebar";
 import { useRouter } from "next/navigation";
-import { db } from "@/lib/firebase";
-import { collection, onSnapshot, orderBy, query, addDoc, serverTimestamp } from "firebase/firestore";
+import { auth, db } from "@/lib/firebase";
+import { collection, onSnapshot, orderBy, query, addDoc, serverTimestamp, doc, getDoc, where } from "firebase/firestore";
 import { initializeApp, getApp } from "firebase/app";
 import { getAuth, createUserWithEmailAndPassword, signOut as signOutSecondary } from "firebase/auth";
 
@@ -161,7 +161,7 @@ export default function TenantsPage() {
       setCurrentStep((s) => ((s + 1) as 1 | 2 | 3));
       return;
     }
-    // Complete onboarding: persist tenant and invite owner
+    // Complete onboarding: persist tenant (in users collection) and invite owner
     try {
       if (!formBusinessName.trim()) throw new Error("Business name is required.");
       if (!formEmail.trim()) throw new Error("Contact email is required.");
@@ -171,7 +171,14 @@ export default function TenantsPage() {
       const price =
         selectedPlan === "pro" ? "AU$149/mo" : selectedPlan === "starter" ? "AU$99/mo" : selectedPlan === "enterprise" ? "AU$299/mo" : "";
 
-      await addDoc(collection(db, "tenants"), {
+      // Save as a salon owner record inside users collection (invite style)
+      await addDoc(collection(db, "users"), {
+        // user identity fields
+        email: formEmail.trim(),
+        displayName: "",
+        role: "salon_owner",
+        provider: "password",
+        // business fields
         name: formBusinessName.trim(),
         abn: formAbn.trim() || null,
         state: formState || null,
@@ -179,10 +186,10 @@ export default function TenantsPage() {
         price: price || null,
         status: formAbn.trim() ? "Active" : "Pending ABN",
         locationText: formAddress ? `${formAddress}${formPostcode ? `, ${formPostcode}` : ""}` : null,
-        contactEmail: formEmail.trim(),
         contactPhone: formPhone.trim() || null,
         businessStructure: formStructure || null,
         gstRegistered: formGst,
+        // timestamps
         createdAt: serverTimestamp(),
         updatedAt: serverTimestamp(),
       });
@@ -231,15 +238,34 @@ export default function TenantsPage() {
   }, [currentStep]);
 
   useEffect(() => {
-    const authed = typeof window !== "undefined" && localStorage.getItem("auth");
-    if (!authed) {
-      router.replace("/login");
-    }
+    // JWT-based auth + role gate: only super_admin can access
+    (async () => {
+      const user = auth.currentUser;
+      if (!user) {
+        router.replace("/login");
+        return;
+      }
+      try {
+        const token = await user.getIdToken();
+        if (typeof window !== "undefined") {
+          localStorage.setItem("idToken", token);
+        }
+      } catch {
+        router.replace("/login");
+        return;
+      }
+      const userRef = doc(db, "users", user.uid);
+      const snap = await getDoc(userRef);
+      const role = (snap.data()?.role || "").toString();
+      if (role !== "super_admin") {
+        router.replace("/dashboard");
+      }
+    })();
   }, [router]);
 
   useEffect(() => {
     // Live tenants list from Firestore
-    const q = query(collection(db, "tenants"), orderBy("name"));
+    const q = query(collection(db, "users"), where("role", "==", "salon_owner"), orderBy("name"));
     const unsub = onSnapshot(
       q,
       (snap) => {

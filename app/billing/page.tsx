@@ -24,10 +24,21 @@ export default function BillingPage() {
   );
 
   useEffect(() => {
-    const authed = typeof window !== "undefined" && localStorage.getItem("auth");
-    if (!authed) {
-      router.replace("/login");
-    }
+    (async () => {
+      const user = (await import("@/lib/firebase")).auth.currentUser;
+      if (!user) {
+        router.replace("/login");
+        return;
+      }
+      try {
+        const token = await user.getIdToken();
+        if (typeof window !== "undefined") {
+          localStorage.setItem("idToken", token);
+        }
+      } catch {
+        router.replace("/login");
+      }
+    })();
   }, [router]);
 
   return (

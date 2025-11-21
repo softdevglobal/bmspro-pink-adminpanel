@@ -2,7 +2,8 @@
 import React, { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { signInWithEmailAndPassword } from "firebase/auth";
-import { auth } from "@/lib/firebase";
+import { auth, db } from "@/lib/firebase";
+import { doc, getDoc } from "firebase/firestore";
 import { ensureUserDocument } from "@/lib/users";
 
 export default function LoginPage() {
@@ -35,8 +36,8 @@ export default function LoginPage() {
   }
 
   useEffect(() => {
-    const authed = typeof window !== "undefined" && localStorage.getItem("auth");
-    if (authed) {
+    const hasToken = typeof window !== "undefined" && localStorage.getItem("idToken");
+    if (hasToken) {
       router.replace("/dashboard");
     }
   }, [router]);
@@ -48,7 +49,21 @@ export default function LoginPage() {
     try {
       await signInWithEmailAndPassword(auth, email, password);
       await ensureUserDocument(auth.currentUser);
-      localStorage.setItem("auth", "1");
+      const token = await auth.currentUser?.getIdToken();
+      if (token && typeof window !== "undefined") {
+        localStorage.setItem("idToken", token);
+      }
+      // Fetch role and persist for immediate sidebar rendering
+      try {
+        const uid = auth.currentUser?.uid;
+        if (uid) {
+          const snap = await getDoc(doc(db, "users", uid));
+          const role = (snap.data()?.role || "").toString();
+          if (typeof window !== "undefined") {
+            localStorage.setItem("role", role);
+          }
+        }
+      } catch {}
       router.replace("/dashboard");
     } catch (err: any) {
       console.error("Auth error:", err);

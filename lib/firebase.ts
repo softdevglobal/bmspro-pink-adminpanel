@@ -1,6 +1,6 @@
 import { initializeApp, getApps, getApp } from "firebase/app";
 import { getAuth } from "firebase/auth";
-import { getFirestore } from "firebase/firestore";
+import { initializeFirestore } from "firebase/firestore";
 
 // Firebase configuration
 const firebaseConfig = {
@@ -15,6 +15,11 @@ const firebaseConfig = {
 // Initialize (guarded for Next.js hot reload)
 const app = getApps().length ? getApp() : initializeApp(firebaseConfig);
 const auth = getAuth(app);
-const db = getFirestore(app);
+// Stabilize Firestore in Next.js dev (Turbopack/HMR) and varied network environments
+const db = initializeFirestore(app, {
+  ignoreUndefinedProperties: true,
+  experimentalAutoDetectLongPolling: true,
+  useFetchStreams: false,
+});
 
 export { app, auth, db };

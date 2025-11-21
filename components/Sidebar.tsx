@@ -1,10 +1,11 @@
 "use client";
 import Link from "next/link";
-import React from "react";
+import React, { useEffect, useState } from "react";
 import { usePathname } from "next/navigation";
 import { useRouter } from "next/navigation";
-import { signOut } from "firebase/auth";
-import { auth } from "@/lib/firebase";
+import { onAuthStateChanged, signOut } from "firebase/auth";
+import { auth, db } from "@/lib/firebase";
+import { doc, getDoc } from "firebase/firestore";
 
 type SidebarProps = {
   mobile?: boolean;
@@ -19,11 +20,50 @@ export default function Sidebar({ mobile = false, onClose }: SidebarProps) {
   const isStaff = pathname?.startsWith("/staff");
   const isBilling = pathname?.startsWith("/billing");
   const isSettings = pathname?.startsWith("/settings");
+  const [role, setRole] = useState<string | null>(null);
+  const [mounted, setMounted] = useState(false);
+
+  useEffect(() => {
+    // Keep role in sync with auth state and Firestore; seed from localStorage for instant render
+    const unsub = onAuthStateChanged(auth, async (user) => {
+      if (!user) {
+        setRole(null);
+        if (typeof window !== "undefined") localStorage.removeItem("role");
+        return;
+      }
+      try {
+        const snap = await getDoc(doc(db, "users", user.uid));
+        const r = (snap.data()?.role || "").toString();
+        setRole(r || null);
+        if (typeof window !== "undefined") localStorage.setItem("role", r || "");
+      } catch {
+        setRole(null);
+      }
+    });
+    return () => unsub();
+  }, []);
+
+  useEffect(() => {
+    // Ensure hydration-safe rendering by deferring role-based links until after mount
+    setMounted(true);
+    // Immediately hydrate from localStorage to avoid link flicker during client navigation
+    try {
+      if (typeof window !== "undefined") {
+        const cached = localStorage.getItem("role");
+        if (cached) setRole(cached);
+      }
+    } catch {}
+  }, []);
 
   const handleSignOut = () => {
     try {
       if (typeof window !== "undefined") {
-        localStorage.removeItem("auth");
+        const ok = window.confirm("Are you sure you want to sign out?");
+        if (!ok) return;
+      }
+      if (typeof window !== "undefined") {
+        localStorage.removeItem("idToken");
+        localStorage.removeItem("role");
       }
       signOut(auth).catch(() => {});
     } catch {}
@@ -67,14 +107,18 @@ export default function Sidebar({ mobile = false, onClose }: SidebarProps) {
           <i className="fas fa-chart-line w-5" />
           <span>Dashboard</span>
         </Link>
-        <Link href="/tenants" className={`flex items-center space-x-3 px-4 py-3 rounded-xl transition ${isTenants ? "bg-pink-500 text-white shadow-lg" : "hover:bg-slate-800 text-slate-400 hover:text-white"}`}>
-          <i className="fas fa-store w-5" />
-          <span>Tenant Management</span>
-        </Link>
-        <Link href="/staff" className={`flex items-center space-x-3 px-4 py-3 rounded-xl transition ${isStaff ? "bg-pink-500 text-white shadow-lg" : "hover:bg-slate-800 text-slate-400 hover:text-white"}`}>
-          <i className="fas fa-users w-5" />
-          <span>Staff Management</span>
-        </Link>
+        {mounted && role === "super_admin" && (
+          <Link href="/tenants" className={`flex items-center space-x-3 px-4 py-3 rounded-xl transition ${isTenants ? "bg-pink-500 text-white shadow-lg" : "hover:bg-slate-800 text-slate-400 hover:text-white"}`}>
+            <i className="fas fa-store w-5" />
+            <span>Tenant Management</span>
+          </Link>
+        )}
+        {mounted && role === "salon_owner" && (
+          <Link href="/staff" className={`flex items-center space-x-3 px-4 py-3 rounded-xl transition ${isStaff ? "bg-pink-500 text-white shadow-lg" : "hover:bg-slate-800 text-slate-400 hover:text-white"}`}>
+            <i className="fas fa-users w-5" />
+            <span>Staff Management</span>
+          </Link>
+        )}
         <Link href="/billing" className={`flex items-center space-x-3 px-4 py-3 rounded-xl transition ${isBilling ? "bg-pink-500 text-white shadow-lg" : "hover:bg-slate-800 text-slate-400 hover:text-white"}`}>
           <i className="fas fa-credit-card w-5" />
           <span>Billing & Invoices</span>
@@ -93,7 +137,15 @@ export default function Sidebar({ mobile = false, onClose }: SidebarProps) {
           />
           <div className="flex-1">
             <p className="text-sm font-medium text-white">Admin User</p>
-            <p className="text-xs text-slate-400">Super Admin</p>
+            <p className="text-xs text-slate-400">
+              {mounted && role
+                ? role === "super_admin"
+                  ? "Super Admin"
+                  : role === "salon_owner"
+                  ? "Salon Owner"
+                  : "User"
+                : "User"}
+            </p>
           </div>
           <i className="fas fa-chevron-right text-slate-400 text-xs" />
         </div>
