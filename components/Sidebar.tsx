@@ -134,13 +134,11 @@ export default function Sidebar({ mobile = false, onClose }: SidebarProps) {
       </div>
       <div className="p-4 border-t border-slate-800">
         <div className="flex items-center space-x-3 px-4 py-3 rounded-xl hover:bg-slate-800 cursor-pointer transition">
-          <img
-            src="https://storage.googleapis.com/uxpilot-auth.appspot.com/avatars/avatar-2.jpg"
-            className="w-10 h-10 rounded-full object-cover"
-            alt="Admin avatar"
-          />
+          <div className="w-10 h-10 rounded-full bg-gradient-to-br from-slate-600 to-slate-500 flex items-center justify-center text-white">
+            <i className="fas fa-user" />
+          </div>
           <div className="flex-1">
-            <p className="text-sm font-medium text-white">Admin User</p>
+            <p className="text-sm font-medium text-white">Account</p>
             <p className="text-xs text-slate-400">
               {mounted && role
                 ? role === "super_admin"
