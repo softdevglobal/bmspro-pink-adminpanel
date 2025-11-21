@@ -3,9 +3,11 @@ import { db } from "@/lib/firebase";
 import {
   addDoc,
   collection,
+  DocumentData,
   doc,
   getDoc,
   getDocs,
+  onSnapshot,
   query,
   serverTimestamp,
   setDoc,
@@ -92,5 +94,81 @@ export async function upsertUserByEmail(email: string, role: Exclude<AppUserRole
     role,
     invitedAt: serverTimestamp(),
     status: "invited",
+  });
+}
+
+// -----------------------
+// Salon staff helpers
+// -----------------------
+
+export type SalonStaffInput = {
+  email: string;
+  firstName: string;
+  lastName: string;
+  staffRole: string;
+  state: string;
+  fullTime?: boolean;
+  username?: string | null;
+  status?: "Active" | "Onboarding" | "Inactive";
+};
+
+/**
+ * Create a salon staff record for the current salon owner.
+ * The Auth account will be provisioned later when the staff accepts the invite.
+ */
+export async function createSalonStaffForOwner(ownerUid: string, input: SalonStaffInput) {
+  const displayName = `${input.firstName || ""} ${input.lastName || ""}`.trim();
+  const docRef = await addDoc(collection(db, "users"), {
+    // identity fields
+    email: input.email.trim().toLowerCase(),
+    displayName,
+    firstName: input.firstName.trim(),
+    lastName: input.lastName.trim(),
+    username: input.username || null,
+    // role/ownership
+    role: "salon_staff" as AppUserRole,
+    ownerUid,
+    // employment fields
+    staffRole: input.staffRole,
+    state: input.state,
+    fullTime: Boolean(input.fullTime),
+    status: input.status || "Onboarding",
+    // meta
+    createdAt: serverTimestamp(),
+    updatedAt: serverTimestamp(),
+    invitedAt: serverTimestamp(),
+    provider: "password",
+  });
+  return docRef.id;
+}
+
+/**
+ * One-time fetch of all staff for an owner.
+ */
+export async function listSalonStaffForOwner(ownerUid: string) {
+  const q = query(
+    collection(db, "users"),
+    where("role", "==", "salon_staff"),
+    where("ownerUid", "==", ownerUid)
+  );
+  const qs = await getDocs(q);
+  return qs.docs.map((d) => ({ id: d.id, ...(d.data() as DocumentData) }));
+}
+
+/**
+ * Realtime subscription to salon staff for an owner.
+ * Returns an unsubscribe function.
+ */
+export function subscribeSalonStaffForOwner(
+  ownerUid: string,
+  onChange: (rows: Array<{ id: string } & DocumentData>) => void
+) {
+  const q = query(
+    collection(db, "users"),
+    where("role", "==", "salon_staff"),
+    where("ownerUid", "==", ownerUid)
+  );
+  return onSnapshot(q, (snap) => {
+    onChange(snap.docs.map((d) => ({ id: d.id, ...(d.data() as DocumentData) })));
   });
 }
