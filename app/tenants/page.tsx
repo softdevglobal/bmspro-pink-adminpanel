@@ -149,18 +149,27 @@ export default function TenantsPage() {
     return `${base} bg-slate-200 text-slate-500`;
   };
 
-  const { totalTenants, activeProCount, pendingAbnCount, churnRate } = useMemo(() => {
+  const { totalTenants, activeProCount, suspendedCount, churnRate } = useMemo(() => {
     const total = tenants.length;
     const activePro = tenants.filter(({ data }) => {
       const plan = (data.plan || "").toLowerCase();
       const status = (data.status || "").toLowerCase();
       return plan === "pro" && status.includes("active");
     }).length;
-    const pending = tenants.filter(({ data }) => (data.status || "").toLowerCase().includes("pending")).length;
+    const suspended = tenants.filter(
+      ({ data }) =>
+        String((data as any).suspended || "").toLowerCase() === "true" ||
+        (data.status || "").toLowerCase().includes("suspend")
+    ).length;
     // If there are explicit "churned" statuses, compute percent; else 0
     const churned = tenants.filter(({ data }) => (data.status || "").toLowerCase().includes("churn")).length;
     const rate = total > 0 ? (churned / total) * 100 : 0;
-    return { totalTenants: total, activeProCount: activePro, pendingAbnCount: pending, churnRate: Number.isFinite(rate) ? rate : 0 };
+    return {
+      totalTenants: total,
+      activeProCount: activePro,
+      suspendedCount: suspended,
+      churnRate: Number.isFinite(rate) ? rate : 0,
+    };
   }, [tenants]);
 
   const openOnboardModal = () => {
@@ -373,16 +382,16 @@ export default function TenantsPage() {
             </div>
             <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm min-w-0">
               <div className="flex items-center justify-between mb-3">
-                <span className="text-sm font-medium text-slate-600">Pending ABN</span>
-                <div className="w-10 h-10 bg-amber-50 rounded-xl flex items-center justify-center">
-                  <i className="fas fa-clock text-amber-500" />
+                <span className="text-sm font-medium text-slate-600">Suspended</span>
+                <div className="w-10 h-10 bg-rose-50 rounded-xl flex items-center justify-center">
+                  <i className="fas fa-ban text-rose-500" />
                 </div>
               </div>
               <div className="mb-2">
-                <h3 className="text-3xl font-bold text-slate-900">{pendingAbnCount}</h3>
+                <h3 className="text-3xl font-bold text-slate-900">{suspendedCount}</h3>
               </div>
               <div className="flex items-center space-x-2">
-                <span className="text-xs text-slate-500">requires attention</span>
+                <span className="text-xs text-slate-500">suspended tenants</span>
               </div>
             </div>
             <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm min-w-0">
