@@ -3,6 +3,7 @@ import React, { useEffect, useMemo, useState } from "react";
 import Sidebar from "@/components/Sidebar";
 import { useRouter } from "next/navigation";
 import { auth, db } from "@/lib/firebase";
+import { onAuthStateChanged } from "firebase/auth";
 import { doc, getDoc } from "firebase/firestore";
 
 type StaffRow = {
@@ -107,18 +108,14 @@ export default function StaffPage() {
   }, [currentStep]);
 
   useEffect(() => {
-    // JWT-based auth + role gate: only salon_owner can access
-    (async () => {
-      const user = auth.currentUser;
+    const unsub = onAuthStateChanged(auth, async (user) => {
       if (!user) {
         router.replace("/login");
         return;
       }
       try {
         const token = await user.getIdToken();
-        if (typeof window !== "undefined") {
-          localStorage.setItem("idToken", token);
-        }
+        if (typeof window !== "undefined") localStorage.setItem("idToken", token);
       } catch {
         router.replace("/login");
         return;
@@ -126,10 +123,9 @@ export default function StaffPage() {
       const userRef = doc(db, "users", user.uid);
       const snap = await getDoc(userRef);
       const role = (snap.data()?.role || "").toString();
-      if (role !== "salon_owner") {
-        router.replace("/dashboard");
-      }
-    })();
+      if (role !== "salon_owner") router.replace("/dashboard");
+    });
+    return () => unsub();
   }, [router]);
 
   return (

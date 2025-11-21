@@ -10,6 +10,7 @@ import {
   serverTimestamp,
   setDoc,
   updateDoc,
+  deleteDoc,
   where,
 } from "firebase/firestore";
 
@@ -32,11 +33,8 @@ export async function ensureUserDocument(user: User | null) {
     const qs = await getDocs(q);
     if (!qs.empty) {
       const invited = qs.docs[0];
-      await updateDoc(invited.ref, {
-        uid: user.uid,
-        displayName: user.displayName || "",
-        updatedAt: serverTimestamp(),
-      });
+      // Migrate invited doc into canonical users/{uid} and remove the duplicate:
+      // 1) Write canonical doc keyed by uid
       await setDoc(
         userRef,
         {
@@ -47,6 +45,14 @@ export async function ensureUserDocument(user: User | null) {
         },
         { merge: true }
       );
+      // 2) Delete the old invited document to ensure only one row per user
+      if (invited.ref.id !== user.uid) {
+        try {
+          await deleteDoc(invited.ref);
+        } catch {
+          // ignore cleanup failure
+        }
+      }
       return;
     }
   }

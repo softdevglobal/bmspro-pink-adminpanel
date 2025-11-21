@@ -3,9 +3,9 @@ import React, { useMemo, useState, useEffect } from "react";
 import Sidebar from "@/components/Sidebar";
 import { useRouter } from "next/navigation";
 import { auth, db } from "@/lib/firebase";
-import { collection, onSnapshot, orderBy, query, addDoc, serverTimestamp, doc, getDoc, where } from "firebase/firestore";
+import { collection, onSnapshot, orderBy, query, addDoc, serverTimestamp, doc, getDoc, where, updateDoc, deleteDoc } from "firebase/firestore";
 import { initializeApp, getApp } from "firebase/app";
-import { getAuth, createUserWithEmailAndPassword, signOut as signOutSecondary } from "firebase/auth";
+import { getAuth, createUserWithEmailAndPassword, signOut as signOutSecondary, onAuthStateChanged } from "firebase/auth";
 
 type TenantRow = {
   initials: string;
@@ -123,6 +123,20 @@ export default function TenantsPage() {
   const [showOwnerPassword, setShowOwnerPassword] = useState(false);
   const [tenants, setTenants] = useState<Array<{ id: string; data: TenantDoc }>>([]);
   const [loadingTenants, setLoadingTenants] = useState(true);
+  const [creating, setCreating] = useState(false);
+  const [previewOpen, setPreviewOpen] = useState(false);
+  const [previewTenant, setPreviewTenant] = useState<{ id: string; data: TenantDoc } | null>(null);
+  const [editOpen, setEditOpen] = useState(false);
+  const [editTenantId, setEditTenantId] = useState<string | null>(null);
+  const [editName, setEditName] = useState("");
+  const [editAbn, setEditAbn] = useState("");
+  const [editState, setEditState] = useState("");
+  const [editPlan, setEditPlan] = useState("");
+  const [editPrice, setEditPrice] = useState("");
+  const [editStatus, setEditStatus] = useState("");
+  const [editLocation, setEditLocation] = useState("");
+  const [editPhone, setEditPhone] = useState("");
+  const [deleteId, setDeleteId] = useState<string | null>(null);
 
   const stepIndicatorClass = (step: 1 | 2 | 3) => {
     const base =
@@ -163,6 +177,7 @@ export default function TenantsPage() {
     }
     // Complete onboarding: persist tenant (in users collection) and invite owner
     try {
+      setCreating(true);
       if (!formBusinessName.trim()) throw new Error("Business name is required.");
       if (!formEmail.trim()) throw new Error("Contact email is required.");
 
@@ -226,6 +241,8 @@ export default function TenantsPage() {
       setSelectedPlan(null);
     } catch (e: any) {
       alert(e?.message || "Failed to save tenant");
+    } finally {
+      setCreating(false);
     }
   };
 
@@ -238,18 +255,15 @@ export default function TenantsPage() {
   }, [currentStep]);
 
   useEffect(() => {
-    // JWT-based auth + role gate: only super_admin can access
-    (async () => {
-      const user = auth.currentUser;
+    // Auth listener prevents early redirect flicker on reload
+    const unsub = onAuthStateChanged(getAuth(), async (user) => {
       if (!user) {
         router.replace("/login");
         return;
       }
       try {
         const token = await user.getIdToken();
-        if (typeof window !== "undefined") {
-          localStorage.setItem("idToken", token);
-        }
+        if (typeof window !== "undefined") localStorage.setItem("idToken", token);
       } catch {
         router.replace("/login");
         return;
@@ -257,19 +271,21 @@ export default function TenantsPage() {
       const userRef = doc(db, "users", user.uid);
       const snap = await getDoc(userRef);
       const role = (snap.data()?.role || "").toString();
-      if (role !== "super_admin") {
-        router.replace("/dashboard");
-      }
-    })();
+      if (role !== "super_admin") router.replace("/dashboard");
+    });
+    return () => unsub();
   }, [router]);
 
   useEffect(() => {
     // Live tenants list from Firestore
-    const q = query(collection(db, "users"), where("role", "==", "salon_owner"), orderBy("name"));
+    // Avoid composite index requirement by filtering only; sort on client
+    const q = query(collection(db, "users"), where("role", "==", "salon_owner"));
     const unsub = onSnapshot(
       q,
       (snap) => {
-        const rows = snap.docs.map((d) => ({ id: d.id, data: d.data() as TenantDoc }));
+        const rows = snap.docs
+          .map((d) => ({ id: d.id, data: d.data() as TenantDoc }))
+          .sort((a, b) => (a.data.name || "").localeCompare(b.data.name || ""));
         setTenants(rows);
         setLoadingTenants(false);
       },
@@ -504,13 +520,39 @@ export default function TenantsPage() {
                         </td>
                         <td className="px-6 py-4 text-right">
                           <div className="flex items-center justify-end space-x-2">
-                            <button className="p-2 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-lg transition">
+                            <button
+                              className="p-2 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-lg transition"
+                              onClick={() => {
+                                setPreviewTenant({ id, data });
+                                setPreviewOpen(true);
+                              }}
+                              title="Preview"
+                            >
                               <i className="fas fa-eye text-sm" />
                             </button>
-                            <button className="p-2 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-lg transition">
+                            <button
+                              className="p-2 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-lg transition"
+                              onClick={() => {
+                                setEditTenantId(id);
+                                setEditName(data.name || "");
+                                setEditAbn(data.abn || "");
+                                setEditState(data.state || "");
+                                setEditPlan(data.plan || "");
+                                setEditPrice(data.price || "");
+                                setEditStatus(data.status || "");
+                                setEditLocation(data.locationText || "");
+                                setEditPhone((data as any).contactPhone || "");
+                                setEditOpen(true);
+                              }}
+                              title="Edit"
+                            >
                               <i className="fas fa-edit text-sm" />
                             </button>
-                            <button className="p-2 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition">
+                            <button
+                              className="p-2 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition"
+                              onClick={() => setDeleteId(id)}
+                              title="Delete"
+                            >
                               <i className="fas fa-trash text-sm" />
                             </button>
                           </div>
@@ -524,6 +566,280 @@ export default function TenantsPage() {
           </div>
         </main>
       </div>
+
+      {/* Right preview drawer */}
+      {previewOpen && previewTenant && (
+        <div className="fixed inset-0 z-50">
+          <div className="absolute inset-0 bg-black/40" onClick={() => setPreviewOpen(false)} />
+          <div className="absolute right-0 top-0 bottom-0 w-full max-w-lg bg-white border-l border-slate-200 shadow-2xl flex flex-col transform transition-transform duration-300">
+            <div className="relative p-6">
+              {/* animated colorful gradient border */}
+              <div
+                className="relative rounded-2xl shadow-md p-[1px] overflow-hidden"
+                style={{
+                  background:
+                    "linear-gradient(120deg, #ff52a2, #a855f7, #60a5fa, #f472b6)",
+                  backgroundSize: "300% 300%",
+                  animation: "gradientShift 9s ease infinite",
+                }}
+              >
+                <div className="relative rounded-2xl bg-white/90 backdrop-blur-sm p-5">
+                  <div className="flex items-center gap-4">
+                  <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-pink-500 to-indigo-600 text-white flex items-center justify-center font-semibold shadow-sm">
+                    {(previewTenant.data.name || "?")
+                      .split(" ")
+                      .map((s) => s[0])
+                      .filter(Boolean)
+                      .slice(0, 2)
+                      .join("")
+                      .toUpperCase()}
+                  </div>
+                    <div className="min-w-0 relative z-[1]">
+                      <h3 className="font-bold text-lg text-slate-900 truncate">{previewTenant.data.name}</h3>
+                      <p className="text-xs text-slate-500 truncate">{previewTenant.data.locationText || ""}</p>
+                    </div>
+                  </div>
+                  <div className="mt-4 flex flex-wrap items-center gap-2 relative z-[1]">
+                    {previewTenant.data.plan && (
+                      <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-gradient-to-r from-pink-500 to-fuchsia-600 text-white text-xs font-semibold shadow-sm">
+                        <i className="fas fa-crown" /> {previewTenant.data.plan}
+                      </span>
+                    )}
+                    {previewTenant.data.status && (
+                      <span
+                        className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-white text-xs font-semibold shadow-sm ${
+                          String(previewTenant.data.status).toLowerCase().includes("active")
+                            ? "bg-gradient-to-r from-emerald-500 to-teal-600"
+                            : "bg-gradient-to-r from-amber-500 to-orange-600"
+                        }`}
+                      >
+                        <i
+                          className={`fas ${
+                            String(previewTenant.data.status).toLowerCase().includes("active")
+                              ? "fa-check-circle"
+                              : "fa-clock"
+                          }`}
+                        />
+                        {previewTenant.data.status}
+                      </span>
+                    )}
+                  </div>
+                </div>
+              </div>
+              <button
+                className="absolute top-3 right-3 text-slate-500 hover:text-slate-700 bg-white border border-slate-200 rounded-full w-8 h-8 flex items-center justify-center shadow-sm"
+                onClick={() => setPreviewOpen(false)}
+                aria-label="Close preview"
+              >
+                <i className="fas fa-times text-sm" />
+              </button>
+            </div>
+            <style jsx>{`
+              @keyframes gradientShift {
+                0% { background-position: 0% 50%; }
+                50% { background-position: 100% 50%; }
+                100% { background-position: 0% 50%; }
+              }
+            `}</style>
+
+            <div className="flex-1 overflow-auto bg-slate-50">
+              <div className="p-6 space-y-6">
+                <div className="text-xs font-semibold text-slate-500">Overview</div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div className="bg-white border border-slate-200 rounded-xl p-4 shadow-sm">
+                    <div className="text-xs text-slate-500">ABN</div>
+                    <div className="mt-1 font-medium text-slate-900">{previewTenant.data.abn || "—"}</div>
+                  </div>
+                  <div className="bg-white border border-slate-200 rounded-xl p-4 shadow-sm">
+                    <div className="text-xs text-slate-500">State</div>
+                    <div className="mt-1 font-medium text-slate-900">{previewTenant.data.state || "—"}</div>
+                  </div>
+                  <div className="bg-white border border-slate-200 rounded-xl p-4 shadow-sm">
+                    <div className="text-xs text-slate-500">Plan</div>
+                    <div className="mt-1 font-medium text-slate-900">{previewTenant.data.plan || "—"}</div>
+                  </div>
+                  <div className="bg-white border border-slate-200 rounded-xl p-4 shadow-sm">
+                    <div className="text-xs text-slate-500">Price</div>
+                    <div className="mt-1 font-medium text-slate-900">{previewTenant.data.price || "—"}</div>
+                  </div>
+                  <div className="bg-white border border-slate-200 rounded-xl p-4 shadow-sm sm:col-span-2">
+                    <div className="text-xs text-slate-500">Contact Phone</div>
+                    <div className="mt-1 font-medium text-slate-900">{(previewTenant.data as any).contactPhone || "—"}</div>
+                  </div>
+                </div>
+
+                <div className="bg-white border border-slate-200 rounded-xl p-4 shadow-sm">
+                  <div className="text-xs font-semibold text-slate-500 mb-3">Quick actions</div>
+                  <div className="flex items-center gap-3">
+                    <button
+                      className="px-4 py-2 rounded-lg bg-pink-600 hover:bg-pink-700 text-white text-sm font-semibold shadow-sm"
+                      onClick={() => {
+                        setEditTenantId(previewTenant.id);
+                        const d = previewTenant.data;
+                        setEditName(d.name || "");
+                        setEditAbn(d.abn || "");
+                        setEditState(d.state || "");
+                        setEditPlan(d.plan || "");
+                        setEditPrice(d.price || "");
+                        setEditStatus(d.status || "");
+                        setEditLocation(d.locationText || "");
+                        setEditPhone((d as any).contactPhone || "");
+                        setEditOpen(true);
+                      }}
+                    >
+                      <i className="fas fa-edit mr-2" />
+                      Edit
+                    </button>
+                    <button
+                      className="px-4 py-2 rounded-lg bg-rose-600 hover:bg-rose-700 text-white text-sm font-semibold shadow-sm"
+                      onClick={() => setDeleteId(previewTenant.id)}
+                    >
+                      <i className="fas fa-trash mr-2" />
+                      Delete
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Edit modal */}
+      {editOpen && editTenantId && (
+        <div className="fixed inset-0 z-50">
+          <div className="absolute inset-0 bg-black/50" onClick={() => setEditOpen(false)} />
+          <div className="relative flex items-start md:items-center justify-center min-h-screen p-4 overflow-y-auto">
+            <div className="bg-white rounded-2xl shadow-2xl w-full max-w-xl max-h-[90vh] flex flex-col">
+              <div className="px-6 py-4 border-b border-slate-200 flex items-center justify-between">
+                <h3 className="text-lg font-semibold text-slate-900">Edit Tenant</h3>
+                <button className="text-slate-500 hover:text-slate-700" onClick={() => setEditOpen(false)}>
+                  <i className="fas fa-times" />
+                </button>
+              </div>
+              <div className="p-6 space-y-4 overflow-auto">
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-1">Business Name</label>
+                  <input className="w-full px-4 py-3 border border-slate-300 rounded-lg focus:ring-2 focus:ring-pink-500 focus:border-transparent" value={editName} onChange={(e) => setEditName(e.target.value)} />
+                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-sm font-medium text-slate-700 mb-1">ABN</label>
+                    <input className="w-full px-4 py-3 border border-slate-300 rounded-lg focus:ring-2 focus:ring-pink-500 focus:border-transparent" value={editAbn} onChange={(e) => setEditAbn(e.target.value)} />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-slate-700 mb-1">State</label>
+                    <select className="w-full px-4 py-3 border border-slate-300 rounded-lg focus:ring-2 focus:ring-pink-500 focus:border-transparent" value={editState} onChange={(e) => setEditState(e.target.value)}>
+                      <option value="">Select state</option>
+                      <option>NSW</option>
+                      <option>VIC</option>
+                      <option>QLD</option>
+                      <option>WA</option>
+                      <option>SA</option>
+                      <option>TAS</option>
+                      <option>ACT</option>
+                      <option>NT</option>
+                    </select>
+                  </div>
+                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-sm font-medium text-slate-700 mb-1">Plan</label>
+                    <input className="w-full px-4 py-3 border border-slate-300 rounded-lg focus:ring-2 focus:ring-pink-500 focus:border-transparent" value={editPlan} onChange={(e) => setEditPlan(e.target.value)} />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-slate-700 mb-1">Price</label>
+                    <input className="w-full px-4 py-3 border border-slate-300 rounded-lg focus:ring-2 focus:ring-pink-500 focus:border-transparent" value={editPrice} onChange={(e) => setEditPrice(e.target.value)} />
+                  </div>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-1">Status</label>
+                  <input className="w-full px-4 py-3 border border-slate-300 rounded-lg focus:ring-2 focus:ring-pink-500 focus:border-transparent" value={editStatus} onChange={(e) => setEditStatus(e.target.value)} />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-1">Location</label>
+                  <input className="w-full px-4 py-3 border border-slate-300 rounded-lg focus:ring-2 focus:ring-pink-500 focus:border-transparent" value={editLocation} onChange={(e) => setEditLocation(e.target.value)} />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-1">Contact Phone</label>
+                  <input className="w-full px-4 py-3 border border-slate-300 rounded-lg focus:ring-2 focus:ring-pink-500 focus:border-transparent" value={editPhone} onChange={(e) => setEditPhone(e.target.value)} />
+                </div>
+              </div>
+              <div className="px-6 py-4 border-t border-slate-200 flex items-center justify-end gap-2">
+                <button className="px-4 py-2 rounded-lg text-slate-700 hover:bg-slate-100 text-sm font-semibold" onClick={() => setEditOpen(false)}>
+                  Cancel
+                </button>
+                <button
+                  className="px-4 py-2 rounded-lg bg-pink-600 hover:bg-pink-700 text-white text-sm font-semibold"
+                  onClick={async () => {
+                    if (!editTenantId) return;
+                    try {
+                      await updateDoc(doc(db, "users", editTenantId), {
+                        name: editName.trim(),
+                        abn: editAbn.trim() || null,
+                        state: editState || null,
+                        plan: editPlan || null,
+                        price: editPrice || null,
+                        status: editStatus || null,
+                        locationText: editLocation || null,
+                        contactPhone: editPhone || null,
+                        updatedAt: serverTimestamp(),
+                      });
+                      setEditOpen(false);
+                    } catch (e: any) {
+                      alert(e?.message || "Failed to update");
+                    }
+                  }}
+                >
+                  Save changes
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Delete confirm */}
+      {deleteId && (
+        <div className="fixed inset-0 z-50">
+          <div className="absolute inset-0 bg-black/50" onClick={() => setDeleteId(null)} />
+          <div className="absolute inset-0 flex items-center justify-center p-4">
+            <div className="w-full max-w-sm bg-white rounded-2xl shadow-2xl border border-slate-200">
+              <div className="px-5 py-4 border-b border-slate-200 flex items-center justify-between">
+                <h3 className="text-base font-semibold text-slate-900">Delete tenant</h3>
+                <button className="text-slate-400 hover:text-slate-600" onClick={() => setDeleteId(null)}>
+                  <i className="fas fa-times" />
+                </button>
+              </div>
+              <div className="px-5 py-4">
+                <p className="text-sm text-slate-600">This action cannot be undone. Are you sure?</p>
+              </div>
+              <div className="px-5 py-4 border-t border-slate-200 flex items-center justify-end gap-2">
+                <button onClick={() => setDeleteId(null)} className="px-4 py-2 rounded-lg text-slate-700 hover:bg-slate-100 text-sm font-semibold">
+                  Cancel
+                </button>
+                <button
+                  onClick={async () => {
+                    try {
+                      await deleteDoc(doc(db, "users", deleteId));
+                      setDeleteId(null);
+                      if (previewTenant?.id === deleteId) {
+                        setPreviewOpen(false);
+                        setPreviewTenant(null);
+                      }
+                    } catch (e: any) {
+                      alert(e?.message || "Failed to delete");
+                    }
+                  }}
+                  className="px-4 py-2 rounded-lg bg-rose-600 hover:bg-rose-700 text-white text-sm font-semibold"
+                >
+                  Delete
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {isModalOpen && (
         <div className="fixed inset-0 z-50">
@@ -816,7 +1132,8 @@ export default function TenantsPage() {
               <div className="px-8 py-6 border-t border-slate-200 flex items-center justify-between">
                 <button
                   onClick={goBack}
-                  className={`px-6 py-3 text-slate-700 font-semibold hover:bg-slate-100 rounded-lg transition ${
+                  disabled={creating}
+                  className={`px-6 py-3 text-slate-700 font-semibold hover:bg-slate-100 rounded-lg transition disabled:opacity-60 ${
                     currentStep === 1 ? "invisible" : ""
                   }`}
                 >
@@ -826,15 +1143,26 @@ export default function TenantsPage() {
                 <div className="flex-1" />
                 <button
                   onClick={closeOnboardModal}
-                  className="px-6 py-3 text-slate-700 font-semibold hover:bg-slate-100 rounded-lg transition mr-3"
+                  disabled={creating}
+                  className="px-6 py-3 text-slate-700 font-semibold hover:bg-slate-100 rounded-lg transition mr-3 disabled:opacity-60"
                 >
                   Cancel
                 </button>
                 <button
                   onClick={goNext}
-                  className="px-6 py-3 bg-pink-600 text-white font-semibold rounded-lg hover:bg-pink-700 transition"
+                  disabled={creating}
+                  className="px-6 py-3 bg-pink-600 text-white font-semibold rounded-lg hover:bg-pink-700 transition disabled:opacity-70 inline-flex items-center gap-2"
                 >
-                  {nextCtaLabel} <i className="fas fa-arrow-right ml-2" />
+                  {creating ? (
+                    <>
+                      <i className="fas fa-circle-notch fa-spin" />
+                      Creating...
+                    </>
+                  ) : (
+                    <>
+                      {nextCtaLabel} <i className="fas fa-arrow-right ml-2" />
+                    </>
+                  )}
                 </button>
               </div>
             </div>

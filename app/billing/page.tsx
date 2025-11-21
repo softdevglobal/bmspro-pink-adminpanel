@@ -2,6 +2,7 @@
 import React, { useMemo, useState, useEffect } from "react";
 import Sidebar from "@/components/Sidebar";
 import { useRouter } from "next/navigation";
+import { onAuthStateChanged } from "firebase/auth";
 
 type TabKey = "invoices" | "plans" | "settings";
 type Period = "monthly" | "yearly";
@@ -25,19 +26,20 @@ export default function BillingPage() {
 
   useEffect(() => {
     (async () => {
-      const user = (await import("@/lib/firebase")).auth.currentUser;
-      if (!user) {
-        router.replace("/login");
-        return;
-      }
-      try {
-        const token = await user.getIdToken();
-        if (typeof window !== "undefined") {
-          localStorage.setItem("idToken", token);
+      const { auth } = await import("@/lib/firebase");
+      const unsub = onAuthStateChanged(auth, async (user) => {
+        if (!user) {
+          router.replace("/login");
+          return;
         }
-      } catch {
-        router.replace("/login");
-      }
+        try {
+          const token = await user.getIdToken();
+          if (typeof window !== "undefined") localStorage.setItem("idToken", token);
+        } catch {
+          router.replace("/login");
+        }
+      });
+      return () => unsub();
     })();
   }, [router]);
 
