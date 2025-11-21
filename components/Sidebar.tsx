@@ -17,6 +17,8 @@ export default function Sidebar({ mobile = false, onClose }: SidebarProps) {
   const router = useRouter();
   const isDashboard = pathname === "/dashboard" || pathname === "/";
   const isBookings = pathname?.startsWith("/bookings");
+  const isServices = pathname?.startsWith("/services");
+  const isBranches = pathname?.startsWith("/branches");
   const isTenants = pathname?.startsWith("/tenants");
   const isStaff = pathname?.startsWith("/staff");
   const isBilling = pathname?.startsWith("/billing");
@@ -123,6 +125,28 @@ export default function Sidebar({ mobile = false, onClose }: SidebarProps) {
             <span>Bookings</span>
           </Link>
         )}
+        {mounted && role === "salon_owner" && (
+          <Link
+            href="/services"
+            className={`flex items-center space-x-3 px-4 py-3 rounded-xl text-sm transition ${
+              isServices ? "bg-pink-500 text-white shadow-lg" : "hover:bg-slate-800 text-slate-400 hover:text-white"
+            }`}
+          >
+            <i className="fas fa-tags w-5" />
+            <span>Services</span>
+          </Link>
+        )}
+      {mounted && role === "salon_owner" && (
+        <Link
+          href="/branches"
+          className={`flex items-center space-x-3 px-4 py-3 rounded-xl text-sm transition ${
+            isBranches ? "bg-pink-500 text-white shadow-lg" : "hover:bg-slate-800 text-slate-400 hover:text-white"
+          }`}
+        >
+          <i className="fas fa-store w-5" />
+          <span>Branch Management</span>
+        </Link>
+      )}
         {mounted && role === "super_admin" && (
           <Link href="/tenants" className={`flex items-center space-x-3 px-4 py-3 rounded-xl text-sm transition ${isTenants ? "bg-pink-500 text-white shadow-lg" : "hover:bg-slate-800 text-slate-400 hover:text-white"}`}>
             <i className="fas fa-store w-5" />
