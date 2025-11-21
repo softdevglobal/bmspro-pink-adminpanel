@@ -381,6 +381,11 @@ export default function StaffPage() {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-200">
+                  {rows.length === 0 && (
+                    <tr>
+                      <td className="px-6 py-6 text-slate-500" colSpan={5}>No staff members yet.</td>
+                    </tr>
+                  )}
                   {rows.map((s) => (
                     <tr key={s.id} className="hover:bg-slate-50 transition">
                       <td className="px-6 py-4">
