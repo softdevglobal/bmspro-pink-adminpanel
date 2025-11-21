@@ -16,6 +16,7 @@ export default function Sidebar({ mobile = false, onClose }: SidebarProps) {
   const pathname = usePathname();
   const router = useRouter();
   const isDashboard = pathname === "/dashboard" || pathname === "/";
+  const isBookings = pathname?.startsWith("/bookings");
   const isTenants = pathname?.startsWith("/tenants");
   const isStaff = pathname?.startsWith("/staff");
   const isBilling = pathname?.startsWith("/billing");
@@ -77,7 +78,7 @@ export default function Sidebar({ mobile = false, onClose }: SidebarProps) {
     <>
     <nav
       id="sidebar"
-      className={`${mobile ? "flex w-64 h-full" : "hidden md:flex md:w-56 md:h-full"} bg-slate-900 flex-col`}
+      className={`${mobile ? "flex w-64 h-full" : "hidden md:flex md:w-64 md:h-full"} bg-slate-900 flex-col`}
     >
       <div className="p-6 border-b border-slate-800">
         <div className="flex items-center space-x-3">
@@ -85,7 +86,7 @@ export default function Sidebar({ mobile = false, onClose }: SidebarProps) {
             <i className="fas fa-scissors text-white text-lg" />
           </div>
           <div>
-            <h1 className="font-bold text-lg text-white">BMS PRO</h1>
+            <h1 className="font-bold text-base text-white">BMS PRO</h1>
             <p className="text-xs font-semibold text-pink-400">PINK</p>
           </div>
         </div>
@@ -102,7 +103,7 @@ export default function Sidebar({ mobile = false, onClose }: SidebarProps) {
       <div className="flex-1 p-4 space-y-1">
         <Link
           href="/dashboard"
-          className={`flex items-center space-x-3 px-4 py-3 rounded-xl font-medium transition ${
+          className={`flex items-center space-x-3 px-4 py-3 rounded-xl font-medium text-sm transition ${
             isDashboard
               ? "bg-pink-500 text-white shadow-lg"
               : "text-slate-400 hover:bg-slate-800 hover:text-white"
@@ -111,23 +112,34 @@ export default function Sidebar({ mobile = false, onClose }: SidebarProps) {
           <i className="fas fa-chart-line w-5" />
           <span>Dashboard</span>
         </Link>
+        {mounted && role === "salon_owner" && (
+          <Link
+            href="/bookings"
+            className={`flex items-center space-x-3 px-4 py-3 rounded-xl text-sm transition ${
+              isBookings ? "bg-pink-500 text-white shadow-lg" : "hover:bg-slate-800 text-slate-400 hover:text-white"
+            }`}
+          >
+            <i className="fas fa-calendar-check w-5" />
+            <span>Bookings</span>
+          </Link>
+        )}
         {mounted && role === "super_admin" && (
-          <Link href="/tenants" className={`flex items-center space-x-3 px-4 py-3 rounded-xl transition ${isTenants ? "bg-pink-500 text-white shadow-lg" : "hover:bg-slate-800 text-slate-400 hover:text-white"}`}>
+          <Link href="/tenants" className={`flex items-center space-x-3 px-4 py-3 rounded-xl text-sm transition ${isTenants ? "bg-pink-500 text-white shadow-lg" : "hover:bg-slate-800 text-slate-400 hover:text-white"}`}>
             <i className="fas fa-store w-5" />
             <span>Tenant Management</span>
           </Link>
         )}
         {mounted && role === "salon_owner" && (
-          <Link href="/staff" className={`flex items-center space-x-3 px-4 py-3 rounded-xl transition ${isStaff ? "bg-pink-500 text-white shadow-lg" : "hover:bg-slate-800 text-slate-400 hover:text-white"}`}>
+          <Link href="/staff" className={`flex items-center space-x-3 px-4 py-3 rounded-xl text-sm transition ${isStaff ? "bg-pink-500 text-white shadow-lg" : "hover:bg-slate-800 text-slate-400 hover:text-white"}`}>
             <i className="fas fa-users w-5" />
             <span>Staff Management</span>
           </Link>
         )}
-        <Link href="/billing" className={`flex items-center space-x-3 px-4 py-3 rounded-xl transition ${isBilling ? "bg-pink-500 text-white shadow-lg" : "hover:bg-slate-800 text-slate-400 hover:text-white"}`}>
+        <Link href="/billing" className={`flex items-center space-x-3 px-4 py-3 rounded-xl text-sm transition ${isBilling ? "bg-pink-500 text-white shadow-lg" : "hover:bg-slate-800 text-slate-400 hover:text-white"}`}>
           <i className="fas fa-credit-card w-5" />
           <span>Billing & Invoices</span>
         </Link>
-        <Link href="/settings" className={`flex items-center space-x-3 px-4 py-3 rounded-xl transition ${isSettings ? "bg-pink-500 text-white shadow-lg" : "hover:bg-slate-800 text-slate-400 hover:text-white"}`}>
+        <Link href="/settings" className={`flex items-center space-x-3 px-4 py-3 rounded-xl text-sm transition ${isSettings ? "bg-pink-500 text-white shadow-lg" : "hover:bg-slate-800 text-slate-400 hover:text-white"}`}>
           <i className="fas fa-cog w-5" />
           <span>Platform Settings</span>
         </Link>
@@ -138,7 +150,7 @@ export default function Sidebar({ mobile = false, onClose }: SidebarProps) {
             <i className="fas fa-user" />
           </div>
           <div className="flex-1">
-            <p className="text-sm font-medium text-white">Account</p>
+            <p className="text-xs font-medium text-white">Account</p>
             <p className="text-xs text-slate-400">
               {mounted && role
                 ? role === "super_admin"
