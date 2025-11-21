@@ -123,6 +123,14 @@ export default function StaffPage() {
       const userRef = doc(db, "users", user.uid);
       const snap = await getDoc(userRef);
       const role = (snap.data()?.role || "").toString();
+      const suspended = Boolean(snap.data()?.suspended);
+      const statusText = (snap.data()?.status || "").toString().toLowerCase();
+      if (suspended || statusText.includes("suspend")) {
+        // force sign-out and redirect if suspended
+        try { (await import("firebase/auth")).signOut(auth); } catch {}
+        router.replace("/login");
+        return;
+      }
       if (role !== "salon_owner") router.replace("/dashboard");
     });
     return () => unsub();

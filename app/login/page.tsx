@@ -77,15 +77,30 @@ export default function LoginPage() {
     try {
       await signInWithEmailAndPassword(auth, email, password);
       await ensureUserDocument(auth.currentUser);
+
+      // Check suspension BEFORE persisting any tokens/role locally
+      const uid = auth.currentUser?.uid;
+      if (uid) {
+        const snap = await getDoc(doc(db, "users", uid));
+        const suspended = Boolean(snap.data()?.suspended);
+        const statusText = (snap.data()?.status || "").toString().toLowerCase();
+        if (suspended || statusText.includes("suspend")) {
+          await (await import("firebase/auth")).signOut(auth);
+          setError("Your account is suspended. Please contact support.");
+          return;
+        }
+      }
+
+      // Persist token
       const token = await auth.currentUser?.getIdToken();
       if (token && typeof window !== "undefined") {
         localStorage.setItem("idToken", token);
       }
-      // Fetch role and persist for immediate sidebar rendering
+      // Fetch role and persist for immediate sidebar rendering (after suspension check)
       try {
-        const uid = auth.currentUser?.uid;
-        if (uid) {
-          const snap = await getDoc(doc(db, "users", uid));
+        const uid2 = auth.currentUser?.uid;
+        if (uid2) {
+          const snap = await getDoc(doc(db, "users", uid2));
           const role = (snap.data()?.role || "").toString();
           if (typeof window !== "undefined") {
             localStorage.setItem("role", role);

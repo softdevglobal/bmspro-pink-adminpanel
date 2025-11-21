@@ -137,6 +137,8 @@ export default function TenantsPage() {
   const [editLocation, setEditLocation] = useState("");
   const [editPhone, setEditPhone] = useState("");
   const [deleteId, setDeleteId] = useState<string | null>(null);
+  const [suspendTarget, setSuspendTarget] = useState<{ id: string; isSuspended: boolean } | null>(null);
+  const [suspending, setSuspending] = useState(false);
 
   const stepIndicatorClass = (step: 1 | 2 | 3) => {
     const base =
@@ -461,10 +463,13 @@ export default function TenantsPage() {
                     const statusLabel = (data.status || "").trim() || "—";
                     const state = (data.state || "").trim();
 
+                    const statusLower = statusLabel.toLowerCase();
                     const statusCls =
-                      statusLabel.toLowerCase().includes("active")
+                      statusLower.includes("suspend")
+                        ? "bg-rose-50 text-rose-700"
+                        : statusLower.includes("active")
                         ? "bg-emerald-50 text-emerald-700"
-                        : statusLabel.toLowerCase().includes("pending")
+                        : statusLower.includes("pending")
                         ? "bg-amber-50 text-amber-700"
                         : "bg-slate-100 text-slate-700";
 
@@ -691,6 +696,32 @@ export default function TenantsPage() {
                       Edit
                     </button>
                     <button
+                      className={`px-4 py-2 rounded-lg text-white text-sm font-semibold shadow-sm ${
+                        String(previewTenant.data.status || "").toLowerCase().includes("suspend") || (previewTenant.data as any).suspended
+                          ? "bg-emerald-600 hover:bg-emerald-700"
+                          : "bg-amber-600 hover:bg-amber-700"
+                      }`}
+                      onClick={() => {
+                        const isSuspended =
+                          Boolean((previewTenant.data as any).suspended) ||
+                          String(previewTenant.data.status || "").toLowerCase().includes("suspend");
+                        setSuspendTarget({ id: previewTenant.id, isSuspended });
+                      }}
+                    >
+                      <i
+                        className={`fas ${
+                          String(previewTenant.data.status || "").toLowerCase().includes("suspend") ||
+                          (previewTenant.data as any).suspended
+                            ? "fa-unlock"
+                            : "fa-ban"
+                        } mr-2`}
+                      />
+                      {String(previewTenant.data.status || "").toLowerCase().includes("suspend") ||
+                      (previewTenant.data as any).suspended
+                        ? "Unsuspend"
+                        : "Suspend"}
+                    </button>
+                    <button
                       className="px-4 py-2 rounded-lg bg-rose-600 hover:bg-rose-700 text-white text-sm font-semibold shadow-sm"
                       onClick={() => setDeleteId(previewTenant.id)}
                     >
@@ -834,6 +865,89 @@ export default function TenantsPage() {
                   className="px-4 py-2 rounded-lg bg-rose-600 hover:bg-rose-700 text-white text-sm font-semibold"
                 >
                   Delete
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Suspend/Unsuspend confirm */}
+      {suspendTarget && (
+        <div className="fixed inset-0 z-50">
+          <div className="absolute inset-0 bg-black/50" onClick={() => setSuspendTarget(null)} />
+          <div className="absolute inset-0 flex items-center justify-center p-4">
+            <div className="w-full max-w-sm bg-white rounded-2xl shadow-2xl border border-slate-200">
+              <div className="px-5 py-4 border-b border-slate-200 flex items-center justify-between">
+                <h3 className="text-base font-semibold text-slate-900">
+                  {suspendTarget.isSuspended ? "Unsuspend tenant" : "Suspend tenant"}
+                </h3>
+                <button className="text-slate-400 hover:text-slate-600" onClick={() => setSuspendTarget(null)}>
+                  <i className="fas fa-times" />
+                </button>
+              </div>
+              <div className="px-5 py-4">
+                <p className="text-sm text-slate-600">
+                  {suspendTarget.isSuspended
+                    ? "This tenant will regain access. Continue?"
+                    : "This tenant will be blocked from logging in. Continue?"}
+                </p>
+              </div>
+              <div className="px-5 py-4 border-t border-slate-200 flex items-center justify-end gap-2">
+                <button onClick={() => setSuspendTarget(null)} className="px-4 py-2 rounded-lg text-slate-700 hover:bg-slate-100 text-sm font-semibold">
+                  Cancel
+                </button>
+                <button
+                  onClick={async () => {
+                    if (!suspendTarget || !suspendTarget.id) {
+                      alert("Invalid tenant id. Please close and try again.");
+                      setSuspendTarget(null);
+                      return;
+                    }
+                    try {
+                      setSuspending(true);
+                      const { auth } = await import("@/lib/firebase");
+                      const token = await auth.currentUser?.getIdToken();
+                      const res = await fetch(`/api/users/${suspendTarget.id}/suspend`, {
+                        method: "POST",
+                        headers: {
+                          "Content-Type": "application/json",
+                          Authorization: `Bearer ${token || ""}`,
+                        },
+                        body: JSON.stringify({ suspended: !suspendTarget.isSuspended }),
+                      });
+                      if (!res.ok) {
+                        const data = await res.json().catch(() => ({}));
+                        throw new Error(data?.error || "Failed to update suspension");
+                      }
+                      const data = await res.json().catch(() => ({}));
+                      const newSuspended = Boolean(data?.suspended);
+                      const newStatus = (data?.status || (newSuspended ? "Suspended" : "Active")).toString();
+                      // Optimistically update drawer button and list without closing
+                      setPreviewTenant((prev) =>
+                        prev && prev.id === suspendTarget.id
+                          ? { id: prev.id, data: { ...(prev.data as any), suspended: newSuspended, status: newStatus } }
+                          : prev
+                      );
+                      setTenants((prev) =>
+                        prev.map((t) =>
+                          t.id === suspendTarget.id ? { id: t.id, data: { ...(t.data as any), suspended: newSuspended, status: newStatus } } : t
+                        )
+                      );
+                      setSuspendTarget(null);
+                    } catch (e: any) {
+                      alert(e?.message || "Failed to update suspension");
+                    } finally {
+                      setSuspending(false);
+                    }
+                  }}
+                  className={`px-4 py-2 rounded-lg text-white text-sm font-semibold ${
+                    suspendTarget.isSuspended ? "bg-emerald-600 hover:bg-emerald-700" : "bg-amber-600 hover:bg-amber-700"
+                  } disabled:opacity-60 inline-flex items-center gap-2`}
+                  disabled={suspending}
+                >
+                  {suspending ? <i className="fas fa-circle-notch fa-spin" /> : suspendTarget.isSuspended ? <i className="fas fa-unlock" /> : <i className="fas fa-ban" />}
+                  {suspendTarget.isSuspended ? "Unsuspend" : "Suspend"}
                 </button>
               </div>
             </div>
