@@ -139,6 +139,7 @@ export default function TenantsPage() {
   const [deleteId, setDeleteId] = useState<string | null>(null);
   const [suspendTarget, setSuspendTarget] = useState<{ id: string; isSuspended: boolean } | null>(null);
   const [suspending, setSuspending] = useState(false);
+  const [savingEdit, setSavingEdit] = useState(false);
 
   const stepIndicatorClass = (step: 1 | 2 | 3) => {
     const base =
@@ -760,29 +761,29 @@ export default function TenantsPage() {
                   </div>
                   <div>
                     <label className="block text-sm font-medium text-slate-700 mb-1">State</label>
-                    <select className="w-full px-4 py-3 border border-slate-300 rounded-lg focus:ring-2 focus:ring-pink-500 focus:border-transparent" value={editState} onChange={(e) => setEditState(e.target.value)}>
-                      <option value="">Select state</option>
-                      <option>NSW</option>
-                      <option>VIC</option>
-                      <option>QLD</option>
-                      <option>WA</option>
-                      <option>SA</option>
-                      <option>TAS</option>
-                      <option>ACT</option>
-                      <option>NT</option>
-                    </select>
+                    <div className="relative">
+                      <select
+                        className="w-full appearance-none pr-10 px-4 py-3 border border-slate-300 rounded-lg focus:ring-2 focus:ring-pink-500 focus:border-transparent"
+                        value={editState}
+                        onChange={(e) => setEditState(e.target.value)}
+                      >
+                        <option value="">Select state</option>
+                        <option>NSW</option>
+                        <option>VIC</option>
+                        <option>QLD</option>
+                        <option>WA</option>
+                        <option>SA</option>
+                        <option>TAS</option>
+                        <option>ACT</option>
+                        <option>NT</option>
+                      </select>
+                      <span className="pointer-events-none absolute inset-y-0 right-3 flex items-center text-slate-500">
+                        <i className="fas fa-chevron-down" />
+                      </span>
+                    </div>
                   </div>
                 </div>
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                  <div>
-                    <label className="block text-sm font-medium text-slate-700 mb-1">Plan</label>
-                    <input className="w-full px-4 py-3 border border-slate-300 rounded-lg focus:ring-2 focus:ring-pink-500 focus:border-transparent" value={editPlan} onChange={(e) => setEditPlan(e.target.value)} />
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium text-slate-700 mb-1">Price</label>
-                    <input className="w-full px-4 py-3 border border-slate-300 rounded-lg focus:ring-2 focus:ring-pink-500 focus:border-transparent" value={editPrice} onChange={(e) => setEditPrice(e.target.value)} />
-                  </div>
-                </div>
+                {/* Plan and price are managed elsewhere; hidden from edit */}
                 <div>
                   <label className="block text-sm font-medium text-slate-700 mb-1">Status</label>
                   <input className="w-full px-4 py-3 border border-slate-300 rounded-lg focus:ring-2 focus:ring-pink-500 focus:border-transparent" value={editStatus} onChange={(e) => setEditStatus(e.target.value)} />
@@ -797,32 +798,45 @@ export default function TenantsPage() {
                 </div>
               </div>
               <div className="px-6 py-4 border-t border-slate-200 flex items-center justify-end gap-2">
-                <button className="px-4 py-2 rounded-lg text-slate-700 hover:bg-slate-100 text-sm font-semibold" onClick={() => setEditOpen(false)}>
+                <button
+                  className="px-4 py-2 rounded-lg text-slate-700 hover:bg-slate-100 text-sm font-semibold disabled:opacity-60"
+                  onClick={() => setEditOpen(false)}
+                  disabled={savingEdit}
+                >
                   Cancel
                 </button>
                 <button
-                  className="px-4 py-2 rounded-lg bg-pink-600 hover:bg-pink-700 text-white text-sm font-semibold"
+                  className="px-4 py-2 rounded-lg bg-pink-600 hover:bg-pink-700 text-white text-sm font-semibold disabled:opacity-70 inline-flex items-center gap-2"
+                  disabled={savingEdit}
                   onClick={async () => {
                     if (!editTenantId) return;
                     try {
+                      setSavingEdit(true);
                       await updateDoc(doc(db, "users", editTenantId), {
                         name: editName.trim(),
                         abn: editAbn.trim() || null,
                         state: editState || null,
-                        plan: editPlan || null,
-                        price: editPrice || null,
                         status: editStatus || null,
                         locationText: editLocation || null,
                         contactPhone: editPhone || null,
                         updatedAt: serverTimestamp(),
                       });
-                      setEditOpen(false);
                     } catch (e: any) {
                       alert(e?.message || "Failed to update");
+                    } finally {
+                      setSavingEdit(false);
+                      setEditOpen(false);
                     }
                   }}
                 >
-                  Save changes
+                  {savingEdit ? (
+                    <>
+                      <i className="fas fa-circle-notch fa-spin" />
+                      Saving...
+                    </>
+                  ) : (
+                    "Save changes"
+                  )}
                 </button>
               </div>
             </div>
