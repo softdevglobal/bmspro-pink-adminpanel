@@ -13,25 +13,34 @@ export default function LoginPage() {
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [emailError, setEmailError] = useState<string | null>(null);
+  const [passwordError, setPasswordError] = useState<string | null>(null);
+  const [authErrorCode, setAuthErrorCode] = useState<string | null>(null);
 
-  function friendlyAuthMessage(code?: string, fallback?: string) {
+  function friendlyAuthMessage(code?: string) {
     switch (code) {
       case "auth/invalid-email":
-        return "The email address is not valid.";
+        return "Enter a valid email address.";
       case "auth/user-not-found":
-        return "No account found for this email.";
+        return "Invalid email or password.";
       case "auth/wrong-password":
-        return "Incorrect password.";
+        return "Invalid email or password.";
+      case "auth/invalid-credential":
+        return "Invalid email or password.";
       case "auth/email-already-in-use":
         return "An account already exists with this email.";
       case "auth/weak-password":
         return "Password should be at least 6 characters.";
       case "auth/operation-not-allowed":
-        return "Email/Password sign-in is not enabled in Firebase Authentication.";
+        return "Sign-in is temporarily unavailable. Please contact support.";
       case "auth/invalid-api-key":
-        return "Invalid Firebase API key. Check your Firebase config/API key restrictions.";
+        return "Configuration error. Please contact support.";
+      case "auth/network-request-failed":
+        return "Network error. Check your connection and try again.";
+      case "auth/too-many-requests":
+        return "Too many attempts. Try again later.";
       default:
-        return fallback || "Something went wrong. Please try again.";
+        return "Sign in failed. Please try again.";
     }
   }
 
@@ -45,6 +54,25 @@ export default function LoginPage() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
+    setAuthErrorCode(null);
+    // simple client-side validation
+    let valid = true;
+    if (!email.trim()) {
+      setEmailError("Email is required.");
+      valid = false;
+    } else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())) {
+      setEmailError("Enter a valid email address.");
+      valid = false;
+    } else {
+      setEmailError(null);
+    }
+    if (!password) {
+      setPasswordError("Password is required.");
+      valid = false;
+    } else {
+      setPasswordError(null);
+    }
+    if (!valid) return;
     setLoading(true);
     try {
       await signInWithEmailAndPassword(auth, email, password);
@@ -67,7 +95,8 @@ export default function LoginPage() {
       router.replace("/dashboard");
     } catch (err: any) {
       console.error("Auth error:", err);
-      setError(friendlyAuthMessage(err?.code, err?.message));
+      setError(friendlyAuthMessage(err?.code));
+      setAuthErrorCode(err?.code || null);
     } finally {
       setLoading(false);
     }
@@ -99,23 +128,47 @@ export default function LoginPage() {
               <label className="block text-sm font-medium text-slate-700 mb-2">Email</label>
               <input
                 type="email"
-                required
                 placeholder="you@company.com"
                 value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                className="w-full px-4 py-3 border border-slate-300 rounded-lg focus:ring-2 focus:ring-pink-500 focus:border-transparent"
+                onChange={(e) => {
+                  setEmail(e.target.value);
+                  if (emailError) setEmailError(null);
+                  if (authErrorCode) setAuthErrorCode(null);
+                }}
+                onBlur={() => {
+                  if (!email.trim()) setEmailError("Email is required.");
+                  else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())) setEmailError("Enter a valid email address.");
+                }}
+                aria-invalid={!!emailError}
+                className={`w-full px-4 py-3 border rounded-lg focus:ring-2 focus:ring-pink-500 focus:border-transparent ${
+                  emailError || authErrorCode === "auth/user-not-found" || authErrorCode === "auth/invalid-email"
+                    ? "border-rose-400"
+                    : "border-slate-300"
+                }`}
               />
+              {emailError && <p className="mt-1 text-xs text-rose-600">{emailError}</p>}
             </div>
             <div>
               <label className="block text-sm font-medium text-slate-700 mb-2">Password</label>
               <div className="relative">
                 <input
                   type={showPassword ? "text" : "password"}
-                  required
                   placeholder="••••••••"
                   value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  className="w-full px-4 py-3 pr-12 border border-slate-300 rounded-lg focus:ring-2 focus:ring-pink-500 focus:border-transparent"
+                  onChange={(e) => {
+                    setPassword(e.target.value);
+                    if (passwordError) setPasswordError(null);
+                    if (authErrorCode) setAuthErrorCode(null);
+                  }}
+                  onBlur={() => {
+                    if (!password) setPasswordError("Password is required.");
+                  }}
+                  aria-invalid={!!passwordError}
+                  className={`w-full px-4 py-3 pr-12 border rounded-lg focus:ring-2 focus:ring-pink-500 focus:border-transparent ${
+                    passwordError || authErrorCode === "auth/wrong-password" || authErrorCode === "auth/invalid-credential"
+                      ? "border-rose-400"
+                      : "border-slate-300"
+                  }`}
                 />
                 <button
                   type="button"
@@ -126,8 +179,28 @@ export default function LoginPage() {
                   <i className={`fas ${showPassword ? "fa-eye-slash" : "fa-eye"}`} />
                 </button>
               </div>
+              {passwordError && <p className="mt-1 text-xs text-rose-600">{passwordError}</p>}
             </div>
-            {error && <p className="text-sm text-rose-600">{error}</p>}
+            {error && (
+              <div className="rounded-lg border border-rose-200 bg-rose-50 text-rose-800 p-3 flex items-start gap-2">
+                <i className="fas fa-circle-exclamation mt-0.5" />
+                <div className="flex-1">
+                  <p className="text-sm font-semibold">Sign in failed</p>
+                  <p className="text-sm">{error}</p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setError(null);
+                    setAuthErrorCode(null);
+                  }}
+                  aria-label="Dismiss error"
+                  className="text-rose-700/70 hover:text-rose-800"
+                >
+                  <i className="fas fa-times" />
+                </button>
+              </div>
+            )}
             <button
               type="submit"
               disabled={loading}
