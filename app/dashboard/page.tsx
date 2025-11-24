@@ -1,8 +1,9 @@
 "use client";
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import Sidebar from "@/components/Sidebar";
 import { useRouter } from "next/navigation";
 import { onAuthStateChanged } from "firebase/auth";
+import Script from "next/script";
 
 export default function DashboardPage() {
   const router = useRouter();
@@ -11,6 +12,9 @@ export default function DashboardPage() {
   const [totalBookings, setTotalBookings] = useState<number>(0);
   const [activeStaff, setActiveStaff] = useState<number>(0);
   const [activeServices, setActiveServices] = useState<number>(0);
+  const revCanvasRef = useRef<HTMLCanvasElement | null>(null);
+  const statusCanvasRef = useRef<HTMLCanvasElement | null>(null);
+  const [charts, setCharts] = useState<{ revenue?: any; status?: any }>({});
   useEffect(() => {
     (async () => {
       const { auth } = await import("@/lib/firebase");
@@ -51,6 +55,93 @@ export default function DashboardPage() {
       setMonthlyRevenue(0);
     } catch {}
   }, []);
+
+  // Initialize charts with Chart.js (loaded via CDN Script)
+  const buildCharts = () => {
+    // @ts-ignore
+    const Chart = (window as any)?.Chart;
+    if (!Chart) return;
+
+    // Destroy existing instances to avoid duplicates
+    try {
+      charts.revenue?.destroy();
+    } catch {}
+    try {
+      charts.status?.destroy();
+    } catch {}
+
+    // Revenue line + area
+    const revenueSeries = [12000, 19000, 15000, 25000, 22000, 30000];
+    const labels = ["Jan", "Feb", "Mar", "Apr", "May", "Jun"];
+    const ctx = revCanvasRef.current?.getContext("2d");
+    let gradient: CanvasGradient | undefined;
+    if (ctx) {
+      gradient = ctx.createLinearGradient(0, 0, 0, 300);
+      gradient.addColorStop(0, "rgba(236, 72, 153, 0.25)");
+      gradient.addColorStop(1, "rgba(236, 72, 153, 0)");
+    }
+    const revenue = new Chart(ctx as any, {
+      type: "line",
+      data: {
+        labels,
+        datasets: [
+          {
+            label: "Revenue",
+            data: revenueSeries,
+            borderColor: "#ec4899",
+            backgroundColor: gradient,
+            fill: true,
+            tension: 0.4,
+            pointRadius: 0,
+          },
+        ],
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: { legend: { display: false } },
+        scales: {
+          x: { grid: { display: false }, ticks: { color: "#94a3b8" } },
+          y: {
+            grid: { color: "#e2e8f0" },
+            ticks: {
+              color: "#94a3b8",
+              callback: function (value: number) {
+                const v = Number(value);
+                return `$${Math.round(v / 1000)}k`;
+              },
+            },
+          },
+        },
+      },
+    });
+
+    // Booking status donut
+    const ctx2 = statusCanvasRef.current?.getContext("2d");
+    const status = new Chart(ctx2 as any, {
+      type: "doughnut",
+      data: {
+        labels: ["Confirmed", "Pending"],
+        datasets: [
+          {
+            data: [1, 1],
+            backgroundColor: ["#10b981", "#f59e0b"],
+            borderWidth: 0,
+          },
+        ],
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        cutout: "70%",
+        plugins: {
+          legend: { display: true, position: "right", labels: { color: "#64748b" } },
+        },
+      },
+    });
+
+    setCharts({ revenue, status });
+  };
   return (
     <div id="app" className="flex h-screen overflow-hidden bg-white">
       <Sidebar />
@@ -175,9 +266,7 @@ export default function DashboardPage() {
                 </div>
               </div>
               <div className="h-[280px] relative">
-                <div className="h-full w-full bg-gradient-to-b from-pink-100 to-white rounded-xl border border-slate-100 flex items-center justify-center text-slate-400">
-                  Chart placeholder
-                </div>
+                <canvas ref={revCanvasRef} />
               </div>
             </div>
             <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm min-w-0">
@@ -190,25 +279,8 @@ export default function DashboardPage() {
                 </p>
               </div>
               <div className="space-y-4">
-                <div className="flex items-center justify-between mb-2">
-                  <div className="flex items-center space-x-2">
-                    <div className="w-3 h-3 bg-emerald-500 rounded" />
-                    <span className="text-sm font-medium text-slate-700">Confirmed</span>
-                  </div>
-                  <span className="text-sm font-semibold text-slate-900">0</span>
-                </div>
-                <div className="w-full bg-slate-100 rounded-full h-2">
-                  <div className="bg-emerald-500 h-2 rounded-full" style={{ width: "50%" }} />
-                </div>
-                <div className="flex items-center justify-between mb-2 mt-4">
-                  <div className="flex items-center space-x-2">
-                    <div className="w-3 h-3 bg-amber-500 rounded" />
-                    <span className="text-sm font-medium text-slate-700">Pending</span>
-                  </div>
-                  <span className="text-sm font-semibold text-slate-900">0</span>
-                </div>
-                <div className="w-full bg-slate-100 rounded-full h-2">
-                  <div className="bg-amber-500 h-2 rounded-full" style={{ width: "50%" }} />
+                <div className="relative h-48 mb-2">
+                  <canvas ref={statusCanvasRef} />
                 </div>
               </div>
             </div>
@@ -286,6 +358,13 @@ export default function DashboardPage() {
           </div>
         </main>
       </div>
+
+      {/* Load Chart.js from CDN and build charts */}
+      <Script
+        src="https://cdn.jsdelivr.net/npm/chart.js"
+        strategy="afterInteractive"
+        onLoad={buildCharts}
+      />
     </div>
   );
 }
