@@ -14,7 +14,8 @@ export default function DashboardPage() {
   const [activeServices, setActiveServices] = useState<number>(0);
   const revCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const statusCanvasRef = useRef<HTMLCanvasElement | null>(null);
-  const [charts, setCharts] = useState<{ revenue?: any; status?: any }>({});
+  const chartsRef = useRef<{ revenue?: any; status?: any }>({});
+  const builtRef = useRef(false);
   useEffect(() => {
     (async () => {
       const { auth } = await import("@/lib/firebase");
@@ -61,13 +62,14 @@ export default function DashboardPage() {
     // @ts-ignore
     const Chart = (window as any)?.Chart;
     if (!Chart) return;
+    if (!revCanvasRef.current || !statusCanvasRef.current) return;
 
     // Destroy existing instances to avoid duplicates
     try {
-      charts.revenue?.destroy();
+      chartsRef.current.revenue?.destroy();
     } catch {}
     try {
-      charts.status?.destroy();
+      chartsRef.current.status?.destroy();
     } catch {}
 
     // Revenue line + area
@@ -140,8 +142,33 @@ export default function DashboardPage() {
       },
     });
 
-    setCharts({ revenue, status });
+    chartsRef.current = { revenue, status };
+    builtRef.current = true;
   };
+
+  // Build charts on first mount or when navigating back to this page
+  useEffect(() => {
+    const tryBuild = () => {
+      // @ts-ignore
+      const Chart = (window as any)?.Chart;
+      if (!builtRef.current && Chart && revCanvasRef.current && statusCanvasRef.current) {
+        buildCharts();
+      }
+    };
+    tryBuild();
+    const id = setInterval(tryBuild, 200);
+    return () => {
+      clearInterval(id);
+      try {
+        chartsRef.current.revenue?.destroy();
+      } catch {}
+      try {
+        chartsRef.current.status?.destroy();
+      } catch {}
+      builtRef.current = false;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   return (
     <div id="app" className="flex h-screen overflow-hidden bg-white">
       <Sidebar />
