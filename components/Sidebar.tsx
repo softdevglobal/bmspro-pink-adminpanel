@@ -23,6 +23,7 @@ export default function Sidebar({ mobile = false, onClose }: SidebarProps) {
   const isStaff = pathname?.startsWith("/staff");
   const isBilling = pathname?.startsWith("/billing");
   const isSettings = pathname?.startsWith("/settings");
+  const isOwnerSettings = pathname?.startsWith("/owner-settings");
   const [role, setRole] = useState<string | null>(null);
   const [mounted, setMounted] = useState(false);
   const [confirmOpen, setConfirmOpen] = useState(false);
@@ -163,10 +164,18 @@ export default function Sidebar({ mobile = false, onClose }: SidebarProps) {
           <i className="fas fa-credit-card w-5" />
           <span>Billing & Invoices</span>
         </Link>
-        <Link href="/settings" className={`flex items-center space-x-3 px-4 py-3 rounded-xl text-sm transition ${isSettings ? "bg-pink-500 text-white shadow-lg" : "hover:bg-slate-800 text-slate-400 hover:text-white"}`}>
-          <i className="fas fa-cog w-5" />
-          <span>Platform Settings</span>
-        </Link>
+        {mounted && role === "super_admin" && (
+          <Link href="/settings" className={`flex items-center space-x-3 px-4 py-3 rounded-xl text-sm transition ${isSettings ? "bg-pink-500 text-white shadow-lg" : "hover:bg-slate-800 text-slate-400 hover:text-white"}`}>
+            <i className="fas fa-cog w-5" />
+            <span>Platform Settings</span>
+          </Link>
+        )}
+        {mounted && role === "salon_owner" && (
+          <Link href="/owner-settings" className={`flex items-center space-x-3 px-4 py-3 rounded-xl text-sm transition ${isOwnerSettings ? "bg-pink-500 text-white shadow-lg" : "hover:bg-slate-800 text-slate-400 hover:text-white"}`}>
+            <i className="fas fa-cog w-5" />
+            <span>Settings</span>
+          </Link>
+        )}
       </div>
       <div className="p-4 border-t border-slate-800">
         <div className="flex items-center space-x-3 px-4 py-3 rounded-xl hover:bg-slate-800 cursor-pointer transition">
