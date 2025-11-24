@@ -17,6 +17,8 @@ export type BranchInput = {
   address: string;
   phone?: string;
   email?: string;
+  staffIds?: string[];
+  serviceIds?: string[];
   hours?:
     | string
     | {

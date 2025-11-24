@@ -6,6 +6,8 @@ import { auth, db } from "@/lib/firebase";
 import { onAuthStateChanged } from "firebase/auth";
 import { doc, getDoc } from "firebase/firestore";
 import { BranchInput, createBranchForOwner, subscribeBranchesForOwner } from "@/lib/branches";
+import { subscribeSalonStaffForOwner } from "@/lib/salonStaff";
+import { subscribeServicesForOwner } from "@/lib/services";
 
 type Branch = {
   id: string;
@@ -14,6 +16,8 @@ type Branch = {
   revenue: number;
   phone?: string;
   email?: string;
+  staffIds?: string[];
+  serviceIds?: string[];
   hours?:
     | string
     | {
@@ -123,36 +127,40 @@ export default function BranchesPage() {
         capacity: r.capacity,
         manager: r.manager,
         status: (r.status as any) || "Active",
+        staffIds: Array.isArray((r as any).staffIds) ? (r as any).staffIds.map(String) : [],
+        serviceIds: Array.isArray((r as any).serviceIds) ? (r as any).serviceIds.map(String) : [],
       }));
       setBranches(mapped.length ? mapped : defaultBranches);
     });
     return () => unsub();
   }, [ownerUid, defaultBranches]);
 
-  // load services/staff for checklists (best-effort from services store)
+  // Real-time services and staff lists for assignment checklists
   useEffect(() => {
-    try {
-      const raw = typeof window !== "undefined" ? localStorage.getItem("bms_services_data") : null;
-      if (!raw) return;
-      const parsed = JSON.parse(raw);
-      const services = Array.isArray(parsed?.services) ? parsed.services : [];
-      const staff = Array.isArray(parsed?.staff) ? parsed.staff : [];
+    if (!ownerUid) return;
+    const unsubStaff = subscribeSalonStaffForOwner(ownerUid, (rows) => {
+      setStaffOptions(
+        rows.map((s: any) => ({
+          id: String(s.id),
+          name: String(s.name || s.displayName || "Staff"),
+          status: s.status,
+          branch: s.branchName,
+        }))
+      );
+    });
+    const unsubServices = subscribeServicesForOwner(ownerUid, (rows) => {
       setServiceOptions(
-        services.map((s: any) => ({
+        rows.map((s: any) => ({
           id: String(s.id),
           name: String(s.name || "Service"),
         }))
       );
-      setStaffOptions(
-        staff.map((s: any) => ({
-          id: String(s.id),
-          name: String(s.name || s.displayName || "Staff"),
-          status: s.status,
-          branch: s.branch,
-        }))
-      );
-    } catch {}
-  }, []);
+    });
+    return () => {
+      unsubStaff();
+      unsubServices();
+    };
+  }, [ownerUid]);
 
   const saveData = (next: Branch[]) => setBranches(next);
 
@@ -186,6 +194,13 @@ export default function BranchesPage() {
     setAddress((b as any).address || "");
     setPhone((b as any).phone || "");
     setEmail((b as any).email || "");
+    // prefill assignments
+    const staffMap: Record<string, boolean> = {};
+    const serviceMap: Record<string, boolean> = {};
+    (b.staffIds || []).forEach((id) => (staffMap[id] = true));
+    (b.serviceIds || []).forEach((id) => (serviceMap[id] = true));
+    setSelectedStaffIds(staffMap);
+    setSelectedServiceIds(serviceMap);
     // prefill hours when present as object
     const h = (b as any).hours;
     if (h && typeof h === "object") {
@@ -217,6 +232,8 @@ export default function BranchesPage() {
         address: address.trim(),
         phone: phone.trim() || undefined,
         email: email.trim() || undefined,
+        staffIds: Object.keys(selectedStaffIds).filter((id) => selectedStaffIds[id]),
+        serviceIds: Object.keys(selectedServiceIds).filter((id) => selectedServiceIds[id]),
         hours: hoursObj,
         capacity: typeof capacity === "number" ? capacity : capacity === "" ? undefined : Number(capacity),
         manager: manager.trim() || undefined,
