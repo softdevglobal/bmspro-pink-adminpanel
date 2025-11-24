@@ -29,6 +29,17 @@ type Branch = {
   status?: "Active" | "Pending" | "Closed";
 };
 
+type HoursDay = { open?: string; close?: string; closed?: boolean };
+type HoursMap = {
+  Monday?: HoursDay;
+  Tuesday?: HoursDay;
+  Wednesday?: HoursDay;
+  Thursday?: HoursDay;
+  Friday?: HoursDay;
+  Saturday?: HoursDay;
+  Sunday?: HoursDay;
+};
+
 export default function BranchesPage() {
   const router = useRouter();
   const [mobileOpen, setMobileOpen] = useState(false);
@@ -40,7 +51,7 @@ export default function BranchesPage() {
   const [phone, setPhone] = useState("");
   const [email, setEmail] = useState("");
   // structured hours builder state
-  const [hoursObj, setHoursObj] = useState<NonNullable<Branch["hours"]>>({
+  const [hoursObj, setHoursObj] = useState<HoursMap>({
     Monday: { open: "09:00", close: "17:00", closed: false },
     Tuesday: { open: "09:00", close: "17:00", closed: false },
     Wednesday: { open: "09:00", close: "17:00", closed: false },
@@ -382,13 +393,17 @@ export default function BranchesPage() {
                   <label className="block text-xs font-bold text-slate-600 mb-2">Operating Hours</label>
                   <div className="space-y-2 border border-slate-200 rounded-lg p-3 bg-slate-50 max-h-72 overflow-y-auto overflow-x-hidden">
                     {["Monday","Tuesday","Wednesday","Thursday","Friday","Saturday","Sunday"].map((day) => {
-                      const d = day as keyof NonNullable<Branch["hours"]>;
-                      const row = (hoursObj as any)[d] || { open: "09:00", close: "17:00", closed: false };
+                      const d = day as keyof HoursMap;
+                      const row = (hoursObj[d] as HoursDay) || { open: "09:00", close: "17:00", closed: false };
                       const setRow = (patch: Partial<{ open: string; close: string; closed: boolean }>) =>
-                        setHoursObj((prev) => ({
-                          ...prev,
-                          [d]: { ...(prev as any)[d], ...patch },
-                        }));
+                        setHoursObj((prev) => {
+                          const base = (prev || {}) as HoursMap;
+                          const current = (base[d] as HoursDay) || {};
+                          return {
+                            ...base,
+                            [d]: { ...current, ...patch },
+                          };
+                        });
                       return (
                         <div key={day} className="flex flex-wrap items-center gap-3 bg-white p-2 rounded border border-slate-100 text-sm">
                           <div className="w-24 md:w-28 font-medium text-slate-700 shrink-0">{day}</div>
