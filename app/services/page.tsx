@@ -45,6 +45,18 @@ export default function ServicesPage() {
   const [icon, setIcon] = useState("fa-solid fa-star");
   const [selectedStaff, setSelectedStaff] = useState<Record<string, boolean>>({});
   const [selectedBranches, setSelectedBranches] = useState<Record<string, boolean>>({});
+  const [iconPickerOpen, setIconPickerOpen] = useState(false);
+  const iconOptions = [
+    { label: "Star", value: "fa-solid fa-star" },
+    { label: "Scissors", value: "fa-solid fa-scissors" },
+    { label: "Spa", value: "fa-solid fa-spa" },
+    { label: "Spray", value: "fa-solid fa-spray-can-sparkles" },
+    { label: "Hand Sparkles", value: "fa-solid fa-hand-sparkles" },
+    { label: "Heart", value: "fa-solid fa-heart" },
+    { label: "Leaf", value: "fa-solid fa-leaf" },
+    { label: "Gem", value: "fa-solid fa-gem" },
+    { label: "Magic Wand", value: "fa-solid fa-wand-magic-sparkles" },
+  ];
 
   // guard
   useEffect(() => {
@@ -348,11 +360,56 @@ export default function ServicesPage() {
                     <input value={duration} onChange={(e) => setDuration(e.target.value === "" ? "" : Number(e.target.value))} type="number" required className="w-full border border-slate-300 rounded-lg p-2.5 text-sm focus:ring-2 focus:ring-pink-500 focus:outline-none" placeholder="60" />
                   </div>
                   <div>
-                    <label className="block text-xs font-bold text-slate-600 mb-1">Icon Class (FontAwesome)</label>
-                    <input value={icon} onChange={(e) => setIcon(e.target.value)} className="w-full border border-slate-300 rounded-lg p-2.5 text-sm focus:ring-2 focus:ring-pink-500 focus:outline-none" placeholder="fa-solid fa-star" />
+                    <label className="block text-xs font-bold text-slate-600 mb-1">Icon</label>
+                    <div className="flex items-center gap-2">
+                      <div className="w-10 h-10 rounded-lg bg-pink-100 text-pink-600 flex items-center justify-center shrink-0">
+                        <i className={icon} />
+                      </div>
+                      <input
+                        value={icon}
+                        onChange={(e) => setIcon(e.target.value)}
+                        className="w-full border border-slate-300 rounded-lg p-2.5 text-sm focus:ring-2 focus:ring-pink-500 focus:outline-none"
+                        placeholder="fa-solid fa-star"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setIconPickerOpen((v) => !v)}
+                        className="px-3 py-2 text-sm rounded-lg border border-slate-300 bg-slate-800 text-white hover:bg-slate-700"
+                        title="Choose icon"
+                      >
+                        Choose
+                      </button>
+                    </div>
+                    {iconPickerOpen && (
+                      <div className="mt-2 border border-slate-200 rounded-lg p-3 bg-slate-50">
+                        <div className="grid grid-cols-3 sm:grid-cols-4 gap-2">
+                          {iconOptions.map((opt) => (
+                            <button
+                              key={opt.value}
+                              type="button"
+                              onClick={() => {
+                                setIcon(opt.value);
+                                setIconPickerOpen(false);
+                              }}
+                              className={`flex items-center gap-2 px-2 py-2 rounded-lg bg-white hover:bg-slate-100 border ${
+                                icon === opt.value ? "border-pink-400" : "border-slate-200"
+                              }`}
+                            >
+                              <span className="w-7 h-7 rounded bg-pink-100 text-pink-600 flex items-center justify-center">
+                                <i className={opt.value} />
+                              </span>
+                              <span className="text-xs text-slate-700">{opt.label}</span>
+                            </button>
+                          ))}
+                        </div>
+                        <div className="text-[10px] text-slate-400 mt-2">
+                          Uses Font Awesome classes. You can type a custom class above as well.
+                        </div>
+                      </div>
+                    )}
                   </div>
                   <div>
-                    <label className="block text-xs font-bold text-slate-600 mb-2">Available at Branches</label>
+                    <label className="block text-xs font-bold text-slate-600 mb-2">Available Branches</label>
                     <div className="grid grid-cols-1 gap-2 max-h-32 overflow-y-auto border border-slate-200 rounded-lg p-3 bg-slate-50">
                       {branches.length > 0 ? (
                         branches.map((b) => (
@@ -445,7 +502,7 @@ export default function ServicesPage() {
                   </div>
                 </div>
                 <div>
-                  <div className="text-xs font-bold text-slate-600 mb-2">Available at Branches</div>
+                  <div className="text-xs font-bold text-slate-600 mb-2">Available Branches</div>
                   <div className="flex flex-wrap gap-2">
                     {previewService.branches.length > 0 ? (
                       previewService.branches.map((bid) => {
