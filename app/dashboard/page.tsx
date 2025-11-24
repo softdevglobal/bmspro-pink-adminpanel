@@ -7,6 +7,10 @@ import { onAuthStateChanged } from "firebase/auth";
 export default function DashboardPage() {
   const router = useRouter();
   const [mobileOpen, setMobileOpen] = useState(false);
+  const [monthlyRevenue, setMonthlyRevenue] = useState<number>(0);
+  const [totalBookings, setTotalBookings] = useState<number>(0);
+  const [activeStaff, setActiveStaff] = useState<number>(0);
+  const [activeServices, setActiveServices] = useState<number>(0);
   useEffect(() => {
     (async () => {
       const { auth } = await import("@/lib/firebase");
@@ -25,6 +29,28 @@ export default function DashboardPage() {
       return () => unsub();
     })();
   }, [router]);
+
+  // lightweight KPI aggregation from localStorage stores (best-effort)
+  useEffect(() => {
+    try {
+      // bookings store not standardized yet; keep 0
+      setTotalBookings(0);
+      const staffRaw = typeof window !== "undefined" ? localStorage.getItem("bms_staff_data") : null;
+      if (staffRaw) {
+        const parsed = JSON.parse(staffRaw);
+        const count = Array.isArray(parsed?.staff) ? parsed.staff.filter((s: any) => s.status === "Active").length : 0;
+        setActiveStaff(count);
+      }
+      const servicesRaw = typeof window !== "undefined" ? localStorage.getItem("bms_services_data") : null;
+      if (servicesRaw) {
+        const parsed = JSON.parse(servicesRaw);
+        const count = Array.isArray(parsed?.services) ? parsed.services.length : 0;
+        setActiveServices(count);
+      }
+      // mock revenue until bookings subsystem emits data
+      setMonthlyRevenue(0);
+    } catch {}
+  }, []);
   return (
     <div id="app" className="flex h-screen overflow-hidden bg-white">
       <Sidebar />
@@ -53,23 +79,20 @@ export default function DashboardPage() {
           )}
 
           <div className="mb-8">
-            <div className="rounded-2xl bg-gradient-to-r from-pink-500 via-fuchsia-600 to-indigo-600 text-white p-6 shadow-sm">
-              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <div className="rounded-2xl bg-gradient-to-r from-pink-500 via-fuchsia-600 to-indigo-600 text-white p-6 shadow-lg relative overflow-hidden">
+              <div className="relative z-10 flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-white/20 flex items-center justify-center">
+                  <i className="fas fa-chart-line" />
+                </div>
                 <div>
-                  <div className="flex items-center gap-3">
-                    <div className="w-10 h-10 rounded-xl bg-white/20 flex items-center justify-center">
-                      <i className="fas fa-chart-line" />
-                    </div>
-                    <h1 className="text-2xl font-bold">Dashboard</h1>
-                  </div>
-                  <p className="text-sm text-white/80 mt-2">
-                    Today’s status across bookings, availability, and payments.
-                  </p>
+                  <h1 className="text-2xl font-bold">Dashboard</h1>
+                  <p className="text-sm text-white/80 mt-1">Real-time system overview</p>
                 </div>
               </div>
+              <div className="absolute top-0 right-0 -mr-10 -mt-10 w-64 h-64 rounded-full bg-white opacity-10 blur-2xl" />
             </div>
           </div>
-          <div id="kpi-section" className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-6 mb-8 min-w-0">
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
             <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm min-w-0">
               <div className="flex items-center justify-between mb-3">
                 <span className="text-sm font-medium text-slate-600">
@@ -80,7 +103,7 @@ export default function DashboardPage() {
                 </div>
               </div>
               <div className="mb-2">
-                <h3 className="text-3xl font-bold text-slate-900">AU$45,200</h3>
+                <h3 className="text-3xl font-bold text-slate-900">AU${monthlyRevenue.toLocaleString()}</h3>
               </div>
               <div className="flex items-center space-x-2">
                 <span className="px-2 py-1 bg-emerald-50 text-emerald-700 rounded-lg text-xs font-semibold flex items-center">
@@ -93,19 +116,19 @@ export default function DashboardPage() {
             <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm min-w-0">
               <div className="flex items-center justify-between mb-3">
                 <span className="text-sm font-medium text-slate-600">
-                  Active Salons
+                  Total Bookings
                 </span>
                 <div className="w-10 h-10 bg-blue-50 rounded-xl flex items-center justify-center">
-                  <i className="fas fa-store text-blue-500" />
+                  <i className="fas fa-calendar-check text-blue-500" />
                 </div>
               </div>
               <div className="mb-2">
-                <h3 className="text-3xl font-bold text-slate-900">142</h3>
+                <h3 className="text-3xl font-bold text-slate-900">{totalBookings}</h3>
               </div>
               <div className="flex items-center space-x-2">
                 <span className="px-2 py-1 bg-emerald-50 text-emerald-700 rounded-lg text-xs font-semibold flex items-center">
                   <i className="fas fa-plus text-xs mr-1" />
-                  +5
+                  +0
                 </span>
                 <span className="text-xs text-slate-500">this week</span>
               </div>
@@ -113,173 +136,89 @@ export default function DashboardPage() {
             <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm min-w-0">
               <div className="flex items-center justify-between mb-3">
                 <span className="text-sm font-medium text-slate-600">
-                  Avg Revenue Per User
+                  Active Staff
                 </span>
                 <div className="w-10 h-10 bg-amber-50 rounded-xl flex items-center justify-center">
-                  <i className="fas fa-chart-line text-amber-500" />
+                  <i className="fas fa-users text-amber-500" />
                 </div>
               </div>
               <div className="mb-2">
-                <h3 className="text-3xl font-bold text-slate-900">AU$318</h3>
+                <h3 className="text-3xl font-bold text-slate-900">{activeStaff}</h3>
               </div>
-              <div className="flex items-center space-x-2">
-                <span className="px-2 py-1 bg-slate-100 text-slate-600 rounded-lg text-xs font-semibold">
-                  Stable
-                </span>
-                <span className="text-xs text-slate-500">per salon/month</span>
-              </div>
+              <div className="text-xs text-slate-500">Available for booking</div>
             </div>
             <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm min-w-0">
               <div className="flex items-center justify-between mb-3">
                 <span className="text-sm font-medium text-slate-600">
-                  Churn Rate
+                  Active Services
                 </span>
-                <div className="w-10 h-10 bg-rose-50 rounded-xl flex items-center justify-center">
-                  <i className="fas fa-user-minus text-rose-500" />
+                <div className="w-10 h-10 bg-purple-50 rounded-xl flex items-center justify-center">
+                  <i className="fas fa-tags text-purple-500" />
                 </div>
               </div>
               <div className="mb-2">
-                <h3 className="text-3xl font-bold text-slate-900">1.2%</h3>
+                <h3 className="text-3xl font-bold text-slate-900">{activeServices}</h3>
               </div>
-              <div className="flex items-center space-x-2">
-                <span className="px-2 py-1 bg-emerald-50 text-emerald-700 rounded-lg text-xs font-semibold flex items-center">
-                  <i className="fas fa-arrow-down text-xs mr-1" />
-                  -0.2%
-                </span>
-                <span className="text-xs text-slate-500">improvement</span>
-              </div>
+              <div className="text-xs text-slate-500">In catalog</div>
             </div>
           </div>
-          <div id="charts-section" className="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-8 min-w-0">
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-8">
             <div className="lg:col-span-2 bg-white p-6 rounded-2xl border border-slate-200 shadow-sm min-w-0 overflow-hidden">
               <div className="flex items-center justify-between mb-6">
                 <div>
                   <h3 className="font-semibold text-lg text-slate-900">
-                    Revenue Growth
+                    Revenue Trend (Mock)
                   </h3>
                   <p className="text-sm text-slate-500 mt-1">
-                    Last 12 months MRR trend
+                    Last 6 months
                   </p>
-                </div>
-                <div className="flex items-center space-x-2">
-                  <button className="px-3 py-1.5 text-xs font-medium text-slate-600 hover:bg-slate-100 rounded-lg">
-                    Month
-                  </button>
-                  <button className="px-3 py-1.5 text-xs font-medium bg-pink-50 text-pink-600 rounded-lg">
-                    Year
-                  </button>
                 </div>
               </div>
               <div className="h-[280px] relative">
-                <div className="absolute left-0 top-0 bottom-8 flex flex-col justify-between text-xs text-slate-400 pr-2">
-                  <span>$50k</span>
-                  <span>$40k</span>
-                  <span>$30k</span>
-                  <span>$20k</span>
-                  <span>$10k</span>
-                  <span>$0</span>
-                </div>
-                <div className="ml-12 h-full overflow-x-auto sm:overflow-visible pr-2">
-                  <div className="h-full min-w-[700px] sm:min-w-0 flex items-end justify-between space-x-2">
-                    {[
-                      45, 52, 58, 62, 68, 72, 78, 82, 88, 92, 96, 100,
-                    ].map((h, i) => (
-                      <div key={i} className="flex-1 flex flex-col items-center">
-                        <div
-                          className="w-full bg-gradient-to-t from-pink-500 to-pink-400 rounded-t-lg chart-bar"
-                          style={{ height: `${h}%` }}
-                        />
-                        <span className="text-xs text-slate-500 mt-3">
-                          {["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"][i]}
-                        </span>
-                      </div>
-                    ))}
-                  </div>
+                <div className="h-full w-full bg-gradient-to-b from-pink-100 to-white rounded-xl border border-slate-100 flex items-center justify-center text-slate-400">
+                  Chart placeholder
                 </div>
               </div>
             </div>
             <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm min-w-0">
               <div className="mb-6">
                 <h3 className="font-semibold text-lg text-slate-900">
-                  Tenant Distribution
+                  Booking Status
                 </h3>
                 <p className="text-sm text-slate-500 mt-1">
-                  By subscription plan
+                  Confirmed vs Pending (Mock)
                 </p>
               </div>
               <div className="space-y-4">
-                <div>
-                  <div className="flex items-center justify-between mb-2">
-                    <div className="flex items-center space-x-2">
-                      <div className="w-3 h-3 bg-pink-500 rounded" />
-                      <span className="text-sm font-medium text-slate-700">
-                        Pro
-                      </span>
-                    </div>
-                    <span className="text-sm font-semibold text-slate-900">
-                      68
-                    </span>
+                <div className="flex items-center justify-between mb-2">
+                  <div className="flex items-center space-x-2">
+                    <div className="w-3 h-3 bg-emerald-500 rounded" />
+                    <span className="text-sm font-medium text-slate-700">Confirmed</span>
                   </div>
-                  <div className="w-full bg-slate-100 rounded-full h-2">
-                    <div className="bg-pink-500 h-2 rounded-full" style={{ width: "48%" }} />
-                  </div>
-                  <p className="text-xs text-slate-500 mt-1">
-                    AU$149/mo • 48% of total
-                  </p>
+                  <span className="text-sm font-semibold text-slate-900">0</span>
                 </div>
-                <div>
-                  <div className="flex items-center justify-between mb-2">
-                    <div className="flex items-center space-x-2">
-                      <div className="w-3 h-3 bg-blue-500 rounded" />
-                      <span className="text-sm font-medium text-slate-700">
-                        Starter
-                      </span>
-                    </div>
-                    <span className="text-sm font-semibold text-slate-900">
-                      52
-                    </span>
-                  </div>
-                  <div className="w-full bg-slate-100 rounded-full h-2">
-                    <div className="bg-blue-500 h-2 rounded-full" style={{ width: "37%" }} />
-                  </div>
-                  <p className="text-xs text-slate-500 mt-1">
-                    AU$99/mo • 37% of total
-                  </p>
+                <div className="w-full bg-slate-100 rounded-full h-2">
+                  <div className="bg-emerald-500 h-2 rounded-full" style={{ width: "50%" }} />
                 </div>
-                <div>
-                  <div className="flex items-center justify-between mb-2">
-                    <div className="flex items-center space-x-2">
-                      <div className="w-3 h-3 bg-amber-500 rounded" />
-                      <span className="text-sm font-medium text-slate-700">
-                        Enterprise
-                      </span>
-                    </div>
-                    <span className="text-sm font-semibold text-slate-900">
-                      22
-                    </span>
+                <div className="flex items-center justify-between mb-2 mt-4">
+                  <div className="flex items-center space-x-2">
+                    <div className="w-3 h-3 bg-amber-500 rounded" />
+                    <span className="text-sm font-medium text-slate-700">Pending</span>
                   </div>
-                  <div className="w-full bg-slate-100 rounded-full h-2">
-                    <div className="bg-amber-500 h-2 rounded-full" style={{ width: "15%" }} />
-                  </div>
-                  <p className="text-xs text-slate-500 mt-1">
-                    AU$299/mo • 15% of total
-                  </p>
+                  <span className="text-sm font-semibold text-slate-900">0</span>
                 </div>
-              </div>
-              <div className="mt-6 pt-6 border-t border-slate-200">
-                <div className="flex items-center justify-between">
-                  <span className="text-sm text-slate-600">Total Active</span>
-                  <span className="text-lg font-bold text-slate-900">142</span>
+                <div className="w-full bg-slate-100 rounded-full h-2">
+                  <div className="bg-amber-500 h-2 rounded-full" style={{ width: "50%" }} />
                 </div>
               </div>
             </div>
           </div>
-          <div id="activity-section" className="bg-white rounded-2xl border border-slate-200 shadow-sm">
+          <div className="bg-white rounded-2xl border border-slate-200 shadow-sm">
             <div className="p-6 border-b border-slate-200">
               <div className="flex items-center justify-between">
                 <div>
-                  <h3 className="font-semibold text-lg text-slate-900">Recent Signups</h3>
-                  <p className="text-sm text-slate-500 mt-1">Latest salon onboarding activity</p>
+                  <h3 className="font-semibold text-lg text-slate-900">Recent Activity</h3>
+                  <p className="text-sm text-slate-500 mt-1">Latest onboarding activity</p>
                 </div>
                 <button className="px-4 py-2 text-sm font-medium text-pink-600 hover:bg-pink-50 rounded-lg transition">
                   View All

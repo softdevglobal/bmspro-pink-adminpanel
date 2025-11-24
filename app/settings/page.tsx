@@ -184,10 +184,6 @@ export default function SettingsPage() {
                           Upload PNG/SVG
                         </div>
                       </div>
-                      <div>
-                        <label className="block text-sm font-medium text-slate-700 mb-2">Accent Color</label>
-                        <input type="color" defaultValue="#FF2D8F" className="h-10 w-full border border-slate-300 rounded-lg p-1 cursor-pointer" />
-                      </div>
                     </div>
                   </div>
 
