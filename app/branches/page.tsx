@@ -49,6 +49,9 @@ export default function BranchesPage() {
   const [branches, setBranches] = useState<Branch[]>([]);
   const [saving, setSaving] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
+  const [previewBranch, setPreviewBranch] = useState<Branch | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<Branch | null>(null);
+  const [deleting, setDeleting] = useState(false);
   const [name, setName] = useState("");
   const [address, setAddress] = useState("");
   const [phone, setPhone] = useState("");
@@ -289,30 +292,36 @@ export default function BranchesPage() {
                 const isHQ = b.id === "br1";
                 const rate = isHQ ? 75 : 45; // mock metric
                 return (
-                  <div key={b.id} className="bg-white rounded-2xl border border-slate-200 shadow-sm p-6 relative">
-                    <button
-                      onClick={() => openEditModal(b)}
-                      className="absolute top-4 right-4 text-slate-400 hover:text-blue-600 text-sm"
-                      title="Edit Branch"
-                    >
-                      <i className="fas fa-pen" /> Edit
-                    </button>
-                    <div className="flex items-center gap-4 mb-6">
-                      <div className="w-12 h-12 bg-purple-100 text-purple-600 rounded-xl flex items-center justify-center text-xl">
-                        <i className="fas fa-building" />
+                  <div key={b.id} className="bg-white rounded-2xl border border-slate-200 shadow-sm p-6">
+                    <div className="flex items-start justify-between mb-6">
+                      <div className="flex items-center gap-4">
+                        <div className="w-12 h-12 bg-purple-100 text-purple-600 rounded-xl flex items-center justify-center text-xl">
+                          <i className="fas fa-building" />
+                        </div>
+                        <div className="min-w-0">
+                          <h3 className="font-bold text-lg text-slate-900 truncate">{b.name}</h3>
+                          <p className="text-sm text-slate-500 truncate">{b.address}</p>
+                          <div className="mt-1 flex items-center gap-2 text-xs text-slate-500">
+                            {b.manager && <span className="inline-flex items-center gap-1"><i className="fas fa-user-tie" /> {b.manager}</span>}
+                            {b.status && (
+                              <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full ${b.status === "Active" ? "bg-emerald-50 text-emerald-700" : b.status === "Pending" ? "bg-amber-50 text-amber-700" : "bg-rose-50 text-rose-700"}`}>
+                                <i className="fas fa-circle" />
+                                {b.status}
+                              </span>
+                            )}
+                          </div>
+                        </div>
                       </div>
-                      <div className="min-w-0">
-                        <h3 className="font-bold text-lg text-slate-900 truncate">{b.name}</h3>
-                            <p className="text-sm text-slate-500 truncate">{b.address}</p>
-                            <div className="mt-1 flex items-center gap-2 text-xs text-slate-500">
-                              {b.manager && <span className="inline-flex items-center gap-1"><i className="fas fa-user-tie" /> {b.manager}</span>}
-                              {b.status && (
-                                <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full ${b.status === "Active" ? "bg-emerald-50 text-emerald-700" : b.status === "Pending" ? "bg-amber-50 text-amber-700" : "bg-rose-50 text-rose-700"}`}>
-                                  <i className="fas fa-circle" />
-                                  {b.status}
-                                </span>
-                              )}
-                            </div>
+                      <div className="flex items-center gap-3 text-slate-400">
+                        <button onClick={() => setPreviewBranch(b)} title="Preview" className="hover:text-slate-600">
+                          <i className="fas fa-eye" />
+                        </button>
+                        <button onClick={() => openEditModal(b)} title="Edit" className="hover:text-blue-600">
+                          <i className="fas fa-pen" />
+                        </button>
+                        <button onClick={() => setDeleteTarget(b)} title="Delete" className="hover:text-rose-600">
+                          <i className="fas fa-trash" />
+                        </button>
                       </div>
                     </div>
                     <div className="h-2 bg-slate-100 rounded-full overflow-hidden mb-2">
@@ -544,6 +553,169 @@ export default function BranchesPage() {
                   )}
                 </button>
               </form>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Preview Branch Modal */}
+      {previewBranch && (
+        <div className="fixed inset-0 z-50">
+          <div className="absolute inset-0 bg-black/50" onClick={() => setPreviewBranch(null)} />
+          <div className="relative flex items-center justify-center min-h-screen p-4">
+            <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl overflow-hidden">
+              {/* Header */}
+              <div className="bg-gradient-to-r from-purple-600 to-indigo-600 px-6 py-5 text-white flex items-center justify-between">
+                <div className="flex items-center gap-4 min-w-0">
+                  <div className="w-12 h-12 rounded-xl bg-white/20 flex items-center justify-center text-2xl">
+                    <i className="fas fa-building" />
+                  </div>
+                  <div className="min-w-0">
+                    <div className="text-xl font-semibold truncate">{previewBranch.name}</div>
+                    <div className="text-sm text-white/80 truncate">{previewBranch.address}</div>
+                  </div>
+                </div>
+                {previewBranch.status && (
+                  <div
+                    className={`ml-4 shrink-0 inline-flex items-center gap-2 px-3 py-1 rounded-full text-xs font-semibold ${
+                      previewBranch.status === "Active"
+                        ? "bg-emerald-100 text-emerald-800"
+                        : previewBranch.status === "Pending"
+                        ? "bg-amber-100 text-amber-800"
+                        : "bg-rose-100 text-rose-800"
+                    }`}
+                  >
+                    <i className="fas fa-circle" />
+                    {previewBranch.status}
+                  </div>
+                )}
+              </div>
+
+              {/* Body */}
+              <div className="p-6 grid grid-cols-1 md:grid-cols-2 gap-6">
+                <div className="space-y-3">
+                  <div className="text-xs font-bold text-slate-600">Contact</div>
+                  <div className="text-sm text-slate-700 space-y-2">
+                    {previewBranch.phone && (
+                      <div className="flex items-center gap-2">
+                        <i className="fas fa-phone text-slate-400" /> {previewBranch.phone}
+                      </div>
+                    )}
+                    {previewBranch.email && (
+                      <div className="flex items-center gap-2 truncate">
+                        <i className="fas fa-envelope text-slate-400" /> {previewBranch.email}
+                      </div>
+                    )}
+                    {previewBranch.manager && (
+                      <div className="flex items-center gap-2">
+                        <i className="fas fa-user-tie text-slate-400" /> {previewBranch.manager}
+                      </div>
+                    )}
+                    {typeof previewBranch.capacity !== "undefined" && previewBranch.capacity !== null && previewBranch.capacity !== ("" as any) && (
+                      <div className="flex items-center gap-2">
+                        <i className="fas fa-chair text-slate-400" /> Capacity: {String(previewBranch.capacity)}
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                {/* Hours */}
+                <div>
+                  <div className="text-xs font-bold text-slate-600 mb-2">Operating Hours</div>
+                  <div className="border border-slate-200 rounded-lg overflow-hidden bg-slate-50">
+                    <div className="max-h-48 overflow-y-auto">
+                      {["Monday","Tuesday","Wednesday","Thursday","Friday","Saturday","Sunday"].map((day) => {
+                        const d = day as keyof HoursMap;
+                        const row = (previewBranch.hours as any)?.[d] as HoursDay | undefined;
+                        const text = row
+                          ? row.closed
+                            ? "Closed"
+                            : row.open && row.close
+                            ? `${row.open} - ${row.close}`
+                            : "—"
+                          : "—";
+                        const isClosed = row?.closed;
+                        return (
+                          <div key={day} className="flex items-center justify-between px-3 py-2 text-sm border-b last:border-b-0 border-slate-200 bg-white">
+                            <span className="text-slate-600">{day}</span>
+                            <span className={`font-medium ${isClosed ? "text-rose-600" : "text-slate-800"}`}>{text}</span>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Footer actions */}
+              <div className="px-6 py-4 border-t border-slate-200 bg-slate-50 flex items-center justify-end gap-3">
+                <button
+                  onClick={() => {
+                    setPreviewBranch(null);
+                    openEditModal(previewBranch);
+                  }}
+                  className="px-4 py-2 bg-purple-600 text-white rounded-lg text-sm hover:bg-purple-700 font-medium shadow-md transition"
+                >
+                  <i className="fas fa-pen mr-2" /> Edit
+                </button>
+                <button
+                  onClick={() => setPreviewBranch(null)}
+                  className="px-4 py-2 bg-slate-200 text-slate-800 rounded-lg text-sm hover:bg-slate-300 font-medium transition"
+                >
+                  Close
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Delete Confirm Modal */}
+      {deleteTarget && (
+        <div className="fixed inset-0 z-50">
+          <div className="absolute inset-0 bg-black/50" onClick={() => setDeleteTarget(null)} />
+          <div className="relative flex items-center justify-center min-h-screen p-4">
+            <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm overflow-hidden">
+              <div className="p-5 border-b border-slate-100 flex items-center gap-3">
+                <div className="w-9 h-9 rounded-full bg-rose-100 text-rose-600 flex items-center justify-center">
+                  <i className="fa-solid fa-triangle-exclamation" />
+                </div>
+                <h3 className="font-semibold text-slate-900">Delete branch?</h3>
+              </div>
+              <div className="p-5 text-sm text-slate-600">
+                This will permanently remove <span className="font-semibold text-slate-800">{deleteTarget.name}</span>.
+              </div>
+              <div className="px-5 pb-5 flex items-center justify-end gap-3">
+                <button
+                  onClick={() => setDeleteTarget(null)}
+                  disabled={deleting}
+                  className="px-4 py-2 rounded-md border border-slate-300 text-slate-700 hover:bg-slate-50 disabled:opacity-60"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={async () => {
+                    if (!deleteTarget) return;
+                    setDeleting(true);
+                    try {
+                      await (await import("@/lib/branches")).deleteBranch(deleteTarget.id);
+                      setDeleteTarget(null);
+                    } finally {
+                      setDeleting(false);
+                    }
+                  }}
+                  disabled={deleting}
+                  className="px-4 py-2 rounded-md bg-rose-600 text-white hover:bg-rose-700 disabled:opacity-60"
+                >
+                  {deleting ? (
+                    <span className="inline-flex items-center gap-2">
+                      <i className="fa-solid fa-circle-notch fa-spin" /> Deleting...
+                    </span>
+                  ) : (
+                    "Delete"
+                  )}
+                </button>
+              </div>
             </div>
           </div>
         </div>

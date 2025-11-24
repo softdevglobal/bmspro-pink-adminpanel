@@ -7,7 +7,7 @@ import { onAuthStateChanged } from "firebase/auth";
 import { doc, getDoc } from "firebase/firestore";
 import { subscribeBranchesForOwner } from "@/lib/branches";
 import { subscribeSalonStaffForOwner } from "@/lib/salonStaff";
-import { createServiceForOwner, deleteService as deleteServiceDoc, subscribeServicesForOwner } from "@/lib/services";
+import { createServiceForOwner, deleteService as deleteServiceDoc, subscribeServicesForOwner, updateService } from "@/lib/services";
 
 type Service = {
   id: string;
@@ -36,6 +36,8 @@ export default function ServicesPage() {
   // modal/form
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [editingServiceId, setEditingServiceId] = useState<string | null>(null);
+  const [previewService, setPreviewService] = useState<Service | null>(null);
   const [name, setName] = useState("");
   const [price, setPrice] = useState<number | "">("");
   const [cost, setCost] = useState<number | "">("");
@@ -122,6 +124,7 @@ export default function ServicesPage() {
   };
 
   const openModal = () => {
+    setEditingServiceId(null);
     setName("");
     setPrice("");
     setCost("");
@@ -137,6 +140,22 @@ export default function ServicesPage() {
   };
   const closeModal = () => setIsModalOpen(false);
 
+  const openEdit = (svc: Service) => {
+    setEditingServiceId(svc.id);
+    setName(svc.name);
+    setPrice(svc.price);
+    setCost(svc.cost);
+    setDuration(svc.duration);
+    setIcon(svc.icon || "fa-solid fa-star");
+    const staffMap: Record<string, boolean> = {};
+    const branchMap: Record<string, boolean> = {};
+    staff.forEach((s) => (staffMap[s.id] = svc.staffIds?.includes(s.id) || false));
+    branches.forEach((b) => (branchMap[b.id] = svc.branches?.includes(b.id) || false));
+    setSelectedStaff(staffMap);
+    setSelectedBranches(branchMap);
+    setIsModalOpen(true);
+  };
+
   const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     if (!name.trim() || !price || !cost || !duration) return;
@@ -145,20 +164,33 @@ export default function ServicesPage() {
     if (!ownerUid) return;
     setSaving(true);
     try {
-      await createServiceForOwner(ownerUid, {
-        name: name.trim(),
-        price: Number(price),
-        cost: Number(cost),
-        duration: Number(duration),
-        icon: icon || "fa-solid fa-star",
-        reviews: 0,
-        staffIds: qualifiedStaff,
-        branches: selectedBrs,
-      });
+      if (editingServiceId) {
+        await updateService(editingServiceId, {
+          name: name.trim(),
+          price: Number(price),
+          cost: Number(cost),
+          duration: Number(duration),
+          icon: icon || "fa-solid fa-star",
+          staffIds: qualifiedStaff,
+          branches: selectedBrs,
+        });
+      } else {
+        await createServiceForOwner(ownerUid, {
+          name: name.trim(),
+          price: Number(price),
+          cost: Number(cost),
+          duration: Number(duration),
+          icon: icon || "fa-solid fa-star",
+          reviews: 0,
+          staffIds: qualifiedStaff,
+          branches: selectedBrs,
+        });
+      }
       setIsModalOpen(false);
-      showToast("Service added to catalog!");
+      setEditingServiceId(null);
+      showToast(editingServiceId ? "Service updated." : "Service added to catalog!");
     } catch {
-      showToast("Failed to add service");
+      showToast(editingServiceId ? "Failed to update service" : "Failed to add service");
     } finally {
       setSaving(false);
     }
@@ -221,21 +253,31 @@ export default function ServicesPage() {
                 const branchCount = s.branches?.length || 0;
                 const branchLabel = branchCount === totalBranches ? "All Branches" : `${branchCount} Branches`;
                 return (
-                  <div key={s.id} className="group bg-white rounded-2xl border border-slate-200 shadow-sm p-6 hover:border-pink-300 transition relative">
-                    <button onClick={() => deleteService(s.id)} className="absolute top-4 right-4 text-slate-300 hover:text-rose-500">
-                      <i className="fas fa-trash" />
-                    </button>
+                  <div key={s.id} className="group bg-white rounded-2xl border border-slate-200 shadow-sm p-6 hover:border-pink-300 transition">
                     <div className="flex justify-between items-start mb-4">
                       <div className="w-10 h-10 rounded-lg bg-pink-100 text-pink-600 flex items-center justify-center">
                         <i className={s.icon} />
                       </div>
-                      <div className="text-right pr-6">
-                        <span className="block text-lg font-bold text-slate-800">${s.price}</span>
-                        <span className="text-xs text-slate-400 block">Cost: ${s.cost || 0}</span>
+                      <div className="flex items-start gap-3">
+                        <div className="text-right">
+                          <span className="block text-lg font-bold text-slate-800">${s.price}</span>
+                          <span className="text-xs text-slate-400 block">Cost: ${s.cost || 0}</span>
+                        </div>
+                        <div className="flex items-center gap-3 text-slate-400">
+                          <button onClick={() => setPreviewService(s)} title="Preview" className="hover:text-slate-600">
+                            <i className="fas fa-eye" />
+                          </button>
+                          <button onClick={() => openEdit(s)} title="Edit" className="hover:text-blue-600">
+                            <i className="fas fa-pen" />
+                          </button>
+                          <button onClick={() => deleteService(s.id)} title="Delete" className="hover:text-rose-500">
+                            <i className="fas fa-trash" />
+                          </button>
+                        </div>
                       </div>
                     </div>
-                    <h3 className="font-bold text-lg mb-1">{s.name}</h3>
-                    <div className="text-xs text-slate-500 mb-3">
+                    <h3 className="font-bold text-lg text-slate-900 mb-1">{s.name}</h3>
+                    <div className="text-xs text-slate-600 mb-3">
                       {s.duration} mins • <span className="text-purple-600 font-medium">{branchLabel}</span>
                     </div>
                     <div className="flex items-center justify-between text-xs mb-1">
@@ -277,10 +319,10 @@ export default function ServicesPage() {
       {isModalOpen && (
         <div className="fixed inset-0 z-50">
           <div className="absolute inset-0 bg-black/50" onClick={closeModal} />
-          <div className="relative flex items-start md:items-center justify-center min-h-screen p-4 overflow-y-auto">
+          <div className="relative flex items-center justify-center min-h-screen p-4 overflow-y-auto">
             <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md max-h-[90vh] flex flex-col">
               <div className="px-5 py-4 border-b border-slate-200 flex items-center justify-between">
-                <h3 className="text-base font-semibold text-slate-900">Add Service</h3>
+                <h3 className="text-base font-semibold text-slate-900">{editingServiceId ? "Edit Service" : "Add Service"}</h3>
                 <button className="text-slate-400 hover:text-slate-600" onClick={closeModal}>
                   <i className="fas fa-times" />
                 </button>
@@ -367,11 +409,67 @@ export default function ServicesPage() {
                         <i className="fas fa-circle-notch fa-spin" /> Saving...
                       </span>
                     ) : (
-                      "Save Service"
+                      editingServiceId ? "Save Changes" : "Save Service"
                     )}
                   </button>
                 </div>
               </form>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Preview Service Modal */}
+      {previewService && (
+        <div className="fixed inset-0 z-50">
+          <div className="absolute inset-0 bg-black/50" onClick={() => setPreviewService(null)} />
+          <div className="relative flex items-center justify-center min-h-screen p-4 overflow-y-auto">
+            <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden">
+              <div className="px-5 py-4 border-b border-slate-200 flex items-center justify-between">
+                <h3 className="text-base font-semibold text-slate-900">Service Preview</h3>
+                <button className="text-slate-400 hover:text-slate-600" onClick={() => setPreviewService(null)}>
+                  <i className="fas fa-times" />
+                </button>
+              </div>
+              <div className="p-6 space-y-4">
+                <div className="flex items-start gap-4">
+                  <div className="w-12 h-12 rounded-lg bg-pink-100 text-pink-600 flex items-center justify-center">
+                    <i className={previewService.icon} />
+                  </div>
+                  <div className="flex-1">
+                    <div className="text-lg font-semibold text-slate-900">{previewService.name}</div>
+                    <div className="text-xs text-slate-600 mt-1">
+                      {previewService.duration} mins • ${previewService.price} {" "}
+                      <span className="text-slate-400">(Cost: ${previewService.cost})</span>
+                    </div>
+                  </div>
+                </div>
+                <div>
+                  <div className="text-xs font-bold text-slate-600 mb-2">Available at Branches</div>
+                  <div className="flex flex-wrap gap-2">
+                    {previewService.branches.length > 0 ? (
+                      previewService.branches.map((bid) => {
+                        const b = branches.find((x) => x.id === bid);
+                        return (
+                          <span key={bid} className="px-2 py-1 rounded-full bg-slate-100 text-slate-700 text-xs">
+                            {b?.name || bid}
+                          </span>
+                        );
+                      })
+                    ) : (
+                      <span className="text-xs text-slate-400">No branches selected.</span>
+                    )}
+                  </div>
+                </div>
+                <div className="flex justify-end">
+                  <button
+                    onClick={() => setPreviewService(null)}
+                    className="px-4 py-2 bg-slate-800 text-white rounded-lg text-sm hover:bg-slate-700 font-medium shadow-md transition"
+                  >
+                    Close
+                  </button>
+                </div>
+              </div>
             </div>
           </div>
         </div>
