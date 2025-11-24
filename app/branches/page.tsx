@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { auth, db } from "@/lib/firebase";
 import { onAuthStateChanged } from "firebase/auth";
 import { doc, getDoc } from "firebase/firestore";
+import { BranchInput, createBranchForOwner, subscribeBranchesForOwner } from "@/lib/branches";
 
 type Branch = {
   id: string;
@@ -46,6 +47,8 @@ export default function BranchesPage() {
   const [ownerUid, setOwnerUid] = useState<string | null>(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [branches, setBranches] = useState<Branch[]>([]);
+  const [saving, setSaving] = useState(false);
+  const [editingId, setEditingId] = useState<string | null>(null);
   const [name, setName] = useState("");
   const [address, setAddress] = useState("");
   const [phone, setPhone] = useState("");
@@ -69,14 +72,8 @@ export default function BranchesPage() {
   const [selectedServiceIds, setSelectedServiceIds] = useState<Record<string, boolean>>({});
   const [selectedStaffIds, setSelectedStaffIds] = useState<Record<string, boolean>>({});
 
-  // seed defaults
-  const defaultBranches: Branch[] = useMemo(
-    () => [
-      { id: "br1", name: "Downtown HQ", address: "123 Main St, Melbourne", revenue: 45200 },
-      { id: "br2", name: "North Branch", address: "88 North Rd, Brunswick", revenue: 12800 },
-    ],
-    []
-  );
+  // seed defaults (only used when no data in db; not persisted)
+  const defaultBranches: Branch[] = useMemo(() => [], []);
 
   // auth + role guard
   useEffect(() => {
@@ -107,23 +104,27 @@ export default function BranchesPage() {
     return () => unsub();
   }, [router]);
 
-  // load persisted data
+  // subscribe to branches for this owner
   useEffect(() => {
-    try {
-      const raw = typeof window !== "undefined" ? localStorage.getItem("bms_branch_data") : null;
-      if (raw) {
-        const parsed = JSON.parse(raw);
-        setBranches(parsed?.branches || defaultBranches);
-      } else {
-        setBranches(defaultBranches);
-        if (typeof window !== "undefined") {
-          localStorage.setItem("bms_branch_data", JSON.stringify({ branches: defaultBranches }));
-        }
-      }
-    } catch {
-      setBranches(defaultBranches);
-    }
-  }, [defaultBranches]);
+    if (!ownerUid) return;
+    const unsub = subscribeBranchesForOwner(ownerUid, (rows) => {
+      const mapped: Branch[] = rows.map((r) => ({
+        id: String(r.id),
+        name: String(r.name || ""),
+        address: String(r.address || ""),
+        revenue: Number(r.revenue || 0),
+        phone: r.phone,
+        email: r.email,
+        // @ts-ignore
+        hours: r.hours,
+        capacity: r.capacity,
+        manager: r.manager,
+        status: (r.status as any) || "Active",
+      }));
+      setBranches(mapped.length ? mapped : defaultBranches);
+    });
+    return () => unsub();
+  }, [ownerUid, defaultBranches]);
 
   // load services/staff for checklists (best-effort from services store)
   useEffect(() => {
@@ -150,16 +151,10 @@ export default function BranchesPage() {
     } catch {}
   }, []);
 
-  const saveData = (next: Branch[]) => {
-    setBranches(next);
-    try {
-      if (typeof window !== "undefined") {
-        localStorage.setItem("bms_branch_data", JSON.stringify({ branches: next }));
-      }
-    } catch {}
-  };
+  const saveData = (next: Branch[]) => setBranches(next);
 
   const openModal = () => {
+    setEditingId(null);
     setName("");
     setAddress("");
     setPhone("");
@@ -182,51 +177,59 @@ export default function BranchesPage() {
   };
   const closeModal = () => setIsModalOpen(false);
 
-  const handleSubmit = (e: React.FormEvent<HTMLFormElement>) => {
-    e.preventDefault();
-    if (!name.trim() || !address.trim()) return;
-    const newBranch: Branch = {
-      id: `br${Date.now()}`,
-      name: name.trim(),
-      address: address.trim(),
-      revenue: 0,
-      phone: phone.trim() || undefined,
-      email: email.trim() || undefined,
-      hours: hoursObj,
-      capacity: typeof capacity === "number" ? capacity : capacity === "" ? undefined : Number(capacity),
-      manager: manager.trim() || undefined,
-      status,
-    };
-    const nextBranches = [...branches, newBranch];
-    saveData(nextBranches);
+  const openEditModal = (b: Branch) => {
+    setEditingId(b.id);
+    setName(b.name || "");
+    setAddress((b as any).address || "");
+    setPhone((b as any).phone || "");
+    setEmail((b as any).email || "");
+    // prefill hours when present as object
+    const h = (b as any).hours;
+    if (h && typeof h === "object") {
+      setHoursObj(h as HoursMap);
+    } else {
+      setHoursObj({
+        Monday: { open: "09:00", close: "17:00", closed: false },
+        Tuesday: { open: "09:00", close: "17:00", closed: false },
+        Wednesday: { open: "09:00", close: "17:00", closed: false },
+        Thursday: { open: "09:00", close: "17:00", closed: false },
+        Friday: { open: "09:00", close: "17:00", closed: false },
+        Saturday: { open: "10:00", close: "16:00", closed: false },
+        Sunday: { open: "10:00", close: "16:00", closed: true },
+      });
+    }
+    setCapacity((b as any).capacity ?? "");
+    setManager((b as any).manager || "");
+    setStatus(((b as any).status as any) || "Active");
+    setIsModalOpen(true);
+  };
 
-    // best-effort: update relationships in services store
+  const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
+    if (!name.trim() || !address.trim() || !ownerUid) return;
+    setSaving(true);
     try {
-      const raw = typeof window !== "undefined" ? localStorage.getItem("bms_services_data") : null;
-      if (raw) {
-        const store = JSON.parse(raw);
-        // update services -> branches mapping
-        if (Array.isArray(store.services)) {
-          store.services = store.services.map((s: any) => {
-            const selected = Boolean(selectedServiceIds[String(s.id)]);
-            const current = Array.isArray(s.branches) ? s.branches.slice() : [];
-            if (selected && !current.includes(newBranch.id)) current.push(newBranch.id);
-            return { ...s, branches: current };
-          });
-        }
-        // update staff -> branch name assignment
-        if (Array.isArray(store.staff)) {
-          store.staff = store.staff.map((s: any) => {
-            if (selectedStaffIds[String(s.id)]) {
-              return { ...s, branch: newBranch.name };
-            }
-            return s;
-          });
-        }
-        localStorage.setItem("bms_services_data", JSON.stringify(store));
+      const payload: BranchInput = {
+        name: name.trim(),
+        address: address.trim(),
+        phone: phone.trim() || undefined,
+        email: email.trim() || undefined,
+        hours: hoursObj,
+        capacity: typeof capacity === "number" ? capacity : capacity === "" ? undefined : Number(capacity),
+        manager: manager.trim() || undefined,
+        status,
+      };
+      if (editingId) {
+        await (await import("@/lib/branches")).updateBranch(editingId, payload);
+      } else {
+        await createBranchForOwner(ownerUid, payload);
       }
-    } catch {}
-    setIsModalOpen(false);
+      setIsModalOpen(false);
+    } catch (err) {
+      console.error("Failed to create branch", err);
+    } finally {
+      setSaving(false);
+    }
   };
 
   return (
@@ -286,7 +289,14 @@ export default function BranchesPage() {
                 const isHQ = b.id === "br1";
                 const rate = isHQ ? 75 : 45; // mock metric
                 return (
-                  <div key={b.id} className="bg-white rounded-2xl border border-slate-200 shadow-sm p-6">
+                  <div key={b.id} className="bg-white rounded-2xl border border-slate-200 shadow-sm p-6 relative">
+                    <button
+                      onClick={() => openEditModal(b)}
+                      className="absolute top-4 right-4 text-slate-400 hover:text-blue-600 text-sm"
+                      title="Edit Branch"
+                    >
+                      <i className="fas fa-pen" /> Edit
+                    </button>
                     <div className="flex items-center gap-4 mb-6">
                       <div className="w-12 h-12 bg-purple-100 text-purple-600 rounded-xl flex items-center justify-center text-xl">
                         <i className="fas fa-building" />
@@ -337,7 +347,7 @@ export default function BranchesPage() {
           <div className="relative flex items-center justify-center min-h-screen p-4">
             <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[92vh] flex flex-col overflow-hidden">
               <div className="px-5 py-4 border-b border-slate-200 flex items-center justify-between sticky top-0 bg-white z-10">
-                <h3 className="text-base font-semibold text-slate-900">Add Branch</h3>
+                <h3 className="text-base font-semibold text-slate-900">{editingId ? "Edit Branch" : "Add Branch"}</h3>
                 <button className="text-slate-400 hover:text-slate-600" onClick={closeModal}>
                   <i className="fas fa-times" />
                 </button>
@@ -519,9 +529,19 @@ export default function BranchesPage() {
                 )}
                 <button
                   type="submit"
-                  className="w-full bg-purple-600 hover:bg-purple-700 text-white font-bold py-2.5 rounded-lg shadow-md transition mt-2"
+                  disabled={saving}
+                  className={`w-full bg-purple-600 text-white font-bold py-2.5 rounded-lg shadow-md mt-2 transition ${
+                    saving ? "opacity-60 cursor-not-allowed" : "hover:bg-purple-700"
+                  }`}
                 >
-                  Add Branch
+                  {saving ? (
+                    <span className="inline-flex items-center justify-center gap-2">
+                      <i className="fas fa-circle-notch fa-spin" />
+                      Saving...
+                    </span>
+                  ) : (
+                    editingId ? "Save Changes" : "Add Branch"
+                  )}
                 </button>
               </form>
             </div>

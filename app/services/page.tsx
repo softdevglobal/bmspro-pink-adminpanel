@@ -1,55 +1,33 @@
 "use client";
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useState } from "react";
 import Sidebar from "@/components/Sidebar";
 import { useRouter } from "next/navigation";
 import { auth, db } from "@/lib/firebase";
 import { onAuthStateChanged } from "firebase/auth";
 import { doc, getDoc } from "firebase/firestore";
+import { subscribeBranchesForOwner } from "@/lib/branches";
+import { subscribeSalonStaffForOwner } from "@/lib/salonStaff";
+import { createServiceForOwner, deleteService as deleteServiceDoc, subscribeServicesForOwner } from "@/lib/services";
 
 type Service = {
-  id: number;
+  id: string;
   name: string;
   price: number;
   cost: number;
   duration: number;
   icon: string;
   reviews?: number;
-  qualifiedStaff: string[];
+  staffIds: string[];
   branches: string[];
 };
 
 type Staff = { id: string; name: string; role: string; branch: string; status: "Active" | "Suspended"; avatar: string };
-type Branch = { id: string; name: string; address: string; revenue: number };
-
-type ServicesStore = {
-  services: Service[];
-  staff: Staff[];
-  branches: Branch[];
-};
+type Branch = { id: string; name: string };
 
 export default function ServicesPage() {
   const router = useRouter();
   const [mobileOpen, setMobileOpen] = useState(false);
   const [ownerUid, setOwnerUid] = useState<string | null>(null);
-
-  // data
-  const defaults = useMemo<ServicesStore>(
-    () => ({
-      services: [
-        { id: 1, name: "Full Body Massage", price: 120, cost: 40, duration: 60, icon: "fa-solid fa-spa", reviews: 124, qualifiedStaff: ["st1", "st2"], branches: ["br1", "br2"] },
-        { id: 2, name: "Express Facial", price: 60, cost: 15, duration: 30, icon: "fa-solid fa-spray-can-sparkles", reviews: 85, qualifiedStaff: ["st1"], branches: ["br1"] },
-      ],
-      staff: [
-        { id: "st1", name: "Sarah Jenkins", role: "Senior Therapist", branch: "Downtown HQ", status: "Active", avatar: "Sarah" },
-        { id: "st2", name: "Mike Ross", role: "Junior Associate", branch: "North Branch", status: "Active", avatar: "Mike" },
-      ],
-      branches: [
-        { id: "br1", name: "Downtown HQ", address: "123 Main St, Melbourne", revenue: 45200 },
-        { id: "br2", name: "North Branch", address: "88 North Rd, Brunswick", revenue: 12800 },
-      ],
-    }),
-    []
-  );
 
   const [services, setServices] = useState<Service[]>([]);
   const [staff, setStaff] = useState<Staff[]>([]);
@@ -57,6 +35,7 @@ export default function ServicesPage() {
 
   // modal/form
   const [isModalOpen, setIsModalOpen] = useState(false);
+  const [saving, setSaving] = useState(false);
   const [name, setName] = useState("");
   const [price, setPrice] = useState<number | "">("");
   const [cost, setCost] = useState<number | "">("");
@@ -94,41 +73,45 @@ export default function ServicesPage() {
     return () => unsub();
   }, [router]);
 
-  // load
+  // live Firestore data for this owner
   useEffect(() => {
-    try {
-      const raw = typeof window !== "undefined" ? localStorage.getItem("bms_services_data") : null;
-      if (raw) {
-        const parsed = JSON.parse(raw) as ServicesStore;
-        setServices(parsed?.services || defaults.services);
-        setStaff(parsed?.staff || defaults.staff);
-        setBranches(parsed?.branches || defaults.branches);
-      } else {
-        setServices(defaults.services);
-        setStaff(defaults.staff);
-        setBranches(defaults.branches);
-        if (typeof window !== "undefined") localStorage.setItem("bms_services_data", JSON.stringify(defaults));
-      }
-    } catch {
-      setServices(defaults.services);
-      setStaff(defaults.staff);
-      setBranches(defaults.branches);
-    }
-  }, [defaults]);
-
-  const saveStore = (next: Partial<ServicesStore>) => {
-    const store: ServicesStore = {
-      services: next.services ?? services,
-      staff: next.staff ?? staff,
-      branches: next.branches ?? branches,
+    if (!ownerUid) return;
+    const unsubBranches = subscribeBranchesForOwner(ownerUid, (rows) => {
+      setBranches(rows.map((r) => ({ id: String(r.id), name: String(r.name || "") })));
+    });
+    const unsubStaff = subscribeSalonStaffForOwner(ownerUid, (rows) => {
+      setStaff(
+        rows.map((r) => ({
+          id: String(r.id),
+          name: String(r.name || ""),
+          role: String(r.role || ""),
+          branch: String(r.branchName || ""),
+          status: (r.status as any) === "Suspended" ? "Suspended" : "Active",
+          avatar: String(r.avatar || r.name || ""),
+        }))
+      );
+    });
+    const unsubServices = subscribeServicesForOwner(ownerUid, (rows) => {
+      setServices(
+        rows.map((r) => ({
+          id: String(r.id),
+          name: String(r.name || ""),
+          price: Number(r.price || 0),
+          cost: Number(r.cost || 0),
+          duration: Number(r.duration || 0),
+          icon: String(r.icon || "fa-solid fa-star"),
+          reviews: Number(r.reviews || 0),
+          branches: (Array.isArray(r.branches) ? r.branches : []).map(String),
+          staffIds: (Array.isArray(r.staffIds) ? r.staffIds : []).map(String),
+        }))
+      );
+    });
+    return () => {
+      unsubBranches();
+      unsubStaff();
+      unsubServices();
     };
-    setServices(store.services);
-    setStaff(store.staff);
-    setBranches(store.branches);
-    try {
-      if (typeof window !== "undefined") localStorage.setItem("bms_services_data", JSON.stringify(store));
-    } catch {}
-  };
+  }, [ownerUid]);
 
   // toast
   const [toasts, setToasts] = useState<Array<{ id: number; text: string }>>([]);
@@ -154,31 +137,38 @@ export default function ServicesPage() {
   };
   const closeModal = () => setIsModalOpen(false);
 
-  const handleSubmit = (e: React.FormEvent<HTMLFormElement>) => {
+  const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     if (!name.trim() || !price || !cost || !duration) return;
     const qualifiedStaff = Object.keys(selectedStaff).filter((id) => selectedStaff[id]);
     const selectedBrs = Object.keys(selectedBranches).filter((id) => selectedBranches[id]);
-    const newService: Service = {
-      id: Date.now(),
-      name: name.trim(),
-      price: Number(price),
-      cost: Number(cost),
-      duration: Number(duration),
-      icon: icon || "fa-solid fa-star",
-      reviews: 0,
-      qualifiedStaff,
-      branches: selectedBrs,
-    };
-    saveStore({ services: [newService, ...services] });
-    setIsModalOpen(false);
-    showToast("Service added to catalog!");
+    if (!ownerUid) return;
+    setSaving(true);
+    try {
+      await createServiceForOwner(ownerUid, {
+        name: name.trim(),
+        price: Number(price),
+        cost: Number(cost),
+        duration: Number(duration),
+        icon: icon || "fa-solid fa-star",
+        reviews: 0,
+        staffIds: qualifiedStaff,
+        branches: selectedBrs,
+      });
+      setIsModalOpen(false);
+      showToast("Service added to catalog!");
+    } catch {
+      showToast("Failed to add service");
+    } finally {
+      setSaving(false);
+    }
   };
 
-  const deleteService = (id: number) => {
+  const deleteService = (id: string) => {
     if (!confirm("Remove this service?")) return;
-    saveStore({ services: services.filter((s) => s.id !== id) });
-    showToast("Service removed.");
+    deleteServiceDoc(id)
+      .then(() => showToast("Service removed."))
+      .catch(() => showToast("Failed to remove service."));
   };
 
   const totalBranches = branches.length;
@@ -227,7 +217,7 @@ export default function ServicesPage() {
             <h2 className="text-2xl font-bold text-slate-800 mb-6">Services</h2>
             <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
               {services.map((s) => {
-                const staffCount = s.qualifiedStaff?.length || 0;
+                const staffCount = s.staffIds?.length || 0;
                 const branchCount = s.branches?.length || 0;
                 const branchLabel = branchCount === totalBranches ? "All Branches" : `${branchCount} Branches`;
                 return (
@@ -365,8 +355,20 @@ export default function ServicesPage() {
                   </div>
                 </div>
                 <div className="px-6 py-4 border-t border-slate-200">
-                  <button type="submit" className="w-full bg-pink-600 hover:bg-pink-700 text-white font-bold py-2.5 rounded-lg shadow-md transition">
-                    Save Service
+                  <button
+                    type="submit"
+                    disabled={saving}
+                    className={`w-full bg-pink-600 text-white font-bold py-2.5 rounded-lg shadow-md transition ${
+                      saving ? "opacity-60 cursor-not-allowed" : "hover:bg-pink-700"
+                    }`}
+                  >
+                    {saving ? (
+                      <span className="inline-flex items-center gap-2">
+                        <i className="fas fa-circle-notch fa-spin" /> Saving...
+                      </span>
+                    ) : (
+                      "Save Service"
+                    )}
                   </button>
                 </div>
               </form>
