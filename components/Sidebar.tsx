@@ -19,6 +19,7 @@ export default function Sidebar({ mobile = false, onClose }: SidebarProps) {
   const isBookings = pathname?.startsWith("/bookings");
   const isServices = pathname?.startsWith("/services");
   const isBranches = pathname?.startsWith("/branches");
+  const isCustomers = pathname?.startsWith("/customers");
   const isTenants = pathname?.startsWith("/tenants");
   const isStaff = pathname?.startsWith("/staff");
   const isBilling = pathname?.startsWith("/billing");
@@ -137,6 +138,17 @@ export default function Sidebar({ mobile = false, onClose }: SidebarProps) {
             <span>Services</span>
           </Link>
         )}
+      {mounted && role === "salon_owner" && (
+        <Link
+          href="/customers"
+          className={`flex items-center space-x-3 px-4 py-3 rounded-xl text-sm transition ${
+            isCustomers ? "bg-pink-500 text-white shadow-lg" : "hover:bg-slate-800 text-slate-400 hover:text-white"
+          }`}
+        >
+          <i className="fas fa-user-group w-5" />
+          <span>Customers</span>
+        </Link>
+      )}
       {mounted && role === "salon_owner" && (
         <Link
           href="/branches"
