@@ -7,6 +7,7 @@ import Script from "next/script";
 import { subscribeServicesForOwner } from "@/lib/services";
 import { subscribeSalonStaffForOwner } from "@/lib/salonStaff";
 import { subscribeBranchesForOwner } from "@/lib/branches";
+import { createBooking } from "@/lib/bookings";
 
 export default function BookingsPage() {
   const router = useRouter();
@@ -24,6 +25,11 @@ export default function BookingsPage() {
   });
   const [bkDate, setBkDate] = useState<Date | null>(null);
   const [bkTime, setBkTime] = useState<string | null>(null);
+  const [bkClientName, setBkClientName] = useState<string>("");
+  const [bkClientEmail, setBkClientEmail] = useState<string>("");
+  const [bkClientPhone, setBkClientPhone] = useState<string>("");
+  const [bkNotes, setBkNotes] = useState<string>("");
+  const [submittingBooking, setSubmittingBooking] = useState<boolean>(false);
 
   // Real data from Firestore
   const [ownerUid, setOwnerUid] = useState<string | null>(null);
@@ -451,6 +457,10 @@ export default function BookingsPage() {
     setBkMonthYear({ month: t.getMonth(), year: t.getFullYear() });
     setBkDate(null);
     setBkTime(null);
+    setBkClientName("");
+    setBkClientEmail("");
+    setBkClientPhone("");
+    setBkNotes("");
   };
   const openBookingWizard = () => {
     resetWizard();
@@ -527,29 +537,68 @@ export default function BookingsPage() {
   const handleConfirmBooking = () => {
     const app = appRef();
     if (!bkServiceId || !bkStaffId || !bkBranchId || !bkDate || !bkTime) return;
+    setSubmittingBooking(true);
     const service =
       servicesList.find((s) => String(s.id) === String(bkServiceId)) ||
       (app ? app.data.services.find((s: any) => String(s.id) === String(bkServiceId)) : null);
-    const client = "Walk-in";
+    const serviceName =
+      servicesList.find((s: any) => String(s.id) === String(bkServiceId))?.name ||
+      (service as any)?.name ||
+      "";
+    const branchName = branches.find((b: any) => String(b.id) === String(bkBranchId))?.name || "";
+    const staffName = staffList.find((s: any) => String(s.id) === String(bkStaffId))?.name || "";
+    const client = bkClientName?.trim() || "Walk-in";
     const newBooking = {
       id: Date.now(),
       client,
       serviceId: bkServiceId as any,
+      serviceName,
       staffId: bkStaffId,
+      staffName,
       branchId: bkBranchId,
+      branchName,
       date: bkDate.toISOString().slice(0, 10),
       time: bkTime,
       duration: (service as any)?.duration || 60,
       status: "Confirmed",
       price: (service as any)?.price || 0,
+      clientEmail: bkClientEmail?.trim() || undefined,
+      clientPhone: bkClientPhone?.trim() || undefined,
+      notes: bkNotes?.trim() || undefined,
     };
-    if (app) {
-      app.data.bookings.push(newBooking);
-      app.saveData();
-      app.closeModal("booking");
-      app.showToast("New Booking Confirmed!");
-    }
-    resetWizard();
+    // Persist to backend; fallback to local store on error for smooth UX
+    (async () => {
+      try {
+        await createBooking({
+          client: newBooking.client,
+          clientEmail: newBooking.clientEmail,
+          clientPhone: newBooking.clientPhone,
+          notes: newBooking.notes,
+          serviceId: newBooking.serviceId,
+          serviceName: newBooking.serviceName,
+          staffId: newBooking.staffId,
+          staffName: newBooking.staffName,
+          branchId: newBooking.branchId,
+          branchName: newBooking.branchName,
+          date: newBooking.date,
+          time: newBooking.time,
+          duration: newBooking.duration,
+          status: newBooking.status as any,
+          price: newBooking.price,
+        });
+      } catch {
+        // continue with local persistence
+      } finally {
+        if (app) {
+          app.data.bookings.push(newBooking);
+          app.saveData();
+          app.closeModal("booking");
+          app.showToast("New Booking Confirmed!");
+        }
+        setSubmittingBooking(false);
+        resetWizard();
+      }
+    })();
   };
 
   return (
@@ -892,28 +941,79 @@ export default function BookingsPage() {
               </div>
             )}
 
-            {/* Step 5 - Summary */}
+            {/* Step 5 - Customer Details + Summary */}
             {bkStep === 5 && (
-              <div>
-                <div className="font-bold text-slate-700 mb-3">Review & Confirm</div>
-                <div className="bg-slate-50 rounded-xl border border-slate-200 p-4 space-y-2 text-sm">
-                  <div className="flex justify-between"><span className="text-slate-500">Branch</span><span className="font-semibold text-slate-800">{branches.find((b: any) => b.id === bkBranchId)?.name || "-"}</span></div>
-                  <div className="flex justify-between"><span className="text-slate-500">Service</span><span className="font-semibold text-slate-800">{servicesList.find((s: any) => String(s.id) === String(bkServiceId))?.name || "-"}</span></div>
-                  <div className="flex justify-between"><span className="text-slate-500">Staff</span><span className="font-semibold text-slate-800">{staffList.find((s: any) => s.id === bkStaffId)?.name || "-"}</span></div>
-                  <div className="flex justify-between"><span className="text-slate-500">Date</span><span className="font-semibold text-slate-800">{bkDate ? bkDate.toLocaleDateString() : "-"}</span></div>
-                  <div className="flex justify-between"><span className="text-slate-500">Time</span><span className="font-semibold text-slate-800">{bkTime || "-"}</span></div>
-                  <div className="flex justify-between"><span className="text-slate-500">Price</span><span className="font-semibold text-slate-800">${servicesList.find((s: any) => String(s.id) === String(bkServiceId))?.price || 0}</span></div>
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                {/* Customer Details Form */}
+                <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-6">
+                  <div className="font-bold text-slate-700 mb-4">Your Details</div>
+                  <div className="space-y-4">
+                    <div>
+                      <label className="block text-xs font-medium text-slate-500 mb-1">Full Name</label>
+                      <input
+                        type="text"
+                        value={bkClientName}
+                        onChange={(e) => setBkClientName(e.target.value)}
+                        className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-pink-500"
+                        placeholder="John Doe"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-medium text-slate-500 mb-1">Email Address</label>
+                      <input
+                        type="email"
+                        value={bkClientEmail}
+                        onChange={(e) => setBkClientEmail(e.target.value)}
+                        className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-pink-500"
+                        placeholder="john@example.com"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-medium text-slate-500 mb-1">Phone Number</label>
+                      <input
+                        type="tel"
+                        value={bkClientPhone}
+                        onChange={(e) => setBkClientPhone(e.target.value)}
+                        className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-pink-500"
+                        placeholder="+1 555 000 1111"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-medium text-slate-500 mb-1">Additional Notes (Optional)</label>
+                      <textarea
+                        value={bkNotes}
+                        onChange={(e) => setBkNotes(e.target.value)}
+                        className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-pink-500"
+                        placeholder="Any special requests or information…"
+                        rows={4}
+                      />
+                    </div>
+                  </div>
                 </div>
-                <div className="mt-5 flex justify-between">
-                  <button onClick={() => setBkStep(4)} className="px-5 py-2 rounded-lg border border-slate-300 text-slate-700 hover:bg-slate-50">
+
+                {/* Booking Summary */}
+                <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-6">
+                  <div className="font-bold text-slate-700 mb-4">Booking Summary</div>
+                  <div className="bg-pink-50 rounded-xl border border-pink-100 p-4 space-y-3 text-sm">
+                    <div className="flex justify-between"><span className="text-slate-500">Branch</span><span className="font-semibold text-slate-800">{branches.find((b: any) => b.id === bkBranchId)?.name || "-"}</span></div>
+                    <div className="flex justify-between"><span className="text-slate-500">Service</span><span className="font-semibold text-slate-800">{servicesList.find((s: any) => String(s.id) === String(bkServiceId))?.name || "-"}</span></div>
+                    <div className="flex justify-between"><span className="text-slate-500">Staff</span><span className="font-semibold text-slate-800">{staffList.find((s: any) => s.id === bkStaffId)?.name || "-"}</span></div>
+                    <div className="flex justify-between"><span className="text-slate-500">Date</span><span className="font-semibold text-slate-800">{bkDate ? bkDate.toLocaleDateString() : "-"}</span></div>
+                    <div className="flex justify-between"><span className="text-slate-500">Time</span><span className="font-semibold text-slate-800">{bkTime || "-"}</span></div>
+                    <div className="flex justify-between"><span className="text-slate-500">Price</span><span className="font-bold text-pink-600">${servicesList.find((s: any) => String(s.id) === String(bkServiceId))?.price || 0}</span></div>
+                  </div>
+                </div>
+
+                <div className="lg:col-span-2 mt-1 flex justify-between">
+                  <button disabled={submittingBooking} onClick={() => setBkStep(4)} className={`px-5 py-2 rounded-lg border border-slate-300 ${submittingBooking ? "text-slate-400 cursor-not-allowed" : "text-slate-700 hover:bg-slate-50"}`}>
                     Back
                   </button>
                   <button
-                    disabled={!bkBranchId || !bkServiceId || !bkStaffId || !bkDate || !bkTime}
+                    disabled={!bkBranchId || !bkServiceId || !bkStaffId || !bkDate || !bkTime || submittingBooking}
                     onClick={handleConfirmBooking}
-                    className={`px-5 py-2 rounded-lg text-white font-semibold ${bkBranchId && bkServiceId && bkStaffId && bkDate && bkTime ? "bg-pink-600 hover:bg-pink-700" : "bg-slate-300 cursor-not-allowed"}`}
+                    className={`px-5 py-2 rounded-lg text-white font-semibold ${bkBranchId && bkServiceId && bkStaffId && bkDate && bkTime && !submittingBooking ? "bg-pink-600 hover:bg-pink-700" : "bg-slate-300 cursor-not-allowed"}`}
                   >
-                    Confirm Booking
+                    {submittingBooking ? <span className="inline-flex items-center"><i className="fas fa-spinner animate-spin mr-2" /> Confirming…</span> : "Confirm Booking"}
                   </button>
                 </div>
               </div>
