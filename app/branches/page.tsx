@@ -330,7 +330,7 @@ export default function BranchesPage() {
                         </div>
                       </div>
                       <div className="flex items-center gap-3 text-slate-400">
-                        <button onClick={() => setPreviewBranch(b)} title="Preview" className="hover:text-slate-600">
+                        <button onClick={() => router.push(`/branches/${b.id}`)} title="Preview" className="hover:text-slate-600">
                           <i className="fas fa-eye" />
                         </button>
                         <button onClick={() => openEditModal(b)} title="Edit" className="hover:text-blue-600">
