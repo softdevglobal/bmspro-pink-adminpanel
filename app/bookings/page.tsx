@@ -495,10 +495,10 @@ export default function BookingsPage() {
     const app = appRef();
     if (!bkServiceId || !bkStaffId || !bkDate) return [];
     const service =
-      servicesList.find((s) => Number(s.id) === Number(bkServiceId)) ||
-      (app ? app.data.services.find((s: any) => s.id === bkServiceId) : null);
-    if (!service) return [];
-    const duration = (service as any).duration;
+      servicesList.find((s) => String(s.id) === String(bkServiceId)) ||
+      (app ? app.data.services.find((s: any) => String(s.id) === String(bkServiceId)) : null);
+    // If service not found or has no duration, fall back to 60 mins so slots still show
+    const duration = Number((service as any)?.duration) || 60;
     const occupied = app
       ? app.data.bookings
           .filter((b: any) => b.staffId === bkStaffId && b.date === bkDate.toISOString().slice(0, 10) && b.status !== "Canceled")
@@ -528,13 +528,13 @@ export default function BookingsPage() {
     const app = appRef();
     if (!bkServiceId || !bkStaffId || !bkBranchId || !bkDate || !bkTime) return;
     const service =
-      servicesList.find((s) => Number(s.id) === Number(bkServiceId)) ||
-      (app ? app.data.services.find((s: any) => s.id === bkServiceId) : null);
+      servicesList.find((s) => String(s.id) === String(bkServiceId)) ||
+      (app ? app.data.services.find((s: any) => String(s.id) === String(bkServiceId)) : null);
     const client = "Walk-in";
     const newBooking = {
       id: Date.now(),
       client,
-      serviceId: Number(bkServiceId),
+      serviceId: bkServiceId as any,
       staffId: bkStaffId,
       branchId: bkBranchId,
       date: bkDate.toISOString().slice(0, 10),
@@ -648,7 +648,7 @@ export default function BookingsPage() {
                       </div>
                     </div>
                     <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-6">
-                      <h3 className="font-bold mb-4">Booking Status Mix</h3>
+                      <h3 className="font-bold mb-4 text-slate-800">Booking Status Mix</h3>
                       <div className="h-40">
                         <canvas id="statusChart" />
                       </div>
@@ -846,13 +846,12 @@ export default function BookingsPage() {
                         return (
                           <div
                             key={idx}
-                            className={`h-16 border border-slate-100 p-2 text-sm ${c.date ? "cursor-pointer hover:bg-slate-50" : "bg-slate-50/40"}`}
+                            className={`h-16 border border-slate-100 p-2 text-sm ${c.date ? "cursor-pointer hover:bg-slate-50" : "bg-slate-50/40"} ${isSelected ? "bg-pink-50 ring-2 ring-pink-500" : ""}`}
                             onClick={() => c.date && (setBkDate(c.date), setBkTime(null))}
                           >
                             <div className="flex items-start justify-between">
                               <span className={`text-slate-700 ${!c.date ? "opacity-0" : ""}`}>{c.label}</span>
                             </div>
-                            {isSelected && <div className="mt-2 text-[10px] inline-block px-2 py-0.5 rounded bg-slate-900 text-white">Selected</div>}
                           </div>
                         );
                       })}
@@ -898,12 +897,12 @@ export default function BookingsPage() {
               <div>
                 <div className="font-bold text-slate-700 mb-3">Review & Confirm</div>
                 <div className="bg-slate-50 rounded-xl border border-slate-200 p-4 space-y-2 text-sm">
-                  <div className="flex justify-between"><span className="text-slate-500">Branch</span><span className="font-semibold">{branches.find((b: any) => b.id === bkBranchId)?.name || "-"}</span></div>
-                  <div className="flex justify-between"><span className="text-slate-500">Service</span><span className="font-semibold">{servicesList.find((s: any) => Number(s.id) === Number(bkServiceId))?.name || "-"}</span></div>
-                  <div className="flex justify-between"><span className="text-slate-500">Staff</span><span className="font-semibold">{staffList.find((s: any) => s.id === bkStaffId)?.name || "-"}</span></div>
-                  <div className="flex justify-between"><span className="text-slate-500">Date</span><span className="font-semibold">{bkDate ? bkDate.toLocaleDateString() : "-"}</span></div>
-                  <div className="flex justify-between"><span className="text-slate-500">Time</span><span className="font-semibold">{bkTime || "-"}</span></div>
-                  <div className="flex justify-between"><span className="text-slate-500">Price</span><span className="font-semibold">${servicesList.find((s: any) => Number(s.id) === Number(bkServiceId))?.price || 0}</span></div>
+                  <div className="flex justify-between"><span className="text-slate-500">Branch</span><span className="font-semibold text-slate-800">{branches.find((b: any) => b.id === bkBranchId)?.name || "-"}</span></div>
+                  <div className="flex justify-between"><span className="text-slate-500">Service</span><span className="font-semibold text-slate-800">{servicesList.find((s: any) => String(s.id) === String(bkServiceId))?.name || "-"}</span></div>
+                  <div className="flex justify-between"><span className="text-slate-500">Staff</span><span className="font-semibold text-slate-800">{staffList.find((s: any) => s.id === bkStaffId)?.name || "-"}</span></div>
+                  <div className="flex justify-between"><span className="text-slate-500">Date</span><span className="font-semibold text-slate-800">{bkDate ? bkDate.toLocaleDateString() : "-"}</span></div>
+                  <div className="flex justify-between"><span className="text-slate-500">Time</span><span className="font-semibold text-slate-800">{bkTime || "-"}</span></div>
+                  <div className="flex justify-between"><span className="text-slate-500">Price</span><span className="font-semibold text-slate-800">${servicesList.find((s: any) => String(s.id) === String(bkServiceId))?.price || 0}</span></div>
                 </div>
                 <div className="mt-5 flex justify-between">
                   <button onClick={() => setBkStep(4)} className="px-5 py-2 rounded-lg border border-slate-300 text-slate-700 hover:bg-slate-50">
@@ -933,7 +932,7 @@ export default function BookingsPage() {
         .status-Pending { background-color: #fef9c3; color: #a16207; }
         .status-Canceled { background-color: #fee2e2; color: #b91c1c; }
         .status-Completed { background-color: #e0f2fe; color: #075985; }
-        .time-slot { background-color: #f1f5f9; border: 1px solid #e2e8f0; border-radius: 0.5rem; padding: 0.5rem; cursor: pointer; text-align: center; }
+        .time-slot { background-color: #f1f5f9; border: 1px solid #e2e8f0; border-radius: 0.5rem; padding: 0.5rem; cursor: pointer; text-align: center; color: #0f172a; }
         .time-slot:hover { background-color: #e2e8f0; }
         .time-slot.selected { background-color: #ec4899; color: #fff; border-color: #db2777; }
       `}</style>

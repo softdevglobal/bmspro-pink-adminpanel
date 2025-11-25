@@ -44,7 +44,7 @@ export default function BranchDetailsPage() {
   const [branch, setBranch] = useState<Branch | null>(null);
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState<"overview" | "services" | "staff" | "schedule">("overview");
-  const [allServices, setAllServices] = useState<Array<{ id: string; name: string; icon?: string; price?: number; duration?: number }>>([]);
+  const [allServices, setAllServices] = useState<Array<{ id: string; name: string; icon?: string; price?: number; duration?: number; branches?: string[] }>>([]);
   const [allStaff, setAllStaff] = useState<Array<{ id: string; name: string; status?: string; branch?: string }>>([]);
   const [monthYear, setMonthYear] = useState<{ month: number; year: number }>(() => {
     const t = new Date();
@@ -116,6 +116,7 @@ export default function BranchDetailsPage() {
           icon: String(s.icon || "fa-scissors"),
           price: typeof s.price === "number" ? s.price : undefined,
           duration: typeof s.duration === "number" ? s.duration : undefined,
+          branches: Array.isArray(s.branches) ? s.branches.map(String) : undefined,
         }))
       );
     });
@@ -404,7 +405,11 @@ export default function BranchDetailsPage() {
                     ) : (
                       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
                         {allServices
-                          .filter((s) => (branch.serviceIds || []).includes(s.id))
+                          .filter((s) => {
+                            // Prefer canonical service.branches; fallback to legacy branch.serviceIds
+                            if (Array.isArray(s.branches)) return s.branches.includes(branch.id);
+                            return (branch.serviceIds || []).includes(s.id);
+                          })
                           .map((s) => (
                             <div key={s.id} className="border border-slate-200 rounded-xl p-4 hover:shadow-sm transition bg-white">
                               <div className="flex items-start gap-3">

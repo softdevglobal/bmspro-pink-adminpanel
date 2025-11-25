@@ -41,7 +41,9 @@ export default function StaffPreviewPage() {
   const [staff, setStaff] = useState<Staff | null>(null);
   const [branchHours, setBranchHours] = useState<HoursMap | null>(null);
   const [loading, setLoading] = useState(true);
-  const [activeTab, setActiveTab] = useState<"overview" | "schedule" | "training">("overview");
+  const [activeTab, setActiveTab] = useState<
+    "overview" | "schedule" | "training" | "appointments" | "customers"
+  >("overview");
   const [monthYear, setMonthYear] = useState<{ month: number; year: number }>(() => {
     const t = new Date();
     return { month: t.getMonth(), year: t.getFullYear() };
@@ -224,6 +226,8 @@ export default function StaffPreviewPage() {
                 { key: "overview", label: "Overview", icon: "fa-id-badge" },
                 { key: "training", label: "Training", icon: "fa-graduation-cap" },
                 { key: "schedule", label: "Schedule", icon: "fa-calendar-days" },
+                { key: "appointments", label: "Appointments", icon: "fa-calendar-check" },
+                { key: "customers", label: "Customers", icon: "fa-users" },
               ].map((t: any) => (
                 <button
                   key={t.key}
@@ -388,6 +392,33 @@ export default function StaffPreviewPage() {
                       </div>
                     )}
                   </>
+                )}
+
+                {activeTab === "appointments" && (
+                  <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-6">
+                    <div className="flex items-center justify-between mb-4">
+                      <div className="text-sm font-bold text-slate-700">
+                        Appointments
+                      </div>
+                      <div className="text-xs text-slate-500">
+                        {staff?.name ? `For ${staff.name}` : ""}
+                      </div>
+                    </div>
+                    <div className="rounded-lg border border-slate-200 p-4 bg-slate-50 text-sm text-slate-600">
+                      No booking data connected yet. Integrate your booking system to display this staff member’s upcoming and past appointments here.
+                    </div>
+                  </div>
+                )}
+
+                {activeTab === "customers" && (
+                  <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-6">
+                    <div className="text-sm font-bold text-slate-700 mb-4">
+                      Customers
+                    </div>
+                    <div className="rounded-lg border border-slate-200 p-4 bg-slate-50 text-sm text-slate-600">
+                      Link customer history to show clients served by this staff member, with visit counts and last-visit dates.
+                    </div>
+                  </div>
                 )}
               </>
             )}
