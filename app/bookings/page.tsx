@@ -4,11 +4,32 @@ import Sidebar from "@/components/Sidebar";
 import { useRouter } from "next/navigation";
 import { onAuthStateChanged } from "firebase/auth";
 import Script from "next/script";
+import { subscribeServicesForOwner } from "@/lib/services";
+import { subscribeSalonStaffForOwner } from "@/lib/salonStaff";
+import { subscribeBranchesForOwner } from "@/lib/branches";
 
 export default function BookingsPage() {
   const router = useRouter();
   const [mobileOpen, setMobileOpen] = useState(false);
   const [chartReady, setChartReady] = useState(false);
+
+  // Booking wizard state
+  const [bkStep, setBkStep] = useState<1 | 2 | 3 | 4 | 5>(1);
+  const [bkBranchId, setBkBranchId] = useState<string | null>(null);
+  const [bkServiceId, setBkServiceId] = useState<number | null>(null);
+  const [bkStaffId, setBkStaffId] = useState<string | null>(null);
+  const [bkMonthYear, setBkMonthYear] = useState<{ month: number; year: number }>(() => {
+    const t = new Date();
+    return { month: t.getMonth(), year: t.getFullYear() };
+  });
+  const [bkDate, setBkDate] = useState<Date | null>(null);
+  const [bkTime, setBkTime] = useState<string | null>(null);
+
+  // Real data from Firestore
+  const [ownerUid, setOwnerUid] = useState<string | null>(null);
+  const [branches, setBranches] = useState<Array<{ id: string; name: string; address?: string }>>([]);
+  const [servicesList, setServicesList] = useState<Array<{ id: string | number; name: string; price?: number; duration?: number; icon?: string; branches?: string[] }>>([]);
+  const [staffList, setStaffList] = useState<Array<{ id: string; name: string; role?: string; status?: string; avatar?: string; branchId?: string; branch?: string }>>([]);
 
   useEffect(() => {
     (async () => {
@@ -24,6 +45,10 @@ export default function BookingsPage() {
         } catch {
           router.replace("/login");
         }
+        // use authenticated user id as ownerUid
+        try {
+          setOwnerUid(user?.uid || null);
+        } catch {}
       });
       return () => unsub();
     })();
@@ -374,6 +399,159 @@ export default function BookingsPage() {
     }
   }, [chartReady]);
 
+  // Helpers for wizard
+  const appRef = () => (typeof window !== "undefined" ? (window as any).app : null);
+
+  // Subscribe to Firestore data for wizard choices
+  useEffect(() => {
+    if (!ownerUid) return;
+    const unsubBranches = subscribeBranchesForOwner(ownerUid, (rows) => {
+      setBranches(rows.map((r) => ({ id: String(r.id), name: String(r.name || ""), address: (r as any).address })));
+    });
+    const unsubServices = subscribeServicesForOwner(ownerUid, (rows) => {
+      setServicesList(
+        rows
+          .filter(Boolean)
+          .map((s) => ({
+          id: (s as any).id,
+          name: String((s as any).name || "Service"),
+          price: typeof (s as any).price === "number" ? (s as any).price : undefined,
+          duration: typeof (s as any).duration === "number" ? (s as any).duration : undefined,
+          icon: String((s as any).icon || "fa-solid fa-star"),
+          branches: Array.isArray((s as any).branches) ? (s as any).branches.map(String) : undefined,
+        }))
+      );
+    });
+    const unsubStaff = subscribeSalonStaffForOwner(ownerUid, (rows) => {
+      setStaffList(
+        rows.map((r: any) => ({
+          id: String(r.id),
+          name: String(r.name || ""),
+          role: r.role,
+          status: r.status,
+          avatar: r.avatar || r.name,
+          branchId: r.branchId,
+          branch: r.branchName,
+        }))
+      );
+    });
+    return () => {
+      unsubBranches();
+      unsubServices();
+      unsubStaff();
+    };
+  }, [ownerUid]);
+
+  const resetWizard = () => {
+    setBkStep(1);
+    setBkBranchId(null);
+    setBkServiceId(null);
+    setBkStaffId(null);
+    const t = new Date();
+    setBkMonthYear({ month: t.getMonth(), year: t.getFullYear() });
+    setBkDate(null);
+    setBkTime(null);
+  };
+  const openBookingWizard = () => {
+    resetWizard();
+    appRef()?.openModal("booking");
+  };
+  const monthName = new Date(bkMonthYear.year, bkMonthYear.month, 1).toLocaleString(undefined, {
+    month: "long",
+    year: "numeric",
+  });
+  const goPrevMonth = () =>
+    setBkMonthYear(({ month, year }) => {
+      const nm = month - 1;
+      return nm < 0 ? { month: 11, year: year - 1 } : { month: nm, year };
+    });
+  const goNextMonth = () =>
+    setBkMonthYear(({ month, year }) => {
+      const nm = month + 1;
+      return nm > 11 ? { month: 0, year: year + 1 } : { month: nm, year };
+    });
+  const buildMonthCells = () => {
+    const firstDayWeekIdx = new Date(bkMonthYear.year, bkMonthYear.month, 1).getDay();
+    const numDays = new Date(bkMonthYear.year, bkMonthYear.month + 1, 0).getDate();
+    const cells: Array<{ label?: number; date?: Date }> = [];
+    for (let i = 0; i < firstDayWeekIdx; i++) cells.push({});
+    for (let d = 1; d <= numDays; d++) cells.push({ label: d, date: new Date(bkMonthYear.year, bkMonthYear.month, d) });
+    while (cells.length % 7 !== 0) cells.push({});
+    return cells;
+  };
+  const calculateEndTime = (startTime: string, duration: number) => {
+    const [startH, startM] = startTime.split(":").map(Number);
+    const totalMinutes = startH * 60 + startM + duration;
+    const endH = Math.floor(totalMinutes / 60) % 24;
+    const endM = totalMinutes % 60;
+    const pad = (num: number) => num.toString().padStart(2, "0");
+    return `${pad(endH)}:${pad(endM)}`;
+  };
+  const timeToMinutes = (time: string) => {
+    const [h, m] = time.split(":").map(Number);
+    return h * 60 + m;
+  };
+  const computeSlots = () => {
+    const app = appRef();
+    if (!bkServiceId || !bkStaffId || !bkDate) return [];
+    const service =
+      servicesList.find((s) => Number(s.id) === Number(bkServiceId)) ||
+      (app ? app.data.services.find((s: any) => s.id === bkServiceId) : null);
+    if (!service) return [];
+    const duration = (service as any).duration;
+    const occupied = app
+      ? app.data.bookings
+          .filter((b: any) => b.staffId === bkStaffId && b.date === bkDate.toISOString().slice(0, 10) && b.status !== "Canceled")
+          .map((b: any) => ({ start: b.time, end: calculateEndTime(b.time, b.duration) }))
+      : [];
+    const startHour = 9;
+    const endHour = 17;
+    const interval = 30;
+    const slots: string[] = [];
+    let current = startHour * 60;
+    const max = endHour * 60;
+    const format = (minutes: number) => {
+      const h = Math.floor(minutes / 60) % 24;
+      const m = minutes % 60;
+      return `${h.toString().padStart(2, "0")}:${m.toString().padStart(2, "0")}`;
+    };
+    while (current < max) {
+      const start = format(current);
+      const end = calculateEndTime(start, duration);
+      const ok = occupied.every((o: any) => !(timeToMinutes(o.start) < timeToMinutes(end) && timeToMinutes(o.end) > timeToMinutes(start)));
+      if (ok && timeToMinutes(end) <= max) slots.push(start);
+      current += interval;
+    }
+    return slots;
+  };
+  const handleConfirmBooking = () => {
+    const app = appRef();
+    if (!bkServiceId || !bkStaffId || !bkBranchId || !bkDate || !bkTime) return;
+    const service =
+      servicesList.find((s) => Number(s.id) === Number(bkServiceId)) ||
+      (app ? app.data.services.find((s: any) => s.id === bkServiceId) : null);
+    const client = "Walk-in";
+    const newBooking = {
+      id: Date.now(),
+      client,
+      serviceId: Number(bkServiceId),
+      staffId: bkStaffId,
+      branchId: bkBranchId,
+      date: bkDate.toISOString().slice(0, 10),
+      time: bkTime,
+      duration: (service as any)?.duration || 60,
+      status: "Confirmed",
+      price: (service as any)?.price || 0,
+    };
+    if (app) {
+      app.data.bookings.push(newBooking);
+      app.saveData();
+      app.closeModal("booking");
+      app.showToast("New Booking Confirmed!");
+    }
+    resetWizard();
+  };
+
   return (
     <>
       <Script
@@ -427,7 +605,7 @@ export default function BookingsPage() {
                 <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-6">
                   <h2 className="text-2xl font-bold text-slate-800">Today&apos;s Bookings</h2>
                   <button
-                    onClick={() => (window as any).app.openModal("booking")}
+                    onClick={openBookingWizard}
                     className="w-full sm:w-auto px-4 py-2 bg-pink-600 text-white rounded-lg text-sm hover:bg-pink-700 font-medium shadow-md shadow-pink-200 transition"
                   >
                     <i className="fas fa-plus mr-2" /> New Booking
@@ -486,64 +664,262 @@ export default function BookingsPage() {
       {/* Toasts */}
       <div id="toast-container" className="fixed bottom-5 right-5 z-50" />
 
-      {/* Booking Modal */}
+      {/* Booking Modal - New Multi-step Wizard */}
       <div id="modal-booking" className="modal-backdrop">
-        <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg mx-4 sm:mx-0 max-h-[90vh] overflow-y-auto">
-          <div className="bg-slate-50 p-4 border-b border-slate-100 flex justify-between items-center rounded-t-xl">
-            <h3 className="font-bold text-slate-800">Create New Booking</h3>
-            <button onClick={() => (window as any).app.closeModal("booking")} className="text-slate-400 hover:text-red-500">
+        <div className="bg-white rounded-2xl shadow-2xl w-full max-w-3xl mx-4 sm:mx-0 max-h-[92vh] overflow-y-auto">
+          <div className="bg-gradient-to-r from-pink-500 to-fuchsia-600 text-white p-5 flex justify-between items-center rounded-t-2xl">
+            <h3 className="font-bold">Book an Appointment</h3>
+            <button onClick={() => appRef()?.closeModal("booking")} className="text-white/80 hover:text-white">
               <i className="fas fa-xmark" />
             </button>
           </div>
-          <form onSubmit={(e) => (window as any).app.handleBookingSubmit(e)} className="p-6 space-y-4">
-            <div>
-              <label className="block text-xs font-bold text-slate-600 mb-1">Client Name</label>
-              <input type="text" name="client" required className="w-full border border-slate-300 rounded-lg p-2.5 text-sm focus:ring-2 focus:ring-pink-500 focus:outline-none" placeholder="Jane Doe" />
+
+          {/* Stepper */}
+          <div className="px-6 pt-5">
+            <div className="flex items-center justify-between max-w-xl mx-auto mb-4">
+              {[1, 2, 3, 4, 5].map((n, i) => (
+                <div key={n} className="flex-1 flex items-center">
+                  <div className={`w-8 h-8 rounded-full flex items-center justify-center text-sm font-bold ${bkStep >= (n as any) ? "bg-pink-600 text-white" : "bg-slate-200 text-slate-600"}`}>{n}</div>
+                  {i < 4 && <div className={`h-1 flex-1 mx-2 rounded ${bkStep > (n as any) ? "bg-pink-500" : "bg-slate-200"}`} />}
+                </div>
+              ))}
             </div>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          </div>
+
+          <div className="p-6 pt-2">
+            {/* Step 1 - Branch */}
+            {bkStep === 1 && (
               <div>
-                <label className="block text-xs font-bold text-slate-600 mb-1">Service</label>
-                <select name="serviceId" id="booking-service-select" required className="w-full border border-slate-300 rounded-lg p-2.5 text-sm bg-white focus:ring-2 focus:ring-pink-500 focus:outline-none">
-                  <option value="">Select Service</option>
-                </select>
+                <div className="font-bold text-slate-700 mb-3">Select Location</div>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  {branches.map((b: any) => {
+                    const selected = bkBranchId === b.id;
+                    return (
+                      <button
+                        key={b.id}
+                        onClick={() => setBkBranchId(b.id)}
+                        className={`text-left border rounded-2xl p-4 hover:shadow transition ${selected ? "border-pink-400 bg-pink-50" : "border-slate-200 bg-white"}`}
+                      >
+                        <div className="flex items-center gap-3">
+                          <div className="w-9 h-9 rounded-lg bg-pink-100 text-pink-600 flex items-center justify-center">
+                            <i className="fas fa-location-dot" />
+                          </div>
+                          <div className="font-semibold text-slate-800">{b.name}</div>
+                        </div>
+                        {b.address && <div className="text-xs text-slate-500 mt-2">{b.address}</div>}
+                      </button>
+                    );
+                  })}
+                </div>
+                <div className="mt-5 flex justify-end">
+                  <button
+                    disabled={!bkBranchId}
+                    onClick={() => setBkStep(2)}
+                    className={`px-5 py-2 rounded-lg text-white font-semibold ${bkBranchId ? "bg-pink-600 hover:bg-pink-700" : "bg-slate-300 cursor-not-allowed"}`}
+                  >
+                    Continue to Services
+                  </button>
+                </div>
               </div>
+            )}
+
+            {/* Step 2 - Services */}
+            {bkStep === 2 && (
               <div>
-                <label className="block text-xs font-bold text-slate-600 mb-1">Assigned Staff</label>
-                <select name="staffId" id="booking-staff-select" required className="w-full border border-slate-300 rounded-lg p-2.5 text-sm bg-white focus:ring-2 focus:ring-pink-500 focus:outline-none">
-                  <option value="">Select Staff</option>
-                </select>
+                <div className="font-bold text-slate-700 mb-3">Select Service</div>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  {servicesList
+                    .filter((s: any) => s && (!bkBranchId || !s.branches || s.branches.includes(bkBranchId)))
+                    .map((s: any) => {
+                      const selected = bkServiceId === s.id;
+                      return (
+                        <button
+                          key={s.id}
+                          onClick={() => setBkServiceId(s.id)}
+                          className={`text-left border rounded-2xl p-4 hover:shadow transition ${selected ? "border-pink-400 bg-pink-50" : "border-slate-200 bg-white"}`}
+                        >
+                          <div className="flex items-center justify-between gap-3">
+                            <div className="flex items-center gap-3">
+                              <div className="w-9 h-9 rounded-lg bg-pink-100 text-pink-600 flex items-center justify-center">
+                                <i className={s.icon || "fa-solid fa-star"} />
+                              </div>
+                              <div>
+                                <div className="font-semibold text-slate-800">{s.name}</div>
+                                <div className="text-xs text-slate-500">{s.duration} mins</div>
+                              </div>
+                            </div>
+                            <div className="text-pink-600 font-bold">${s.price}</div>
+                          </div>
+                        </button>
+                      );
+                    })}
+                </div>
+                <div className="mt-5 flex justify-between">
+                  <button onClick={() => setBkStep(1)} className="px-5 py-2 rounded-lg border border-slate-300 text-slate-700 hover:bg-slate-50">
+                    Back
+                  </button>
+                  <button
+                    disabled={!bkServiceId}
+                    onClick={() => setBkStep(3)}
+                    className={`px-5 py-2 rounded-lg text-white font-semibold ${bkServiceId ? "bg-pink-600 hover:bg-pink-700" : "bg-slate-300 cursor-not-allowed"}`}
+                  >
+                    Continue
+                  </button>
+                </div>
               </div>
-            </div>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            )}
+
+            {/* Step 3 - Staff */}
+            {bkStep === 3 && (
               <div>
-                <label className="block text-xs font-bold text-slate-600 mb-1">Date</label>
-                <input type="date" name="date" id="booking-date-input" required className="w-full border border-slate-300 rounded-lg p-2.5 text-sm focus:ring-2 focus:ring-pink-500 focus:outline-none" />
+                <div className="font-bold text-slate-700 mb-3">Choose Your Stylist (Optional)</div>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  {staffList
+                    .filter(
+                      (st: any) =>
+                        st.status === "Active" &&
+                        (!bkBranchId ||
+                          st.branchId === bkBranchId ||
+                          st.branch === branches.find((b: any) => b.id === bkBranchId)?.name)
+                    )
+                    .map((st: any) => {
+                      const selected = bkStaffId === st.id;
+                      return (
+                        <button
+                          key={st.id}
+                          onClick={() => setBkStaffId(st.id)}
+                          className={`text-left border rounded-2xl p-4 hover:shadow transition flex items-center gap-3 ${selected ? "border-pink-400 bg-pink-50" : "border-slate-200 bg-white"}`}
+                        >
+                          <img src={`https://api.dicebear.com/7.x/avataaars/svg?seed=${encodeURIComponent(st.avatar || st.name)}`} className="w-10 h-10 rounded-full bg-slate-100" alt="" />
+                          <div className="min-w-0">
+                            <div className="font-semibold text-slate-800 truncate">{st.name}</div>
+                            <div className="text-xs text-slate-500 truncate">{st.role}</div>
+                          </div>
+                          <span className="ml-auto text-xs px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-700">Available</span>
+                        </button>
+                      );
+                    })}
+                </div>
+                <div className="mt-5 flex justify-between">
+                  <button onClick={() => setBkStep(2)} className="px-5 py-2 rounded-lg border border-slate-300 text-slate-700 hover:bg-slate-50">
+                    Back
+                  </button>
+                  <button
+                    disabled={!bkStaffId}
+                    onClick={() => setBkStep(4)}
+                    className={`px-5 py-2 rounded-lg text-white font-semibold ${bkStaffId ? "bg-pink-600 hover:bg-pink-700" : "bg-slate-300 cursor-not-allowed"}`}
+                  >
+                    Continue
+                  </button>
+                </div>
               </div>
+            )}
+
+            {/* Step 4 - Calendar & Time */}
+            {bkStep === 4 && (
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                <div>
+                  <div className="flex items-center justify-between mb-3">
+                    <div className="font-bold text-slate-700">Pick a Date</div>
+                    <div className="flex items-center gap-2">
+                      <button onClick={goPrevMonth} className="w-8 h-8 rounded bg-slate-100 hover:bg-slate-200 text-slate-700">
+                        <i className="fas fa-chevron-left" />
+                      </button>
+                      <div className="text-sm font-semibold text-slate-800 px-2">{monthName}</div>
+                      <button onClick={goNextMonth} className="w-8 h-8 rounded bg-slate-100 hover:bg-slate-200 text-slate-700">
+                        <i className="fas fa-chevron-right" />
+                      </button>
+                    </div>
+                  </div>
+                  <div className="rounded-lg border border-slate-200 overflow-hidden">
+                    <div className="grid grid-cols-7 text-xs font-semibold bg-slate-50 text-slate-600">
+                      {["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].map((d) => (
+                        <div key={d} className="px-2 py-2 text-center">
+                          {d}
+                        </div>
+                      ))}
+                    </div>
+                    <div className="grid grid-cols-7">
+                      {buildMonthCells().map((c, idx) => {
+                        const isSelected =
+                          c.date && bkDate && bkDate.getFullYear() === c.date.getFullYear() && bkDate.getMonth() === c.date.getMonth() && bkDate.getDate() === c.date.getDate();
+                        return (
+                          <div
+                            key={idx}
+                            className={`h-16 border border-slate-100 p-2 text-sm ${c.date ? "cursor-pointer hover:bg-slate-50" : "bg-slate-50/40"}`}
+                            onClick={() => c.date && (setBkDate(c.date), setBkTime(null))}
+                          >
+                            <div className="flex items-start justify-between">
+                              <span className={`text-slate-700 ${!c.date ? "opacity-0" : ""}`}>{c.label}</span>
+                            </div>
+                            {isSelected && <div className="mt-2 text-[10px] inline-block px-2 py-0.5 rounded bg-slate-900 text-white">Selected</div>}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                </div>
+                <div>
+                  <div className="font-bold text-slate-700 mb-2">Select a Time</div>
+                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 max-h-56 overflow-y-auto p-2 bg-slate-50 rounded-lg border border-slate-200">
+                    {computeSlots().length === 0 ? (
+                      <p className="col-span-3 text-center text-slate-400 text-xs py-2">Select date, service and staff to see available slots.</p>
+                    ) : (
+                      computeSlots().map((t) => (
+                        <button
+                          key={t}
+                          onClick={() => setBkTime(t)}
+                          className={`time-slot text-sm ${bkTime === t ? "selected" : ""}`}
+                          style={{ padding: "0.5rem" }}
+                        >
+                          {t}
+                        </button>
+                      ))
+                    )}
+                  </div>
+                  <div className="mt-5 flex justify-between">
+                    <button onClick={() => setBkStep(3)} className="px-5 py-2 rounded-lg border border-slate-300 text-slate-700 hover:bg-slate-50">
+                      Back
+                    </button>
+                    <button
+                      disabled={!bkDate || !bkTime}
+                      onClick={() => setBkStep(5)}
+                      className={`px-5 py-2 rounded-lg text-white font-semibold ${bkDate && bkTime ? "bg-pink-600 hover:bg-pink-700" : "bg-slate-300 cursor-not-allowed"}`}
+                    >
+                      Continue
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Step 5 - Summary */}
+            {bkStep === 5 && (
               <div>
-                <label className="block text-xs font-bold text-slate-600 mb-1">Branch</label>
-                <select name="branchId" id="booking-branch-select" required className="w-full border border-slate-300 rounded-lg p-2.5 text-sm bg-white focus:ring-2 focus:ring-pink-500 focus:outline-none">
-                  <option value="">Select Branch</option>
-                </select>
+                <div className="font-bold text-slate-700 mb-3">Review & Confirm</div>
+                <div className="bg-slate-50 rounded-xl border border-slate-200 p-4 space-y-2 text-sm">
+                  <div className="flex justify-between"><span className="text-slate-500">Branch</span><span className="font-semibold">{branches.find((b: any) => b.id === bkBranchId)?.name || "-"}</span></div>
+                  <div className="flex justify-between"><span className="text-slate-500">Service</span><span className="font-semibold">{servicesList.find((s: any) => Number(s.id) === Number(bkServiceId))?.name || "-"}</span></div>
+                  <div className="flex justify-between"><span className="text-slate-500">Staff</span><span className="font-semibold">{staffList.find((s: any) => s.id === bkStaffId)?.name || "-"}</span></div>
+                  <div className="flex justify-between"><span className="text-slate-500">Date</span><span className="font-semibold">{bkDate ? bkDate.toLocaleDateString() : "-"}</span></div>
+                  <div className="flex justify-between"><span className="text-slate-500">Time</span><span className="font-semibold">{bkTime || "-"}</span></div>
+                  <div className="flex justify-between"><span className="text-slate-500">Price</span><span className="font-semibold">${servicesList.find((s: any) => Number(s.id) === Number(bkServiceId))?.price || 0}</span></div>
+                </div>
+                <div className="mt-5 flex justify-between">
+                  <button onClick={() => setBkStep(4)} className="px-5 py-2 rounded-lg border border-slate-300 text-slate-700 hover:bg-slate-50">
+                    Back
+                  </button>
+                  <button
+                    disabled={!bkBranchId || !bkServiceId || !bkStaffId || !bkDate || !bkTime}
+                    onClick={handleConfirmBooking}
+                    className={`px-5 py-2 rounded-lg text-white font-semibold ${bkBranchId && bkServiceId && bkStaffId && bkDate && bkTime ? "bg-pink-600 hover:bg-pink-700" : "bg-slate-300 cursor-not-allowed"}`}
+                  >
+                    Confirm Booking
+                  </button>
+                </div>
               </div>
-            </div>
-            <div>
-              <label className="block text-xs font-bold text-slate-600 mb-2">
-                Select Start Time (Duration: <span id="service-duration-label">0</span> mins)
-              </label>
-              <div id="time-slots-container" className="grid grid-cols-2 sm:grid-cols-4 gap-2 max-h-48 overflow-y-auto p-2 bg-slate-50 rounded-lg border border-slate-200">
-                <p className="col-span-4 text-center text-slate-400 text-xs py-2">Select Service and Staff to see available slots.</p>
-              </div>
-              <input type="hidden" name="time" id="booking-time-input" required />
-            </div>
-            <div className="pt-2 flex flex-col sm:flex-row sm:items-center sm:justify-end gap-3">
-              <span className="text-xs text-slate-500 sm:mr-4">
-                Estimated End Time: <strong id="estimated-end-time">--</strong>
-              </span>
-              <button type="submit" className="w-full sm:w-auto bg-pink-600 hover:bg-pink-700 text-white font-bold py-2.5 px-6 rounded-lg shadow-md transition">
-                Confirm Booking
-              </button>
-            </div>
-          </form>
+            )}
+          </div>
         </div>
       </div>
 
