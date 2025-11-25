@@ -8,6 +8,8 @@ import { subscribeServicesForOwner } from "@/lib/services";
 import { subscribeSalonStaffForOwner } from "@/lib/salonStaff";
 import { subscribeBranchesForOwner } from "@/lib/branches";
 import { createBooking } from "@/lib/bookings";
+import { collection, onSnapshot, query, where } from "firebase/firestore";
+import { db } from "@/lib/firebase";
 
 export default function BookingsPage() {
   const router = useRouter();
@@ -407,6 +409,52 @@ export default function BookingsPage() {
 
   // Helpers for wizard
   const appRef = () => (typeof window !== "undefined" ? (window as any).app : null);
+
+  // Subscribe to today's bookings from Firestore and feed the booking table
+  useEffect(() => {
+    if (!ownerUid) return;
+    const todayStr = new Date().toISOString().split("T")[0];
+    const q = query(
+      collection(db, "bookings"),
+      where("ownerUid", "==", ownerUid),
+      where("date", "==", todayStr)
+    );
+    const unsub = onSnapshot(
+      q,
+      (snap) => {
+        const list: any[] = [];
+        snap.forEach((d) => {
+          const b = d.data() as any;
+          list.push({
+            id: d.id,
+            client: String(b.client || ""),
+            serviceId: b.serviceId,
+            staffId: String(b.staffId || ""),
+            branchId: String(b.branchId || ""),
+            date: String(b.date || todayStr),
+            time: String(b.time || ""),
+            duration: Number(b.duration || 0),
+            status: String(b.status || "Confirmed"),
+            price: Number(b.price || 0),
+          });
+        });
+        try {
+          const wapp = appRef();
+          if (!wapp) return; // will update on next callback tick when app is ready
+          wapp.data = wapp.data || {};
+          wapp.data.bookings = list;
+          // refresh UI pieces
+          if (typeof wapp.updateAnalytics === "function") wapp.updateAnalytics();
+          if (typeof wapp.updateCharts === "function") wapp.updateCharts();
+          if (typeof wapp.renderBookings === "function") wapp.renderBookings();
+        } catch {}
+      },
+      () => {
+        // ignore errors here; table will just show local defaults
+      }
+    );
+    return () => unsub();
+  }, [ownerUid]);
 
   // Subscribe to Firestore data for wizard choices
   useEffect(() => {

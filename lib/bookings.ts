@@ -40,6 +40,18 @@ export async function createBooking(input: BookingInput): Promise<{ id: string }
     if (!res.ok) {
       throw new Error(json?.error || "Failed");
     }
+    // If API was a dev no-op, also persist from client
+    if (json?.devNoop) {
+      const payload = {
+        ownerUid: user?.uid || null,
+        ...input,
+        status: input.status || "Confirmed",
+        createdAt: serverTimestamp(),
+        updatedAt: serverTimestamp(),
+      };
+      const ref = await addDoc(collection(db, "bookings"), payload as any);
+      return { id: ref.id };
+    }
     return { id: String(json?.id) };
   } catch {
     // Fallback: write from client (requires Firestore rules allow authenticated writes)
