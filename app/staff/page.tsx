@@ -343,7 +343,7 @@ export default function SettingsPage() {
                             <button
                               className="hover:text-slate-600"
                               title="Preview"
-                              onClick={() => setPreviewStaff(s)}
+                              onClick={() => router.push(`/staff/${s.id}`)}
                             >
                               <i className="fa-solid fa-eye" />
                             </button>
