@@ -171,7 +171,7 @@ export default function Sidebar({ mobile = false, onClose }: SidebarProps) {
                   }`}
                 >
                   <i className="fas fa-hourglass-half w-4" />
-                  <span>Pending Bookings</span>
+                  <span>Booking Requests</span>
                 </Link>
                 <Link
                   href="/bookings/confirmed"
