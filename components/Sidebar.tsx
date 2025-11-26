@@ -31,10 +31,7 @@ export default function Sidebar({ mobile = false, onClose }: SidebarProps) {
   const [mounted, setMounted] = useState(false);
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [openBookings, setOpenBookings] = useState(false);
-  useEffect(() => {
-    // auto expand when we're in any bookings sub-route
-    if (isBookings) setOpenBookings(true);
-  }, [isBookings]);
+  // Do not auto-open based on route; keep user preference until manually changed
 
   useEffect(() => {
     // Keep role in sync with auth state and Firestore; seed from localStorage for instant render
@@ -64,9 +61,23 @@ export default function Sidebar({ mobile = false, onClose }: SidebarProps) {
       if (typeof window !== "undefined") {
         const cached = localStorage.getItem("role");
         if (cached) setRole(cached);
+        const ob = localStorage.getItem("sidebarOpenBookings");
+        if (ob === "1" || ob === "0") setOpenBookings(ob === "1");
       }
     } catch {}
   }, []);
+
+  const toggleBookings = () => {
+    setOpenBookings((v) => {
+      const nv = !v;
+      try {
+        if (typeof window !== "undefined") {
+          localStorage.setItem("sidebarOpenBookings", nv ? "1" : "0");
+        }
+      } catch {}
+      return nv;
+    });
+  };
 
   const handleSignOut = () => {
     setConfirmOpen(true);
@@ -111,7 +122,7 @@ export default function Sidebar({ mobile = false, onClose }: SidebarProps) {
           </button>
         )}
       </div>
-      <div className="flex-1 p-4 space-y-1">
+      <div className="flex-1 p-4 space-y-1 overflow-y-auto">
         <Link
           href="/dashboard"
           className={`flex items-center space-x-3 px-4 py-3 rounded-xl font-medium text-sm transition ${
@@ -127,7 +138,7 @@ export default function Sidebar({ mobile = false, onClose }: SidebarProps) {
           <>
             <div
               role="button"
-              onClick={() => setOpenBookings((v) => !v)}
+              onClick={toggleBookings}
               className={`flex items-center space-x-3 px-4 py-3 rounded-xl text-sm transition cursor-pointer ${
                 isBookings ? "bg-pink-500 text-white shadow-lg" : "hover:bg-slate-800 text-slate-400 hover:text-white"
               }`}
@@ -147,7 +158,7 @@ export default function Sidebar({ mobile = false, onClose }: SidebarProps) {
                   }`}
                 >
                   <i className="fas fa-gauge w-4" />
-                  <span>Booking Summary</span>
+                  <span>Booking All</span>
                 </Link>
                 {/* All Bookings link removed */}
               </>

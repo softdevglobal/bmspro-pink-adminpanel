@@ -688,7 +688,7 @@ export default function BookingsPage() {
                         <div className="w-10 h-10 rounded-xl bg-white/20 flex items-center justify-center">
                           <i className="fas fa-calendar-check" />
                         </div>
-                        <h1 className="text-2xl font-bold">Bookings</h1>
+                        <h1 className="text-2xl font-bold">Booking All</h1>
                       </div>
                       <p className="text-sm text-white/80 mt-2">
                         Today’s schedule, availability, and status.
