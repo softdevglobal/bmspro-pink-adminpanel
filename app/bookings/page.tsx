@@ -100,6 +100,13 @@ export default function BookingsPage() {
         this.defaults.bookings[0].date = today;
         this.defaults.bookings[1].date = today;
         this.loadData();
+        // If realtime cache exists (from Firestore listener), seed with it so we show real data immediately
+        try {
+          const cached = (window as any).__todayBookingsCache;
+          if (Array.isArray(cached)) {
+            this.data.bookings = cached;
+          }
+        } catch {}
         const dateInput = document.getElementById("booking-date-input") as HTMLInputElement | null;
         if (dateInput) dateInput.value = today;
         this.renderBookings();
@@ -154,15 +161,36 @@ export default function BookingsPage() {
         if (!tbody) return;
         tbody.innerHTML = "";
         const today = new Date().toISOString().split("T")[0];
-        const todayBookings = this.data.bookings.filter((b: any) => b.date === today);
-        if (todayBookings.length === 0) {
-          tbody.innerHTML = '<tr><td colspan="4" class="p-4 text-center text-slate-400">No bookings scheduled for today.</td></tr>';
+        let rows = this.data.bookings.filter((b: any) => b.date === today);
+
+        // If there are no bookings for today, fall back to upcoming (any status)
+        if (rows.length === 0) {
+          const now = new Date(today).getTime();
+          rows = this.data.bookings
+            .filter((b: any) => {
+              const t = new Date(String(b.date || today)).getTime();
+              return isFinite(t) && t >= now;
+            })
+            .sort((a: any, b: any) => {
+              const ad = new Date(a.date).getTime();
+              const bd = new Date(b.date).getTime();
+              if (ad === bd) return a.time > b.time ? 1 : -1;
+              return ad > bd ? 1 : -1;
+            })
+            .slice(0, 10);
+        }
+
+        if (rows.length === 0) {
+          tbody.innerHTML = '<tr><td colspan="4" class="p-4 text-center text-slate-400">No bookings found.</td></tr>';
           return;
         }
-        todayBookings.sort((a: any, b: any) => (a.time > b.time ? 1 : -1));
-        todayBookings.forEach((b: any) => {
+
+        rows.sort((a: any, b: any) => (a.time > b.time ? 1 : -1));
+        rows.forEach((b: any) => {
           const service = this.data.services.find((s: any) => s.id === b.serviceId);
           const staff = this.data.staff.find((s: any) => s.id === b.staffId);
+          const serviceName = String(b.serviceName || (service ? service.name : "Unknown Service"));
+          const staffName = String(b.staffName || (staff ? staff.name : "Unassigned"));
           const endTime = this.calculateEndTime(b.time, b.duration);
           const statusClass = `status-${b.status}`;
           const statusActions =
@@ -175,11 +203,11 @@ export default function BookingsPage() {
             <tr class="hover:bg-slate-50 transition">
               <td class="p-4 pl-6">
                 <span class="font-bold text-slate-800">${b.client}</span>
-                <span class="block text-xs text-slate-500">${service ? service.name : "Unknown Service"}</span>
+                <span class="block text-xs text-slate-500">${serviceName}</span>
               </td>
               <td class="p-4">
                 <span class="font-medium text-slate-700">${b.time} - ${endTime}</span>
-                <span class="block text-xs text-slate-500">w/ ${staff ? staff.name : "Unassigned"}</span>
+                <span class="block text-xs text-slate-500">w/ ${staffName}</span>
               </td>
               <td class="p-4 text-center">
                 <span class="inline-block px-3 py-1 text-xs font-semibold rounded-full ${statusClass}">
@@ -429,7 +457,9 @@ export default function BookingsPage() {
             id: d.id,
             client: String(b.client || ""),
             serviceId: b.serviceId,
+            serviceName: String(b.serviceName || ""),
             staffId: String(b.staffId || ""),
+            staffName: String(b.staffName || ""),
             branchId: String(b.branchId || ""),
             date: String(b.date || todayStr),
             time: String(b.time || ""),
@@ -440,6 +470,8 @@ export default function BookingsPage() {
         });
         try {
           const wapp = appRef();
+          // cache latest list so init can seed even if app isn't ready yet
+          (window as any).__todayBookingsCache = list;
           if (!wapp) return; // will update on next callback tick when app is ready
           wapp.data = wapp.data || {};
           wapp.data.bookings = list;
@@ -545,6 +577,12 @@ export default function BookingsPage() {
     const pad = (num: number) => num.toString().padStart(2, "0");
     return `${pad(endH)}:${pad(endM)}`;
   };
+  const formatLocalYmd = (d: Date) => {
+    const y = d.getFullYear();
+    const m = (d.getMonth() + 1).toString().padStart(2, "0");
+    const day = d.getDate().toString().padStart(2, "0");
+    return `${y}-${m}-${day}`;
+  };
   const timeToMinutes = (time: string) => {
     const [h, m] = time.split(":").map(Number);
     return h * 60 + m;
@@ -559,7 +597,7 @@ export default function BookingsPage() {
     const duration = Number((service as any)?.duration) || 60;
     const occupied = app
       ? app.data.bookings
-          .filter((b: any) => b.staffId === bkStaffId && b.date === bkDate.toISOString().slice(0, 10) && b.status !== "Canceled")
+          .filter((b: any) => b.staffId === bkStaffId && b.date === formatLocalYmd(bkDate) && b.status !== "Canceled")
           .map((b: any) => ({ start: b.time, end: calculateEndTime(b.time, b.duration) }))
       : [];
     const startHour = 9;
@@ -605,7 +643,7 @@ export default function BookingsPage() {
       staffName,
       branchId: bkBranchId,
       branchName,
-      date: bkDate.toISOString().slice(0, 10),
+      date: formatLocalYmd(bkDate),
       time: bkTime,
       duration: (service as any)?.duration || 60,
       status: "Pending",
