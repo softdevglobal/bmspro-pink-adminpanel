@@ -149,15 +149,7 @@ export default function Sidebar({ mobile = false, onClose }: SidebarProps) {
                   <i className="fas fa-gauge w-4" />
                   <span>Booking Summary</span>
                 </Link>
-                <Link
-                  href="/bookings/all"
-                  className={`ml-3 flex items-center space-x-3 px-3 py-2 rounded-lg text-sm font-medium transition ${
-                    isBookingsAll ? "bg-slate-800 text-white" : "text-slate-400 hover:bg-slate-800 hover:text-white"
-                  }`}
-                >
-                  <i className="fas fa-list w-4" />
-                  <span>All Bookings</span>
-                </Link>
+                {/* All Bookings link removed */}
               </>
             )}
           </>
