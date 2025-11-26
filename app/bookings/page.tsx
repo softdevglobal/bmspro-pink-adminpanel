@@ -608,7 +608,7 @@ export default function BookingsPage() {
       date: bkDate.toISOString().slice(0, 10),
       time: bkTime,
       duration: (service as any)?.duration || 60,
-      status: "Confirmed",
+      status: "Pending",
       price: (service as any)?.price || 0,
       clientEmail: bkClientEmail?.trim() || undefined,
       clientPhone: bkClientPhone?.trim() || undefined,
@@ -641,7 +641,7 @@ export default function BookingsPage() {
       app.data.bookings.push(newBooking);
       app.saveData();
       app.closeModal("booking");
-      app.showToast("New Booking Confirmed!");
+        app.showToast("New Booking Created!");
     }
         setSubmittingBooking(false);
     resetWizard();

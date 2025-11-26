@@ -46,3 +46,20 @@ select:-webkit-autofill {
   -webkit-text-fill-color: #0f172a;
   transition: background-color 5000s ease-in-out 0s;
 }
+
+/* Sidebar scrollbar should match sidebar background (slate-900) */
+#sidebar .sidebar-scroll {
+  scrollbar-color: #1f2937 #0f172a; /* thumb, track */
+  scrollbar-width: thin;
+}
+#sidebar .sidebar-scroll::-webkit-scrollbar {
+  width: 10px;
+}
+#sidebar .sidebar-scroll::-webkit-scrollbar-track {
+  background: #0f172a; /* slate-900 */
+}
+#sidebar .sidebar-scroll::-webkit-scrollbar-thumb {
+  background-color: #1f2937; /* slate-800 */
+  border-radius: 9999px;
+  border: 2px solid #0f172a; /* create gap with same track color */
+}

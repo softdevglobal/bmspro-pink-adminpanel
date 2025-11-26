@@ -19,6 +19,10 @@ export default function Sidebar({ mobile = false, onClose }: SidebarProps) {
   const isBookings = pathname?.startsWith("/bookings");
   const isBookingsDashboard = pathname === "/bookings/dashboard";
   const isBookingsAll = pathname === "/bookings/all";
+  const isBookingsPending = pathname === "/bookings/pending";
+  const isBookingsConfirmed = pathname === "/bookings/confirmed";
+  const isBookingsCompleted = pathname === "/bookings/completed";
+  const isBookingsCancelled = pathname === "/bookings/cancelled";
   const isServices = pathname?.startsWith("/services");
   const isBranches = pathname?.startsWith("/branches");
   const isCustomers = pathname?.startsWith("/customers");
@@ -122,7 +126,7 @@ export default function Sidebar({ mobile = false, onClose }: SidebarProps) {
           </button>
         )}
       </div>
-      <div className="flex-1 p-4 space-y-1 overflow-y-auto">
+      <div className="flex-1 p-4 space-y-1 overflow-y-auto sidebar-scroll bg-slate-900">
         <Link
           href="/dashboard"
           className={`flex items-center space-x-3 px-4 py-3 rounded-xl font-medium text-sm transition ${
@@ -160,7 +164,42 @@ export default function Sidebar({ mobile = false, onClose }: SidebarProps) {
                   <i className="fas fa-gauge w-4" />
                   <span>Booking All</span>
                 </Link>
-                {/* All Bookings link removed */}
+                <Link
+                  href="/bookings/pending"
+                  className={`ml-3 flex items-center space-x-3 px-3 py-2 rounded-lg text-sm font-medium transition ${
+                    isBookingsPending ? "bg-slate-800 text-white" : "text-slate-400 hover:bg-slate-800 hover:text-white"
+                  }`}
+                >
+                  <i className="fas fa-hourglass-half w-4" />
+                  <span>Pending Bookings</span>
+                </Link>
+                <Link
+                  href="/bookings/confirmed"
+                  className={`ml-3 flex items-center space-x-3 px-3 py-2 rounded-lg text-sm font-medium transition ${
+                    isBookingsConfirmed ? "bg-slate-800 text-white" : "text-slate-400 hover:bg-slate-800 hover:text-white"
+                  }`}
+                >
+                  <i className="fas fa-check-circle w-4" />
+                  <span>Confirmed Bookings</span>
+                </Link>
+                <Link
+                  href="/bookings/completed"
+                  className={`ml-3 flex items-center space-x-3 px-3 py-2 rounded-lg text-sm font-medium transition ${
+                    isBookingsCompleted ? "bg-slate-800 text-white" : "text-slate-400 hover:bg-slate-800 hover:text-white"
+                  }`}
+                >
+                  <i className="fas fa-flag-checkered w-4" />
+                  <span>Completed Bookings</span>
+                </Link>
+                <Link
+                  href="/bookings/cancelled"
+                  className={`ml-3 flex items-center space-x-3 px-3 py-2 rounded-lg text-sm font-medium transition ${
+                    isBookingsCancelled ? "bg-slate-800 text-white" : "text-slate-400 hover:bg-slate-800 hover:text-white"
+                  }`}
+                >
+                  <i className="fas fa-ban w-4" />
+                  <span>Cancelled Bookings</span>
+                </Link>
               </>
             )}
           </>

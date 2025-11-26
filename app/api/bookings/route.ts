@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { adminAuth, adminDb } from "@/lib/firebaseAdmin";
 import { FieldValue } from "firebase-admin/firestore";
+import { normalizeBookingStatus } from "@/lib/bookingTypes";
 
 export const runtime = "nodejs";
 
@@ -18,7 +19,7 @@ type CreateBookingInput = {
   date: string; // YYYY-MM-DD
   time: string; // HH:mm
   duration: number;
-  status: "Confirmed" | "Pending" | "Canceled" | "Completed";
+  status?: string;
   price: number;
 };
 
@@ -51,7 +52,6 @@ export async function POST(req: NextRequest) {
       "date",
       "time",
       "duration",
-      "status",
       "price",
     ];
     for (const key of required) {
@@ -99,7 +99,7 @@ export async function POST(req: NextRequest) {
       date: String(body.date), // YYYY-MM-DD
       time: String(body.time), // HH:mm
       duration: Number(body.duration) || 0,
-      status: String(body.status),
+      status: normalizeBookingStatus(body.status || "Pending"),
       price: Number(body.price) || 0,
       createdAt: FieldValue.serverTimestamp(),
       updatedAt: FieldValue.serverTimestamp(),
