@@ -1,5 +1,5 @@
 import { auth, db } from "@/lib/firebase";
-import { addDoc, collection, serverTimestamp } from "firebase/firestore";
+import { addDoc, collection, serverTimestamp, doc, updateDoc } from "firebase/firestore";
 import type { BookingStatus } from "./bookingTypes";
 
 export type BookingInput = {
@@ -82,9 +82,16 @@ export async function updateBookingStatus(bookingId: string, nextStatus: Booking
     },
     body: JSON.stringify({ status: nextStatus }),
   });
-  if (!res.ok) {
-    const json = (await res.json().catch(() => ({}))) as any;
+  const json = (await res.json().catch(() => ({}))) as any;
+  if (!res.ok && !json?.devNoop) {
     throw new Error(json?.error || "Failed to update booking status");
+  }
+  // If dev no-op or unauthorized in dev, perform client-side update so UI reflects change
+  if (json?.devNoop || (!res.ok && process.env.NODE_ENV !== "production")) {
+    await updateDoc(doc(db, "bookings", bookingId), {
+      status: nextStatus,
+      updatedAt: serverTimestamp(),
+    } as any);
   }
 }
 

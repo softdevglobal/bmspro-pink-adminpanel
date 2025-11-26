@@ -163,20 +163,21 @@ export default function BookingsListByStatus({ status, title }: { status: Bookin
               <aside
                 className={`absolute top-0 h-full right-0 w-[92vw] sm:w-[30rem] bg-white shadow-2xl border-l border-slate-200 transform transition-transform duration-200 ${previewOpen ? "translate-x-0" : "translate-x-full"}`}
               >
-                <div className="p-0 border-b border-slate-200">
-                  <div className="bg-gradient-to-r from-pink-500 via-fuchsia-600 to-indigo-600 p-5 text-white flex items-center justify-between">
-                    <div className="flex items-center gap-3">
-                      <div className="w-10 h-10 rounded-xl bg-white/20 flex items-center justify-center">
-                        <i className="fas fa-eye" />
+                <div className="flex h-full flex-col">
+                  <div className="p-0 border-b border-slate-200">
+                    <div className="bg-gradient-to-r from-pink-500 via-fuchsia-600 to-indigo-600 p-5 text-white flex items-center justify-between">
+                      <div className="flex items-center gap-3">
+                        <div className="w-10 h-10 rounded-xl bg-white/20 flex items-center justify-center">
+                          <i className="fas fa-eye" />
+                        </div>
+                        <h3 className="text-lg font-semibold">Booking Preview</h3>
                       </div>
-                      <h3 className="text-lg font-semibold">Booking Preview</h3>
+                      <button onClick={closePreview} className="text-white/80 hover:text-white">
+                        <i className="fas fa-times" />
+                      </button>
                     </div>
-                    <button onClick={closePreview} className="text-white/80 hover:text-white">
-                      <i className="fas fa-times" />
-                    </button>
                   </div>
-                </div>
-                <div className="p-5 space-y-4 overflow-y-auto h-[calc(100%-76px)]">
+                  <div className="flex-1 p-5 space-y-4 overflow-y-auto">
                   {!previewRow && <div className="text-slate-500 text-sm">No booking selected.</div>}
                   {previewRow && (
                     <div className="space-y-4 text-sm">
@@ -247,50 +248,53 @@ export default function BookingsListByStatus({ status, title }: { status: Bookin
                       )}
                     </div>
                   )}
+                  </div>
+                  <div className="shrink-0 border-t border-slate-200 p-4 flex items-center justify-end gap-2 bg-white/90 backdrop-blur">
+                    <button
+                      onClick={closePreview}
+                      className="px-3 py-1.5 rounded-full text-xs font-semibold bg-slate-100 hover:bg-slate-200 text-slate-700"
+                    >
+                      Close
+                    </button>
+                    {previewRow && allowedActions.includes("Confirm" as any) && (
+                      <button
+                        disabled={!!updatingMap[previewRow.id]}
+                        onClick={() => onAction(previewRow.id, "Confirm")}
+                        className={`px-4 py-2 rounded-full text-sm font-semibold inline-flex items-center gap-2 ${updatingMap[previewRow.id] ? "bg-emerald-300 text-white" : "bg-gradient-to-r from-emerald-500 to-green-600 hover:from-emerald-600 hover:to-green-700 text-white shadow-sm"}`}
+                        aria-busy={!!updatingMap[previewRow.id]}
+                      >
+                        {updatingMap[previewRow.id] ? <i className="fas fa-spinner fa-spin" /> : <i className="fas fa-check-circle" />}
+                        {updatingMap[previewRow.id] ? "Confirming..." : "Confirm"}
+                      </button>
+                    )}
+                    {previewRow && allowedActions.includes("Complete" as any) && (
+                      <button
+                        disabled={!!updatingMap[previewRow.id]}
+                        onClick={() => onAction(previewRow.id, "Complete")}
+                        className={`px-4 py-2 rounded-full text-sm font-semibold inline-flex items-center gap-2 ${updatingMap[previewRow.id] ? "bg-indigo-300 text-white" : "bg-gradient-to-r from-indigo-500 to-violet-600 hover:from-indigo-600 hover:to-violet-700 text-white shadow-sm"}`}
+                        aria-busy={!!updatingMap[previewRow.id]}
+                      >
+                        {updatingMap[previewRow.id] ? <i className="fas fa-spinner fa-spin" /> : <i className="fas fa-flag-checkered" />}
+                        {updatingMap[previewRow.id] ? "Completing..." : "Complete"}
+                      </button>
+                    )}
+                    {previewRow && allowedActions.includes("Cancel" as any) && (
+                      <button
+                        disabled={!!updatingMap[previewRow.id]}
+                        onClick={() => onAction(previewRow.id, "Cancel")}
+                        className={`px-4 py-2 rounded-full text-sm font-semibold inline-flex items-center gap-2 ${updatingMap[previewRow.id] ? "bg-rose-300 text-white" : "bg-gradient-to-r from-rose-500 to-red-600 hover:from-rose-600 hover:to-red-700 text-white shadow-sm"}`}
+                        aria-busy={!!updatingMap[previewRow.id]}
+                      >
+                        {updatingMap[previewRow.id] ? <i className="fas fa-spinner fa-spin" /> : <i className="fas fa-ban" />}
+                        {updatingMap[previewRow.id] ? "Cancelling..." : "Cancel"}
+                      </button>
+                    )}
+                  </div>
                 </div>
               </aside>
             </div>
 
-            {/* Preview footer actions (sticky) */}
-            {previewOpen && previewRow && (
-              <div className="fixed bottom-0 right-0 w-[92vw] sm:w-[30rem] bg-white/90 backdrop-blur border-t border-slate-200 z-50">
-                <div className="p-4 flex items-center justify-end gap-2">
-                  <button
-                    onClick={closePreview}
-                    className="px-3 py-1.5 rounded-full text-xs font-semibold bg-slate-100 hover:bg-slate-200 text-slate-700"
-                  >
-                    Close
-                  </button>
-                  {allowedActions.includes("Confirm" as any) && (
-                    <button
-                      onClick={() => onAction(previewRow.id, "Confirm")}
-                      className="px-4 py-2 rounded-full text-sm font-semibold bg-gradient-to-r from-emerald-500 to-green-600 hover:from-emerald-600 hover:to-green-700 text-white shadow-sm inline-flex items-center gap-2"
-                    >
-                      <i className="fas fa-check-circle" />
-                      Confirm
-                    </button>
-                  )}
-                  {allowedActions.includes("Complete" as any) && (
-                    <button
-                      onClick={() => onAction(previewRow.id, "Complete")}
-                      className="px-4 py-2 rounded-full text-sm font-semibold bg-gradient-to-r from-indigo-500 to-violet-600 hover:from-indigo-600 hover:to-violet-700 text-white shadow-sm inline-flex items-center gap-2"
-                    >
-                      <i className="fas fa-flag-checkered" />
-                      Complete
-                    </button>
-                  )}
-                  {allowedActions.includes("Cancel" as any) && (
-                    <button
-                      onClick={() => onAction(previewRow.id, "Cancel")}
-                      className="px-4 py-2 rounded-full text-sm font-semibold bg-gradient-to-r from-rose-500 to-red-600 hover:from-rose-600 hover:to-red-700 text-white shadow-sm inline-flex items-center gap-2"
-                    >
-                      <i className="fas fa-ban" />
-                      Cancel
-                    </button>
-                  )}
-                </div>
-              </div>
-            )}
+            {/* Footer now lives inside the aside for correct order */}
 
             <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
               <div className="relative overflow-x-auto">
@@ -385,8 +389,9 @@ export default function BookingsListByStatus({ status, title }: { status: Bookin
                                   disabled={!!updatingMap[r.id]}
                                   onClick={() => onAction(r.id, "Confirm")}
                                   className={`px-3 py-1.5 rounded-full text-xs font-semibold transition inline-flex items-center gap-1 ${updatingMap[r.id] ? "bg-emerald-300 text-white" : "bg-gradient-to-r from-emerald-500 to-green-600 hover:from-emerald-600 hover:to-green-700 text-white shadow-sm"}`}
+                                  aria-busy={!!updatingMap[r.id]}
                                 >
-                                  <i className="fas fa-check-circle" />
+                                  {updatingMap[r.id] ? <i className="fas fa-spinner fa-spin" /> : <i className="fas fa-check-circle" />}
                                   {updatingMap[r.id] ? "Confirming..." : "Confirm"}
                                 </button>
                               )}
@@ -395,8 +400,9 @@ export default function BookingsListByStatus({ status, title }: { status: Bookin
                                   disabled={!!updatingMap[r.id]}
                                   onClick={() => onAction(r.id, "Complete")}
                                   className={`px-3 py-1.5 rounded-full text-xs font-semibold transition inline-flex items-center gap-1 ${updatingMap[r.id] ? "bg-indigo-300 text-white" : "bg-gradient-to-r from-indigo-500 to-violet-600 hover:from-indigo-600 hover:to-violet-700 text-white shadow-sm"}`}
+                                  aria-busy={!!updatingMap[r.id]}
                                 >
-                                  <i className="fas fa-flag-checkered" />
+                                  {updatingMap[r.id] ? <i className="fas fa-spinner fa-spin" /> : <i className="fas fa-flag-checkered" />}
                                   {updatingMap[r.id] ? "Completing..." : "Complete"}
                                 </button>
                               )}
@@ -405,8 +411,9 @@ export default function BookingsListByStatus({ status, title }: { status: Bookin
                                   disabled={!!updatingMap[r.id]}
                                   onClick={() => onAction(r.id, "Cancel")}
                                   className={`px-3 py-1.5 rounded-full text-xs font-semibold transition inline-flex items-center gap-1 ${updatingMap[r.id] ? "bg-rose-300 text-white" : "bg-gradient-to-r from-rose-500 to-red-600 hover:from-rose-600 hover:to-red-700 text-white shadow-sm"}`}
+                                  aria-busy={!!updatingMap[r.id]}
                                 >
-                                  <i className="fas fa-ban" />
+                                  {updatingMap[r.id] ? <i className="fas fa-spinner fa-spin" /> : <i className="fas fa-ban" />}
                                   {updatingMap[r.id] ? "Cancelling..." : "Cancel"}
                                 </button>
                               )}

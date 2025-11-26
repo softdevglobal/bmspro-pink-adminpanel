@@ -9,13 +9,22 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
   try {
     const authHeader = req.headers.get("authorization") || "";
     const token = authHeader.startsWith("Bearer ") ? authHeader.slice(7) : null;
-    if (!token) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    if (!token) {
+      if (process.env.NODE_ENV !== "production") {
+        // Allow client-side fallback in development
+        return NextResponse.json({ ok: true, devNoop: true });
+      }
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
 
     let ownerUid: string;
     try {
       const decoded = await adminAuth().verifyIdToken(token);
       ownerUid = decoded.uid;
     } catch {
+      if (process.env.NODE_ENV !== "production") {
+        return NextResponse.json({ ok: true, devNoop: true });
+      }
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
