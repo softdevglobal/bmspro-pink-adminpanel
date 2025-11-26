@@ -2,6 +2,8 @@
 import React, { useEffect, useMemo, useState } from "react";
 import Sidebar from "@/components/Sidebar";
 import { useRouter } from "next/navigation";
+import Link from "next/link";
+import { usePathname } from "next/navigation";
 import { onAuthStateChanged } from "firebase/auth";
 import { auth, db } from "@/lib/firebase";
 import { collection, onSnapshot, orderBy, query, where } from "firebase/firestore";
@@ -27,6 +29,7 @@ type BookingRow = {
 
 export default function AllBookingsPage() {
   const router = useRouter();
+  const pathname = usePathname();
   const [mobileOpen, setMobileOpen] = useState(false);
   const [ownerUid, setOwnerUid] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -130,6 +133,8 @@ export default function AllBookingsPage() {
               </div>
             </div>
           </div>
+
+          {/* Subpage Tabs removed as requested */}
 
           <div className="max-w-7xl mx-auto grid grid-cols-1 gap-6">
             {/* Table */}

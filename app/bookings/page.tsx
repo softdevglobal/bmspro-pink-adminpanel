@@ -637,14 +637,14 @@ export default function BookingsPage() {
       } catch {
         // continue with local persistence
       } finally {
-        if (app) {
-          app.data.bookings.push(newBooking);
-          app.saveData();
-          app.closeModal("booking");
-          app.showToast("New Booking Confirmed!");
-        }
+    if (app) {
+      app.data.bookings.push(newBooking);
+      app.saveData();
+      app.closeModal("booking");
+      app.showToast("New Booking Confirmed!");
+    }
         setSubmittingBooking(false);
-        resetWizard();
+    resetWizard();
       }
     })();
   };
@@ -996,7 +996,7 @@ export default function BookingsPage() {
                 <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-6">
                   <div className="font-bold text-slate-700 mb-4">Your Details</div>
                   <div className="space-y-4">
-                    <div>
+              <div>
                       <label className="block text-xs font-medium text-slate-500 mb-1">Full Name</label>
                       <input
                         type="text"
@@ -1005,7 +1005,7 @@ export default function BookingsPage() {
                         className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-pink-500"
                         placeholder="John Doe"
                       />
-                    </div>
+                </div>
                     <div>
                       <label className="block text-xs font-medium text-slate-500 mb-1">Email Address</label>
                       <input

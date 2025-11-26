@@ -17,7 +17,7 @@ export default function Sidebar({ mobile = false, onClose }: SidebarProps) {
   const router = useRouter();
   const isDashboard = pathname === "/dashboard" || pathname === "/";
   const isBookings = pathname?.startsWith("/bookings");
-  const isBookingsRoot = pathname === "/bookings";
+  const isBookingsDashboard = pathname === "/bookings/dashboard";
   const isBookingsAll = pathname === "/bookings/all";
   const isServices = pathname?.startsWith("/services");
   const isBranches = pathname?.startsWith("/branches");
@@ -31,6 +31,10 @@ export default function Sidebar({ mobile = false, onClose }: SidebarProps) {
   const [mounted, setMounted] = useState(false);
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [openBookings, setOpenBookings] = useState(false);
+  useEffect(() => {
+    // auto expand when we're in any bookings sub-route
+    if (isBookings) setOpenBookings(true);
+  }, [isBookings]);
 
   useEffect(() => {
     // Keep role in sync with auth state and Firestore; seed from localStorage for instant render
@@ -121,36 +125,40 @@ export default function Sidebar({ mobile = false, onClose }: SidebarProps) {
         </Link>
         {mounted && role === "salon_owner" && (
           <>
-            <Link
-              href="/bookings"
-              className={`flex items-center space-x-3 px-4 py-3 rounded-xl text-sm transition ${
-                isBookingsRoot ? "bg-pink-500 text-white shadow-lg" : "hover:bg-slate-800 text-slate-400 hover:text-white"
+            <div
+              role="button"
+              onClick={() => setOpenBookings((v) => !v)}
+              className={`flex items-center space-x-3 px-4 py-3 rounded-xl text-sm transition cursor-pointer ${
+                isBookings ? "bg-pink-500 text-white shadow-lg" : "hover:bg-slate-800 text-slate-400 hover:text-white"
               }`}
             >
               <i className="fas fa-calendar-check w-5" />
               <span>Bookings</span>
-              <button
-                aria-label="Toggle bookings submenu"
-                className="ml-auto opacity-70 hover:opacity-100"
-                onClick={(e) => {
-                  e.preventDefault();
-                  e.stopPropagation();
-                  setOpenBookings((v) => !v);
-                }}
-              >
+              <span className="ml-auto opacity-70">
                 <i className={`fas fa-chevron-${openBookings ? "down" : "right"}`} />
-              </button>
-            </Link>
+              </span>
+            </div>
             {openBookings && (
-              <Link
-                href="/bookings/all"
-                className={`ml-8 flex items-center space-x-3 px-3 py-2 rounded-lg text-xs font-medium transition ${
-                  isBookingsAll ? "bg-slate-800 text-white" : "text-slate-400 hover:bg-slate-800 hover:text-white"
-                }`}
-              >
-                <i className="fas fa-list w-4" />
-                <span>All Bookings</span>
-              </Link>
+              <>
+                <Link
+                  href="/bookings/dashboard"
+                  className={`ml-10 flex items-center space-x-3 px-3 py-2 rounded-lg text-sm font-medium transition ${
+                    isBookingsDashboard ? "bg-slate-800 text-white" : "text-slate-400 hover:bg-slate-800 hover:text-white"
+                  }`}
+                >
+                  <i className="fas fa-gauge w-4" />
+                  <span>Booking Summary</span>
+                </Link>
+                <Link
+                  href="/bookings/all"
+                  className={`ml-10 flex items-center space-x-3 px-3 py-2 rounded-lg text-sm font-medium transition ${
+                    isBookingsAll ? "bg-slate-800 text-white" : "text-slate-400 hover:bg-slate-800 hover:text-white"
+                  }`}
+                >
+                  <i className="fas fa-list w-4" />
+                  <span>All Bookings</span>
+                </Link>
+              </>
             )}
           </>
         )}
