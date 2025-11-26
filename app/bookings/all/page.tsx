@@ -143,8 +143,8 @@ export default function AllBookingsPage() {
                 <div className="text-sm text-slate-600">
                   {loading ? "Loading…" : `${rows.length} bookings`}
                 </div>
-                <div className="text-sm font-semibold">
-                  Total Value: <span className="text-pink-600">${totalValue.toLocaleString()}</span>
+                <div className="text-sm font-semibold text-slate-700">
+                  Total Value: <span className="text-slate-900">${totalValue.toLocaleString()}</span>
                 </div>
               </div>
               <div className="overflow-auto">
