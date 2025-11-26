@@ -940,11 +940,15 @@ export default function BookingsPage() {
                       {buildMonthCells().map((c, idx) => {
                         const isSelected =
                           c.date && bkDate && bkDate.getFullYear() === c.date.getFullYear() && bkDate.getMonth() === c.date.getMonth() && bkDate.getDate() === c.date.getDate();
+                        const today = new Date();
+                        today.setHours(0, 0, 0, 0);
+                        const isPast = !!(c.date && c.date.getTime() < today.getTime());
+                        const baseClickable = c.date && !isPast ? "cursor-pointer hover:bg-slate-50" : "bg-slate-50/40 cursor-not-allowed opacity-60";
                         return (
                           <div
                             key={idx}
-                            className={`h-16 border border-slate-100 p-2 text-sm ${c.date ? "cursor-pointer hover:bg-slate-50" : "bg-slate-50/40"} ${isSelected ? "bg-pink-50 ring-2 ring-pink-500" : ""}`}
-                            onClick={() => c.date && (setBkDate(c.date), setBkTime(null))}
+                            className={`h-16 border border-slate-100 p-2 text-sm ${baseClickable} ${isSelected ? "bg-pink-50 ring-2 ring-pink-500" : ""}`}
+                            onClick={() => c.date && !isPast && (setBkDate(c.date), setBkTime(null))}
                           >
                             <div className="flex items-start justify-between">
                               <span className={`text-slate-700 ${!c.date ? "opacity-0" : ""}`}>{c.label}</span>

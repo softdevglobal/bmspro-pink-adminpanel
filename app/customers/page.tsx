@@ -1,10 +1,10 @@
 "use client";
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useState } from "react";
 import Sidebar from "@/components/Sidebar";
 import { useRouter } from "next/navigation";
 import { auth, db } from "@/lib/firebase";
 import { onAuthStateChanged } from "firebase/auth";
-import { doc, getDoc } from "firebase/firestore";
+import { collection, doc, getDoc, onSnapshot, query, where } from "firebase/firestore";
 
 type Customer = {
   id: string;
@@ -29,14 +29,11 @@ export default function CustomersPage() {
   const [notes, setNotes] = useState("");
   const [status, setStatus] = useState<"Active" | "Inactive">("Active");
   const [editingId, setEditingId] = useState<string | null>(null);
+  const [previewCust, setPreviewCust] = useState<Customer | null>(null);
+  const [previewOpen, setPreviewOpen] = useState(false);
+  const [bookingsAgg, setBookingsAgg] = useState<Customer[]>([]);
+  const [savedCustomers, setSavedCustomers] = useState<Customer[]>([]);
 
-  const defaultCustomers: Customer[] = useMemo(
-    () => [
-      { id: "cu1", name: "Jane Doe", phone: "0412 345 678", email: "jane@test.com", visits: 3, lastVisit: "2025-05-21", status: "Active" },
-      { id: "cu2", name: "John Smith", phone: "0498 765 432", email: "john@test.com", visits: 1, lastVisit: "2025-05-02", status: "Inactive" },
-    ],
-    []
-  );
 
   useEffect(() => {
     const unsub = onAuthStateChanged(auth, async (user) => {
@@ -66,20 +63,88 @@ export default function CustomersPage() {
     return () => unsub();
   }, [router]);
 
+  // Remove dummy/local storage seed; show only real customers from bookings
+
+  // Live customers derived from bookings for this owner
   useEffect(() => {
-    try {
-      const raw = typeof window !== "undefined" ? localStorage.getItem("bms_customers_data") : null;
-      if (raw) {
-        const parsed = JSON.parse(raw);
-        setCustomers(parsed?.customers || defaultCustomers);
-      } else {
-        setCustomers(defaultCustomers);
-        if (typeof window !== "undefined") localStorage.setItem("bms_customers_data", JSON.stringify({ customers: defaultCustomers }));
-      }
-    } catch {
-      setCustomers(defaultCustomers);
+    if (!ownerUid) return;
+    const q = query(collection(db, "bookings"), where("ownerUid", "==", ownerUid));
+    const unsub = onSnapshot(q, (snap) => {
+      const map = new Map<string, Customer>();
+      snap.forEach((doc) => {
+        const d = doc.data() as any;
+        const name = String(d.client || "").trim();
+        const email = (d.clientEmail || undefined) as string | undefined;
+        const phone = (d.clientPhone || undefined) as string | undefined;
+        if (!name && !email && !phone) return;
+        const key = (email || phone || name).toString().toLowerCase();
+        const date = String(d.date || "");
+        const existing = map.get(key);
+        if (!existing) {
+          map.set(key, {
+            id: key,
+            name: name || email || phone || "Customer",
+            email,
+            phone,
+            visits: 1,
+            lastVisit: date || undefined,
+            status: "Active",
+          });
+        } else {
+          existing.visits = (existing.visits || 0) + 1;
+          if ((existing.lastVisit || "") < date) existing.lastVisit = date;
+        }
+      });
+      // Save aggregate from bookings
+      setBookingsAgg(Array.from(map.values()));
+    });
+    return () => unsub();
+  }, [ownerUid]);
+
+  // Live customers saved in a dedicated "customers" collection (if your system writes them)
+  useEffect(() => {
+    if (!ownerUid) return;
+    const q = query(collection(db, "customers"), where("ownerUid", "==", ownerUid));
+    const unsub = onSnapshot(q, (snap) => {
+      const list: Customer[] = [];
+      snap.forEach((doc) => {
+        const d = doc.data() as any;
+        list.push({
+          id: String(doc.id),
+          name: String(d.name || d.fullName || d.client || "Customer"),
+          phone: d.phone || d.clientPhone || undefined,
+          email: d.email || d.clientEmail || undefined,
+          notes: d.notes || undefined,
+          visits: typeof d.visits === "number" ? d.visits : undefined,
+          lastVisit: d.lastVisit || undefined,
+          status: (d.status as any) || "Active",
+        });
+      });
+      setSavedCustomers(list);
+    });
+    return () => unsub();
+  }, [ownerUid]);
+
+  // Combine both sources
+  useEffect(() => {
+    const keyFor = (c: Customer) => (c.email || c.phone || c.name).toString().toLowerCase();
+    const map = new Map<string, Customer>();
+    for (const c of savedCustomers) {
+      map.set(keyFor(c), { ...c });
     }
-  }, [defaultCustomers]);
+    for (const b of bookingsAgg) {
+      const k = keyFor(b);
+      const existing = map.get(k);
+      if (!existing) {
+        map.set(k, { ...b });
+      } else {
+        const visits = (existing.visits || 0) + (b.visits || 0);
+        const lastVisit = (existing.lastVisit || "") < (b.lastVisit || "") ? b.lastVisit : existing.lastVisit;
+        map.set(k, { ...existing, visits, lastVisit });
+      }
+    }
+    setCustomers(Array.from(map.values()));
+  }, [bookingsAgg, savedCustomers]);
 
   const saveData = (next: Customer[]) => {
     setCustomers(next);
@@ -219,7 +284,7 @@ export default function CustomersPage() {
                       </div>
                       <div className="flex items-center gap-4">
                         <div className="text-right">
-                          <div className="text-xs text-slate-500">Visits</div>
+                          <div className="text-xs text-slate-500">Bookings</div>
                           <div className="font-semibold text-slate-800">{c.visits ?? 0}</div>
                         </div>
                         <div className="text-right">
@@ -227,13 +292,19 @@ export default function CustomersPage() {
                           <div className="font-semibold text-slate-800">{c.lastVisit || "—"}</div>
                         </div>
                         <div className="text-right">
-                          <div className={`text-xs font-bold ${inactive ? "text-red-500" : "text-green-600"}`}>{c.status || "Active"}</div>
-                          <div className="flex items-center gap-2 justify-end mt-1">
-                            <button className="text-xs text-blue-600 hover:underline" onClick={() => openModal(c)}>
-                              Edit
+                          <div className="flex items-center gap-3 justify-end mt-1 text-slate-400">
+                            <button
+                              className="hover:text-slate-600"
+                              title="Preview"
+                              onClick={() => {
+                                setPreviewCust(c);
+                                setPreviewOpen(true);
+                              }}
+                            >
+                              <i className="fas fa-eye" />
                             </button>
-                            <button className="text-xs text-rose-600 hover:underline" onClick={() => removeCustomer(c.id)}>
-                              Delete
+                            <button className="hover:text-rose-600" title="Delete" onClick={() => removeCustomer(c.id)}>
+                              <i className="fas fa-trash" />
                             </button>
                           </div>
                         </div>
@@ -262,6 +333,66 @@ export default function CustomersPage() {
           </div>
         </main>
       </div>
+
+      {/* Preview modal */}
+      {previewOpen && previewCust && (
+        <div className="fixed inset-0 z-50">
+          <div className="absolute inset-0 bg-black/50" onClick={() => setPreviewOpen(false)} />
+          <div className="relative flex items-center justify-center min-h-screen p-4">
+            <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden">
+              <div className="bg-gradient-to-r from-pink-500 via-fuchsia-600 to-indigo-600 px-5 py-4 text-white flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-xl bg-white/20 flex items-center justify-center">
+                    <i className="fas fa-user" />
+                  </div>
+                  <h3 className="text-base font-semibold">Customer Preview</h3>
+                </div>
+                <button className="text-white/80 hover:text-white" onClick={() => setPreviewOpen(false)}>
+                  <i className="fas fa-times" />
+                </button>
+              </div>
+              <div className="p-5 space-y-4">
+                <div className="flex items-center gap-3">
+                  <div className="w-12 h-12 rounded-full bg-gradient-to-br from-pink-100 to-pink-200 text-pink-700 flex items-center justify-center font-bold">
+                    {previewCust.name.substring(0, 1).toUpperCase()}
+                  </div>
+                  <div>
+                    <div className="font-semibold text-slate-900">{previewCust.name}</div>
+                    <div className="text-xs text-slate-500">
+                      {previewCust.phone || "No phone"} • {previewCust.email || "No email"}
+                    </div>
+                  </div>
+                </div>
+                <div className="grid grid-cols-2 gap-3 text-sm">
+                  <div>
+                    <div className="text-slate-400">Bookings</div>
+                    <div className="font-medium text-slate-800">{previewCust.visits ?? 0}</div>
+                  </div>
+                  <div>
+                    <div className="text-slate-400">Last Visit</div>
+                    <div className="font-medium text-slate-800">{previewCust.lastVisit || "—"}</div>
+                  </div>
+                </div>
+                {previewCust.notes && (
+                  <div>
+                    <div className="text-slate-400 text-sm mb-1">Notes</div>
+                    <div className="text-slate-700 text-sm whitespace-pre-wrap">{previewCust.notes}</div>
+                  </div>
+                )}
+              </div>
+              <div className="px-5 py-4 border-t border-slate-200 flex items-center justify-end gap-2">
+                <button onClick={() => setPreviewOpen(false)} className="px-3 py-1.5 rounded-full text-xs font-semibold bg-slate-100 hover:bg-slate-200 text-slate-700">
+                  Close
+                </button>
+                <button onClick={() => { setPreviewOpen(false); removeCustomer(previewCust.id); }} className="px-3 py-1.5 rounded-full text-xs font-semibold bg-rose-600 hover:bg-rose-700 text-white">
+                  <i className="fas fa-trash mr-1" />
+                  Delete
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {isModalOpen && (
         <div className="fixed inset-0 z-50">
