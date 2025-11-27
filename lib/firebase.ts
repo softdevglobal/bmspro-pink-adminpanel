@@ -15,10 +15,11 @@ const firebaseConfig = {
 // Initialize (guarded for Next.js hot reload)
 const app = getApps().length ? getApp() : initializeApp(firebaseConfig);
 const auth = getAuth(app);
+
 // Stabilize Firestore in Next.js dev (Turbopack/HMR) and varied network environments
+// Note: Removed experimentalAutoDetectLongPolling as it was causing connection warnings (code=unavailable)
 const db = initializeFirestore(app, {
   ignoreUndefinedProperties: true,
-  experimentalAutoDetectLongPolling: true,
 });
 
 export { app, auth, db };

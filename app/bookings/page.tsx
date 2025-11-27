@@ -60,7 +60,9 @@ export default function BookingsPage() {
           if (role === "salon_owner") {
             setOwnerUid(user.uid);
           } else if (role === "salon_branch_admin") {
-            setOwnerUid(userData?.ownerUid || null);
+            // Redirect branch admin to their management page
+            router.replace("/branches");
+            return;
           } else {
             setOwnerUid(user.uid);
           }

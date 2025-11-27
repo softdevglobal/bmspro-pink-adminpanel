@@ -283,6 +283,10 @@ export default function TenantsPage() {
       const userRef = doc(db, "users", user.uid);
       const snap = await getDoc(userRef);
       const role = (snap.data()?.role || "").toString();
+      if (role === "salon_branch_admin") {
+        router.replace("/branches");
+        return;
+      }
       if (role !== "super_admin") router.replace("/dashboard");
     });
     return () => unsub();

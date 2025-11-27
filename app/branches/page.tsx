@@ -61,6 +61,7 @@ export default function BranchesPage() {
   const [address, setAddress] = useState("");
   const [phone, setPhone] = useState("");
   const [email, setEmail] = useState(""); // Added email state
+  const [role, setRole] = useState<string | null>(null); // Added role state
   // structured hours builder state
   const [hoursObj, setHoursObj] = useState<HoursMap>({
     Monday: { open: "09:00", close: "17:00", closed: false },
@@ -99,12 +100,18 @@ export default function BranchesPage() {
       }
       try {
         const snap = await getDoc(doc(db, "users", user.uid));
-        const role = (snap.data()?.role || "").toString();
-        if (role !== "salon_owner") {
+        const userData = snap.data();
+        const r = (userData?.role || "").toString();
+        setRole(r);
+        if (r !== "salon_owner" && r !== "salon_branch_admin") {
           router.replace("/dashboard");
           return;
         }
-        setOwnerUid(user.uid);
+        if (r === "salon_owner") {
+          setOwnerUid(user.uid);
+        } else {
+          setOwnerUid(userData?.ownerUid || null);
+        }
       } catch {
         router.replace("/login");
       }
@@ -132,6 +139,20 @@ export default function BranchesPage() {
         staffIds: Array.isArray((r as any).staffIds) ? (r as any).staffIds.map(String) : [],
         serviceIds: Array.isArray((r as any).serviceIds) ? (r as any).serviceIds.map(String) : [],
       }));
+      
+      // If branch admin, filter to only show their assigned branch
+      if (auth.currentUser) {
+         const currentUserUid = auth.currentUser.uid;
+         // We can't easily get role here synchronously without prop drilling or context,
+         // but we can check if any branch has this user as admin.
+         // However, simpler is: if we are NOT the owner (checked by ownerUid !== currentUserUid), filter.
+         if (ownerUid && ownerUid !== currentUserUid) {
+            const myBranches = mapped.filter(b => b.adminStaffId === currentUserUid);
+            setBranches(myBranches);
+            return;
+         }
+      }
+      
       setBranches(mapped.length ? mapped : defaultBranches);
     });
     return () => unsub();
@@ -310,13 +331,15 @@ export default function BranchesPage() {
           <div className="max-w-7xl mx-auto">
             <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-6">
               <h2 className="text-2xl font-bold text-slate-800">Branch Locations</h2>
-              <button
-                onClick={openModal}
-                className="w-full sm:w-auto px-4 py-2 bg-purple-600 text-white rounded-lg text-sm hover:bg-purple-700 font-medium shadow-md transition"
-              >
-                <i className="fas fa-plus mr-2" />
-                Add Branch
-              </button>
+              {role === "salon_owner" && (
+                <button
+                  onClick={openModal}
+                  className="w-full sm:w-auto px-4 py-2 bg-purple-600 text-white rounded-lg text-sm hover:bg-purple-700 font-medium shadow-md transition"
+                >
+                  <i className="fas fa-plus mr-2" />
+                  Add Branch
+                </button>
+              )}
             </div>
 
                 <div id="branch-grid" className="grid grid-cols-1 lg:grid-cols-2 gap-6">
@@ -351,9 +374,11 @@ export default function BranchesPage() {
                         <button onClick={() => openEditModal(b)} title="Edit" className="hover:text-blue-600">
                           <i className="fas fa-pen" />
                         </button>
-                        <button onClick={() => setDeleteTarget(b)} title="Delete" className="hover:text-rose-600">
-                          <i className="fas fa-trash" />
-                        </button>
+                        {role === "salon_owner" && (
+                          <button onClick={() => setDeleteTarget(b)} title="Delete" className="hover:text-rose-600">
+                            <i className="fas fa-trash" />
+                          </button>
+                        )}
                       </div>
                     </div>
                     <div className="h-2 bg-slate-100 rounded-full overflow-hidden mb-2">

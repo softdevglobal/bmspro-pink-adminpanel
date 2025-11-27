@@ -70,11 +70,25 @@ export default function SettingsPage() {
       try {
         const token = await user.getIdToken();
         if (typeof window !== "undefined") localStorage.setItem("idToken", token);
+        
+        // Check role
+        const { getDoc, doc } = await import("firebase/firestore");
+        const snap = await getDoc(doc(db, "users", user.uid));
+        const role = (snap.data()?.role || "").toString();
+        
+        if (role === "salon_branch_admin") {
+          router.replace("/branches");
+          return;
+        }
+        if (role !== "salon_owner") {
+          router.replace("/dashboard");
+          return;
+        }
+        
+        setOwnerUid(user.uid);
       } catch {
         router.replace("/login");
-        return;
       }
-      setOwnerUid(user.uid);
     });
     return () => unsub();
   }, [router]);

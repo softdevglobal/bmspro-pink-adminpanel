@@ -29,6 +29,10 @@ export default function SettingsPage() {
         try {
           const snap = await getDoc(doc(db, "users", user.uid));
           const role = (snap.data()?.role || "").toString();
+          if (role === "salon_branch_admin") {
+            router.replace("/branches");
+            return;
+          }
           if (role !== "super_admin") {
             router.replace("/dashboard");
             return;

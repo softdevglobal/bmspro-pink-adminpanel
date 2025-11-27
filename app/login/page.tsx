@@ -115,7 +115,11 @@ export default function LoginPage() {
       } catch {}
       // Avoid immediate redirect if we are already on a page that might redirect back
       // Instead, verify role logic one last time
-      router.replace("/dashboard");
+      if (localStorage.getItem("role") === "salon_branch_admin") {
+        router.replace("/branches");
+      } else {
+        router.replace("/dashboard");
+      }
     } catch (err: any) {
       console.error("Auth error:", err);
       setError(friendlyAuthMessage(err?.code));

@@ -50,7 +50,9 @@ export default function DashboardPage() {
           if (role === "salon_owner") {
             setUserUid(user.uid);
           } else if (role === "salon_branch_admin") {
-            setUserUid(userData?.ownerUid || null);
+            // Branch admins should not see the main dashboard; redirect to branches
+            router.replace("/branches");
+            return;
           } else {
              // fallback for other roles or if ownerUid missing, 
              // though normally they shouldn't be here if not authorized.
