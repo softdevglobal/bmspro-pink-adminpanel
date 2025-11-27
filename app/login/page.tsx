@@ -104,9 +104,12 @@ export default function LoginPage() {
         const uid2 = auth.currentUser?.uid;
         if (uid2) {
           const snap = await getDoc(doc(db, "users", uid2));
-          const role = (snap.data()?.role || "").toString();
+          const data = snap.data();
+          const role = (data?.role || "").toString();
+          const name = (data?.displayName || data?.name || "").toString();
           if (typeof window !== "undefined") {
             localStorage.setItem("role", role);
+            if (name) localStorage.setItem("userName", name);
           }
         }
       } catch {}

@@ -32,6 +32,7 @@ export default function Sidebar({ mobile = false, onClose }: SidebarProps) {
   const isSettings = pathname?.startsWith("/settings");
   const isOwnerSettings = pathname?.startsWith("/owner-settings");
   const [role, setRole] = useState<string | null>(null);
+  const [userName, setUserName] = useState<string | null>(null);
   const [mounted, setMounted] = useState(false);
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [openBookings, setOpenBookings] = useState(false);
@@ -47,11 +48,17 @@ export default function Sidebar({ mobile = false, onClose }: SidebarProps) {
       }
       try {
         const snap = await getDoc(doc(db, "users", user.uid));
-        const r = (snap.data()?.role || "").toString();
+        const userData = snap.data();
+        const r = (userData?.role || "").toString();
         setRole(r || null);
-        if (typeof window !== "undefined") localStorage.setItem("role", r || "");
+        setUserName(userData?.displayName || userData?.name || "User");
+        if (typeof window !== "undefined") {
+          localStorage.setItem("role", r || "");
+          localStorage.setItem("userName", userData?.displayName || userData?.name || "");
+        }
       } catch {
         setRole(null);
+        setUserName(null);
       }
     });
     return () => unsub();
@@ -65,6 +72,8 @@ export default function Sidebar({ mobile = false, onClose }: SidebarProps) {
       if (typeof window !== "undefined") {
         const cached = localStorage.getItem("role");
         if (cached) setRole(cached);
+        const cachedName = localStorage.getItem("userName");
+        if (cachedName) setUserName(cachedName);
         const ob = localStorage.getItem("sidebarOpenBookings");
         if (ob === "1" || ob === "0") setOpenBookings(ob === "1");
       }
@@ -92,6 +101,7 @@ export default function Sidebar({ mobile = false, onClose }: SidebarProps) {
       if (typeof window !== "undefined") {
         localStorage.removeItem("idToken");
         localStorage.removeItem("role");
+        localStorage.removeItem("userName");
       }
       signOut(auth).catch(() => {});
     } catch {}
@@ -272,13 +282,15 @@ export default function Sidebar({ mobile = false, onClose }: SidebarProps) {
             <i className="fas fa-user" />
           </div>
           <div className="flex-1">
-            <p className="text-xs font-medium text-white">Account</p>
+            <p className="text-xs font-medium text-white">{userName || "Account"}</p>
             <p className="text-xs text-slate-400">
               {mounted && role
                 ? role === "super_admin"
                   ? "Super Admin"
                   : role === "salon_owner"
                   ? "Salon Owner"
+                  : role === "salon_branch_admin"
+                  ? "Branch Manager"
                   : "User"
                 : "User"}
             </p>

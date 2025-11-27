@@ -13,6 +13,7 @@ import {
   deleteSalonStaff,
 } from "@/lib/salonStaff";
 import { updateBranch } from "@/lib/branches";
+import { deleteDoc } from "firebase/firestore";
 
 export default function SettingsPage() {
   const router = useRouter();
@@ -146,24 +147,121 @@ export default function SettingsPage() {
     setSavingStaff(true);
     try {
       if (editingStaffId) {
-        await updateSalonStaff(editingStaffId, {
-          name,
-          role,
-          branchId,
-          branchName: branchRow?.name || "",
-          systemRole,
-          training: {
-            ohs: formData.get("train_ohs") === "on",
-            prod: formData.get("train_prod") === "on",
-            tool: formData.get("train_tool") === "on",
-          },
-        });
-        // Also update users collection role if authUid exists
-        if (editingStaff?.authUid) {
+        // Check if we need to generate auth credentials for an existing staff member who has none
+        let newAuthUid = editingStaff?.authUid;
+        if (!newAuthUid && (systemRole === "salon_branch_admin" || password)) {
            try {
-             await setDoc(doc(db, "users", editingStaff.authUid), { role: systemRole }, { merge: true });
-           } catch {}
+              const res = await fetch("/api/staff/auth/create", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ email, displayName: name, password }),
+              });
+              const json = await res.json();
+              if (res.ok && json?.uid) {
+                newAuthUid = String(json.uid);
+                // Create user doc
+                await setDoc(doc(db, "users", newAuthUid), {
+                  uid: newAuthUid,
+                  email,
+                  displayName: name,
+                  role: systemRole,
+                  ownerUid,
+                  createdAt: serverTimestamp(),
+                  updatedAt: serverTimestamp(),
+                  provider: "password",
+                  status: "Active"
+                });
+              }
+           } catch (err) {
+             console.error("Failed to generate auth for existing staff", err);
+           }
         }
+
+        // MIGRATION LOGIC:
+        // If we have a valid authUid, but the current document ID (editingStaffId) DOES NOT match it,
+        // it means we have a legacy record (random ID) that needs to be migrated to be keyed by authUid.
+        if (newAuthUid && newAuthUid !== editingStaffId) {
+          // 1. Create/Overwrite the correct record at users/{newAuthUid}
+          // Need to use the same create logic as "Add Staff" but ensure it uses newAuthUid
+          // We can call createStaff with authUid: newAuthUid
+          await createStaff(ownerUid, {
+            email,
+            name,
+            role,
+            branchId,
+            branchName: branchRow?.name || "",
+            status: "Active",
+            authUid: newAuthUid,
+            systemRole,
+            avatar: name,
+            training: {
+              ohs: formData.get("train_ohs") === "on",
+              prod: formData.get("train_prod") === "on",
+              tool: formData.get("train_tool") === "on",
+            },
+          });
+          
+          // 2. Delete the old legacy record (users/{editingStaffId})
+          // We use try-catch because it might not exist if it was in the old 'salon_staff' collection
+          try {
+            await deleteSalonStaff(editingStaffId);
+            // Also try to delete from legacy collection just in case (requires importing deleteDoc, doc, db from firebase/firestore)
+            // Assuming these are available in scope or imported at top
+            await deleteDoc(doc(db, "salon_staff", editingStaffId));
+          } catch {}
+
+          // 3. Update local state to reflect the new ID to prevent further errors if modal stays open
+          setEditingStaffId(newAuthUid);
+
+        } else {
+          // Standard Update (ID matches or no Auth ID to migrate to)
+          try {
+            await updateSalonStaff(editingStaffId, {
+              name,
+              role,
+              branchId,
+              branchName: branchRow?.name || "",
+              systemRole,
+              authUid: newAuthUid || undefined, 
+              training: {
+                ohs: formData.get("train_ohs") === "on",
+                prod: formData.get("train_prod") === "on",
+                tool: formData.get("train_tool") === "on",
+              },
+            });
+          } catch (err: any) {
+            // If update fails (e.g. doc not found), try to recreate it if we have data
+            if (err?.code === 'not-found' || err?.message?.includes('No document')) {
+               if (newAuthUid) {
+                 // Fallback: Create new
+                 await createStaff(ownerUid, {
+                    email,
+                    name,
+                    role,
+                    branchId,
+                    branchName: branchRow?.name || "",
+                    status: "Active",
+                    authUid: newAuthUid,
+                    systemRole,
+                    avatar: name,
+                    training: {
+                      ohs: formData.get("train_ohs") === "on",
+                      prod: formData.get("train_prod") === "on",
+                      tool: formData.get("train_tool") === "on",
+                    },
+                 });
+                 // Try to cleanup old ID if possible
+                 try { await deleteDoc(doc(db, "salon_staff", editingStaffId)); } catch {}
+               } else {
+                 throw err; // Cannot recover without ID
+               }
+            } else {
+              throw err;
+            }
+          }
+        }
+        
+        // NOTE: No need to separately update 'users' doc role, as updateSalonStaff now targets 'users' directly.
 
         // SYNC: If role is branch admin, update the branch record
         if (systemRole === "salon_branch_admin" && branchId) {
@@ -216,27 +314,35 @@ export default function SettingsPage() {
           console.error("Failed to create auth user", err);
         }
 
-        // 2) create staff record
-        const newRef = await createStaff(ownerUid, {
-          email,
-          name,
-          role,
-          branchId,
-          branchName: branchRow?.name || "",
-          status: "Active",
-          authUid: authUid || undefined,
-          systemRole,
-          avatar: name,
-          training: {
-            ohs: formData.get("train_ohs") === "on",
-            prod: formData.get("train_prod") === "on",
-            tool: formData.get("train_tool") === "on",
-          },
-        });
+        // 2) create staff record in users collection
+        // We MUST have an authUid now because we force creation/lookup above
+        if (authUid) {
+          const newRef = await createStaff(ownerUid, {
+            email,
+            name,
+            role,
+            branchId,
+            branchName: branchRow?.name || "",
+            status: "Active",
+            authUid: authUid,
+            systemRole,
+            avatar: name,
+            training: {
+              ohs: formData.get("train_ohs") === "on",
+              prod: formData.get("train_prod") === "on",
+              tool: formData.get("train_tool") === "on",
+            },
+          });
 
-        // SYNC: If new staff is branch admin, update branch
-        if (systemRole === "salon_branch_admin" && branchId) {
-           await updateBranch(branchId, { adminStaffId: newRef });
+          // SYNC: If new staff is branch admin, update branch
+          if (systemRole === "salon_branch_admin" && branchId) {
+             await updateBranch(branchId, { adminStaffId: newRef });
+          }
+        } else {
+          // Fallback if auth failed (should catch above)
+          showToast("Failed to create user account. Please try again.");
+          setSavingStaff(false);
+          return;
         }
       }
       setIsStaffModalOpen(false);
@@ -622,7 +728,7 @@ export default function SettingsPage() {
                   defaultValue={editingStaff?.email || ""}
                 />
               </div>
-              {!editingStaffId && (
+              {(!editingStaffId || (editingStaffId && !editingStaff?.authUid)) && (
                 <div>
                   <label className="block text-xs font-bold text-slate-600 mb-1">Password</label>
                   <div className="relative">
@@ -630,7 +736,7 @@ export default function SettingsPage() {
                       type={showPassword ? "text" : "password"}
                       name="password"
                       className="w-full border border-slate-300 rounded-lg p-2.5 pr-10 text-sm focus:ring-2 focus:ring-pink-500 focus:outline-none"
-                      placeholder="Leave empty for auto-generated"
+                      placeholder={editingStaffId ? "Create password for login" : "Leave empty for auto-generated"}
                     />
                     <button
                       type="button"

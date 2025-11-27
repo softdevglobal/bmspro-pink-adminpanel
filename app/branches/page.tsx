@@ -127,6 +127,7 @@ export default function BranchesPage() {
         hours: r.hours,
         capacity: r.capacity,
         manager: r.manager,
+        adminStaffId: r.adminStaffId, // Map adminStaffId from Firestore
         status: (r.status as any) || "Active",
         staffIds: Array.isArray((r as any).staffIds) ? (r as any).staffIds.map(String) : [],
         serviceIds: Array.isArray((r as any).serviceIds) ? (r as any).serviceIds.map(String) : [],
