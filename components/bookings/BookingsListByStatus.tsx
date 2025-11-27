@@ -101,10 +101,10 @@ function useBookingsByStatus(status: BookingStatus) {
 export default function BookingsListByStatus({ status, title }: { status: BookingStatus; title: string }) {
   const { rows, loading, error } = useBookingsByStatus(status);
   const [updatingMap, setUpdatingMap] = useState<Record<string, boolean>>({});
-  const allowedActions = useMemo(() => {
-    if (status === "Pending") return ["Confirm", "Cancel"] as const;
-    if (status === "Confirmed") return ["Complete"] as const;
-    return [] as const;
+  const allowedActions = useMemo<ReadonlyArray<"Confirm" | "Cancel" | "Complete">>(() => {
+    if (status === "Pending") return ["Confirm", "Cancel"];
+    if (status === "Confirmed") return ["Complete"];
+    return [];
   }, [status]);
   const [previewRow, setPreviewRow] = useState<Row | null>(null);
   const [previewOpen, setPreviewOpen] = useState(false);
@@ -256,7 +256,7 @@ export default function BookingsListByStatus({ status, title }: { status: Bookin
                     >
                       Close
                     </button>
-                    {previewRow && allowedActions.includes("Confirm" as any) && (
+                    {previewRow && allowedActions.includes("Confirm") && (
                       <button
                         disabled={!!updatingMap[previewRow.id]}
                         onClick={() => onAction(previewRow.id, "Confirm")}
@@ -267,7 +267,7 @@ export default function BookingsListByStatus({ status, title }: { status: Bookin
                         {updatingMap[previewRow.id] ? "Confirming..." : "Confirm"}
                       </button>
                     )}
-                    {previewRow && allowedActions.includes("Complete" as any) && (
+                    {previewRow && allowedActions.includes("Complete") && (
                       <button
                         disabled={!!updatingMap[previewRow.id]}
                         onClick={() => onAction(previewRow.id, "Complete")}
@@ -278,7 +278,7 @@ export default function BookingsListByStatus({ status, title }: { status: Bookin
                         {updatingMap[previewRow.id] ? "Completing..." : "Complete"}
                       </button>
                     )}
-                    {previewRow && allowedActions.includes("Cancel" as any) && (
+                    {previewRow && allowedActions.includes("Cancel") && (
                       <button
                         disabled={!!updatingMap[previewRow.id]}
                         onClick={() => onAction(previewRow.id, "Cancel")}

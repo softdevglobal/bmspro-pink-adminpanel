@@ -5,8 +5,9 @@ import { canTransitionStatus, normalizeBookingStatus } from "@/lib/bookingTypes"
 
 export const runtime = "nodejs";
 
-export async function PATCH(req: NextRequest, { params }: { params: { id: string } }) {
+export async function PATCH(req: NextRequest, context: { params: Promise<{ id: string }> }) {
   try {
+    const { id } = await context.params;
     const authHeader = req.headers.get("authorization") || "";
     const token = authHeader.startsWith("Bearer ") ? authHeader.slice(7) : null;
     if (!token) {
@@ -32,7 +33,7 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
     const requestedStatus = normalizeBookingStatus(body?.status || "");
 
     // Load booking
-    const ref = adminDb().doc(`bookings/${params.id}`);
+    const ref = adminDb().doc(`bookings/${id}`);
     const snap = await ref.get();
     if (!snap.exists) return NextResponse.json({ error: "Not found" }, { status: 404 });
 
