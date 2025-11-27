@@ -371,9 +371,11 @@ export default function BranchesPage() {
                         <button onClick={() => router.push(`/branches/${b.id}`)} title="Preview" className="hover:text-slate-600">
                           <i className="fas fa-eye" />
                         </button>
-                        <button onClick={() => openEditModal(b)} title="Edit" className="hover:text-blue-600">
-                          <i className="fas fa-pen" />
-                        </button>
+                        {role === "salon_owner" && (
+                          <button onClick={() => openEditModal(b)} title="Edit" className="hover:text-blue-600">
+                            <i className="fas fa-pen" />
+                          </button>
+                        )}
                         {role === "salon_owner" && (
                           <button onClick={() => setDeleteTarget(b)} title="Delete" className="hover:text-rose-600">
                             <i className="fas fa-trash" />
@@ -831,15 +833,17 @@ export default function BranchesPage() {
 
               {/* Footer actions */}
               <div className="px-6 py-4 border-t border-slate-200 bg-slate-50 flex items-center justify-end gap-3">
-                <button
-                  onClick={() => {
-                    setPreviewBranch(null);
-                    openEditModal(previewBranch);
-                  }}
-                  className="px-4 py-2 bg-purple-600 text-white rounded-lg text-sm hover:bg-purple-700 font-medium shadow-md transition"
-                >
-                  <i className="fas fa-pen mr-2" /> Edit
-                </button>
+                {role === "salon_owner" && (
+                  <button
+                    onClick={() => {
+                      setPreviewBranch(null);
+                      openEditModal(previewBranch);
+                    }}
+                    className="px-4 py-2 bg-purple-600 text-white rounded-lg text-sm hover:bg-purple-700 font-medium shadow-md transition"
+                  >
+                    <i className="fas fa-pen mr-2" /> Edit
+                  </button>
+                )}
                 <button
                   onClick={() => setPreviewBranch(null)}
                   className="px-4 py-2 bg-slate-200 text-slate-800 rounded-lg text-sm hover:bg-slate-300 font-medium transition"
