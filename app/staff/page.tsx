@@ -139,7 +139,7 @@ export default function SettingsPage() {
     const branchId = String(formData.get("branch") || "").trim();
     const systemRole = String(formData.get("system_role") || "salon_staff");
 
-    if (!name || !role || !email || !branchId || !ownerUid) return;
+    if (!name || !role || !email || !ownerUid) return;
     const branchRow = data.branches.find((b) => b.id === branchId);
     setSavingStaff(true);
     try {
@@ -639,13 +639,13 @@ export default function SettingsPage() {
                 <p className="text-[10px] text-slate-500 mt-1">Branch Admins can manage bookings and staff for their branch.</p>
               </div>
               <div>
-                <label className="block text-xs font-bold text-slate-600 mb-1">Branch</label>
+                <label className="block text-xs font-bold text-slate-600 mb-1">Branch (Optional)</label>
                 <select
                   name="branch"
-                  required
                   className="w-full border border-slate-300 rounded-lg p-2.5 text-sm bg-white focus:ring-2 focus:ring-pink-500 focus:outline-none"
                   defaultValue={editingStaff?.branchId || ""}
                 >
+                  <option value="">-- Unassigned --</option>
                   {data.branches.length > 0 ? (
                     data.branches.map((b) => (
                       <option key={b.id} value={b.id}>
