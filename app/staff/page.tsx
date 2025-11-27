@@ -12,6 +12,7 @@ import {
   updateSalonStaff,
   deleteSalonStaff,
 } from "@/lib/salonStaff";
+import { updateBranch } from "@/lib/branches";
 
 export default function SettingsPage() {
   const router = useRouter();
@@ -26,6 +27,7 @@ export default function SettingsPage() {
   const [previewStaff, setPreviewStaff] = useState<Staff | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<Staff | null>(null);
   const [deleting, setDeleting] = useState(false);
+  const [showPassword, setShowPassword] = useState(false);
 
   type StaffTraining = { ohs: boolean; prod: boolean; tool: boolean };
   type HoursDay = { open?: string; close?: string; closed?: boolean };
@@ -162,6 +164,29 @@ export default function SettingsPage() {
              await setDoc(doc(db, "users", editingStaff.authUid), { role: systemRole }, { merge: true });
            } catch {}
         }
+
+        // SYNC: If role is branch admin, update the branch record
+        if (systemRole === "salon_branch_admin" && branchId) {
+          await updateBranch(branchId, { adminStaffId: editingStaffId });
+        }
+        // SYNC: If role was branch admin but changed to staff, remove from branch if they were the admin
+        if (editingStaff?.systemRole === "salon_branch_admin" && systemRole === "salon_staff" && editingStaff.branchId) {
+          // We need to check if they were the admin of their old branch.
+          // Since we don't have that specific check handy without fetching, we can just try to update 
+          // the old branch. But `updateBranch` logic handles clearing if we pass null/undefined? 
+          // Actually `updateBranch` in lib/branches handles "if adminStaffId provided".
+          // We'd need to fetch the branch to see if they are the admin. 
+          // Or we can just assume if they are demoted, we should clear admin IF it matches them.
+          // For now, let's rely on the user to assign a new admin in Branch settings, 
+          // OR we could try to clear it. 
+          // Let's fetch the branch to be safe.
+          try {
+            const bSnap = await import("firebase/firestore").then(m => m.getDoc(m.doc(db, "branches", editingStaff.branchId!)));
+            if (bSnap.exists() && bSnap.data().adminStaffId === editingStaffId) {
+               await updateBranch(editingStaff.branchId!, { adminStaffId: null });
+            }
+          } catch {}
+        }
       } else {
         // 1) create auth user via server API
         let authUid: string | null = null;
@@ -192,7 +217,7 @@ export default function SettingsPage() {
         }
 
         // 2) create staff record
-        await createStaff(ownerUid, {
+        const newRef = await createStaff(ownerUid, {
           email,
           name,
           role,
@@ -208,6 +233,11 @@ export default function SettingsPage() {
             tool: formData.get("train_tool") === "on",
           },
         });
+
+        // SYNC: If new staff is branch admin, update branch
+        if (systemRole === "salon_branch_admin" && branchId) {
+           await updateBranch(branchId, { adminStaffId: newRef });
+        }
       }
       setIsStaffModalOpen(false);
       form.reset();
@@ -595,12 +625,21 @@ export default function SettingsPage() {
               {!editingStaffId && (
                 <div>
                   <label className="block text-xs font-bold text-slate-600 mb-1">Password</label>
-                  <input
-                    type="text"
-                    name="password"
-                    className="w-full border border-slate-300 rounded-lg p-2.5 text-sm focus:ring-2 focus:ring-pink-500 focus:outline-none"
-                    placeholder="Leave empty for auto-generated"
-                  />
+                  <div className="relative">
+                    <input
+                      type={showPassword ? "text" : "password"}
+                      name="password"
+                      className="w-full border border-slate-300 rounded-lg p-2.5 pr-10 text-sm focus:ring-2 focus:ring-pink-500 focus:outline-none"
+                      placeholder="Leave empty for auto-generated"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowPassword(!showPassword)}
+                      className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
+                    >
+                      <i className={`fa-solid ${showPassword ? "fa-eye-slash" : "fa-eye"}`} />
+                    </button>
+                  </div>
                   <p className="text-[10px] text-slate-500 mt-1">Set a password for them to login immediately.</p>
                 </div>
               )}

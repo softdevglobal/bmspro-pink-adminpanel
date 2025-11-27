@@ -104,4 +104,28 @@ export async function promoteStaffToBranchAdmin(staffId: string) {
   }
 }
 
+export async function demoteStaffFromBranchAdmin(staffId: string) {
+  const staffRef = doc(db, "salon_staff", staffId);
+  const staffSnap = await import("firebase/firestore").then((m) => m.getDoc(staffRef));
+
+  if (!staffSnap.exists()) return;
+
+  const staffData = staffSnap.data();
+
+  // 1. Update systemRole in salon_staff
+  await updateDoc(staffRef, {
+    systemRole: "salon_staff",
+    updatedAt: serverTimestamp(),
+  });
+
+  // 2. Update role in users collection if authUid exists
+  if (staffData.authUid) {
+    const userRef = doc(db, "users", staffData.authUid);
+    await updateDoc(userRef, {
+      role: "salon_staff",
+      updatedAt: serverTimestamp(),
+    });
+  }
+}
+
 

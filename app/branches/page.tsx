@@ -60,6 +60,7 @@ export default function BranchesPage() {
   const [name, setName] = useState("");
   const [address, setAddress] = useState("");
   const [phone, setPhone] = useState("");
+  const [email, setEmail] = useState(""); // Added email state
   // structured hours builder state
   const [hoursObj, setHoursObj] = useState<HoursMap>({
     Monday: { open: "09:00", close: "17:00", closed: false },
@@ -170,6 +171,7 @@ export default function BranchesPage() {
     setName("");
     setAddress("");
     setPhone("");
+    setEmail(""); // Reset email state
     setHoursObj({
       Monday: { open: "09:00", close: "17:00", closed: false },
       Tuesday: { open: "09:00", close: "17:00", closed: false },
@@ -193,6 +195,7 @@ export default function BranchesPage() {
     setName(b.name || "");
     setAddress((b as any).address || "");
     setPhone((b as any).phone || "");
+    setEmail(b.email || ""); // Set email state
     // prefill assignments
     const staffMap: Record<string, boolean> = {};
     const serviceMap: Record<string, boolean> = {};
@@ -247,7 +250,7 @@ export default function BranchesPage() {
         hours: hoursObj,
         capacity: typeof capacity === "number" ? capacity : capacity === "" ? undefined : Number(capacity),
         manager: derivedManager,
-        adminStaffId: adminStaffId || undefined,
+        adminStaffId: adminStaffId || null,
         status,
       };
       if (editingId) {
