@@ -4,18 +4,30 @@ import Sidebar from "@/components/Sidebar";
 import { useRouter } from "next/navigation";
 import { onAuthStateChanged } from "firebase/auth";
 import Script from "next/script";
+import { subscribeBookingsForOwner } from "@/lib/bookings";
+import { subscribeSalonStaffForOwner } from "@/lib/salonStaff";
+import { subscribeServicesForOwner } from "@/lib/services";
+import { subscribeBranchesForOwner } from "@/lib/branches";
 
 export default function DashboardPage() {
   const router = useRouter();
   const [mobileOpen, setMobileOpen] = useState(false);
   const [monthlyRevenue, setMonthlyRevenue] = useState<number>(0);
+  const [revenueGrowth, setRevenueGrowth] = useState<number>(0);
   const [totalBookings, setTotalBookings] = useState<number>(0);
+  const [weeklyBookings, setWeeklyBookings] = useState<number>(0);
   const [activeStaff, setActiveStaff] = useState<number>(0);
   const [activeServices, setActiveServices] = useState<number>(0);
+  const [activeBranches, setActiveBranches] = useState<number>(0);
+  const [bookingsByStatus, setBookingsByStatus] = useState<{ [key: string]: number }>({});
+  const [revenueByMonth, setRevenueByMonth] = useState<number[]>([]);
+  const [recentBookings, setRecentBookings] = useState<any[]>([]);
+  const [userUid, setUserUid] = useState<string | null>(null);
   const revCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const statusCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const chartsRef = useRef<{ revenue?: any; status?: any }>({});
   const builtRef = useRef(false);
+  
   useEffect(() => {
     (async () => {
       const { auth } = await import("@/lib/firebase");
@@ -24,6 +36,7 @@ export default function DashboardPage() {
           router.replace("/login");
           return;
         }
+        setUserUid(user.uid);
         try {
           const token = await user.getIdToken();
           if (typeof window !== "undefined") localStorage.setItem("idToken", token);
@@ -35,27 +48,108 @@ export default function DashboardPage() {
     })();
   }, [router]);
 
-  // lightweight KPI aggregation from localStorage stores (best-effort)
+  // Fetch real data from Firestore
   useEffect(() => {
-    try {
-      // bookings store not standardized yet; keep 0
-      setTotalBookings(0);
-      const staffRaw = typeof window !== "undefined" ? localStorage.getItem("bms_staff_data") : null;
-      if (staffRaw) {
-        const parsed = JSON.parse(staffRaw);
-        const count = Array.isArray(parsed?.staff) ? parsed.staff.filter((s: any) => s.status === "Active").length : 0;
-        setActiveStaff(count);
+    if (!userUid) return;
+
+    // Subscribe to bookings
+    const unsubBookings = subscribeBookingsForOwner(userUid, (bookings) => {
+      setTotalBookings(bookings.length);
+      
+      // Calculate monthly revenue (sum of all booking prices)
+      const currentMonth = new Date().getMonth();
+      const currentYear = new Date().getFullYear();
+      const currentMonthTotal = bookings
+        .filter((b: any) => {
+          const bookingDate = new Date(b.date);
+          return bookingDate.getMonth() === currentMonth && bookingDate.getFullYear() === currentYear;
+        })
+        .reduce((sum: number, b: any) => sum + (Number(b.price) || 0), 0);
+      setMonthlyRevenue(currentMonthTotal);
+
+      // Calculate previous month revenue for growth percentage
+      const lastMonth = currentMonth === 0 ? 11 : currentMonth - 1;
+      const lastMonthYear = currentMonth === 0 ? currentYear - 1 : currentYear;
+      const lastMonthTotal = bookings
+        .filter((b: any) => {
+          const bookingDate = new Date(b.date);
+          return bookingDate.getMonth() === lastMonth && bookingDate.getFullYear() === lastMonthYear;
+        })
+        .reduce((sum: number, b: any) => sum + (Number(b.price) || 0), 0);
+      
+      const growth = lastMonthTotal > 0 
+        ? ((currentMonthTotal - lastMonthTotal) / lastMonthTotal) * 100 
+        : currentMonthTotal > 0 ? 100 : 0;
+      setRevenueGrowth(Math.round(growth));
+
+      // Calculate weekly bookings (last 7 days)
+      const weekAgo = new Date();
+      weekAgo.setDate(weekAgo.getDate() - 7);
+      const weeklyCount = bookings.filter((b: any) => {
+        const bookingDate = new Date(b.date);
+        return bookingDate >= weekAgo;
+      }).length;
+      setWeeklyBookings(weeklyCount);
+
+      // Calculate bookings by status
+      const statusCounts: { [key: string]: number } = {};
+      bookings.forEach((b: any) => {
+        const status = b.status || "Pending";
+        statusCounts[status] = (statusCounts[status] || 0) + 1;
+      });
+      setBookingsByStatus(statusCounts);
+
+      // Calculate revenue by month for the last 6 months
+      const monthlyRevenues: number[] = [];
+      for (let i = 5; i >= 0; i--) {
+        const targetDate = new Date();
+        targetDate.setMonth(targetDate.getMonth() - i);
+        const targetMonth = targetDate.getMonth();
+        const targetYear = targetDate.getFullYear();
+        
+        const monthTotal = bookings
+          .filter((b: any) => {
+            const bookingDate = new Date(b.date);
+            return bookingDate.getMonth() === targetMonth && bookingDate.getFullYear() === targetYear;
+          })
+          .reduce((sum: number, b: any) => sum + (Number(b.price) || 0), 0);
+        monthlyRevenues.push(monthTotal);
       }
-      const servicesRaw = typeof window !== "undefined" ? localStorage.getItem("bms_services_data") : null;
-      if (servicesRaw) {
-        const parsed = JSON.parse(servicesRaw);
-        const count = Array.isArray(parsed?.services) ? parsed.services.length : 0;
-        setActiveServices(count);
-      }
-      // mock revenue until bookings subsystem emits data
-      setMonthlyRevenue(0);
-    } catch {}
-  }, []);
+      setRevenueByMonth(monthlyRevenues);
+
+      // Get recent bookings (last 5, sorted by creation date)
+      const sorted = [...bookings].sort((a: any, b: any) => {
+        const dateA = a.createdAt?.toDate?.() || new Date(a.date);
+        const dateB = b.createdAt?.toDate?.() || new Date(b.date);
+        return dateB.getTime() - dateA.getTime();
+      });
+      setRecentBookings(sorted.slice(0, 5));
+    });
+
+    // Subscribe to staff
+    const unsubStaff = subscribeSalonStaffForOwner(userUid, (staff) => {
+      const activeCount = staff.filter((s: any) => s.status === "Active").length;
+      setActiveStaff(activeCount);
+    });
+
+    // Subscribe to services
+    const unsubServices = subscribeServicesForOwner(userUid, (services) => {
+      setActiveServices(services.length);
+    });
+
+    // Subscribe to branches
+    const unsubBranches = subscribeBranchesForOwner(userUid, (branches) => {
+      const activeCount = branches.filter((b: any) => b.status === "Active").length;
+      setActiveBranches(activeCount);
+    });
+
+    return () => {
+      unsubBookings();
+      unsubStaff();
+      unsubServices();
+      unsubBranches();
+    };
+  }, [userUid]);
 
   // Initialize charts with Chart.js (loaded via CDN Script)
   const buildCharts = () => {
@@ -72,9 +166,17 @@ export default function DashboardPage() {
       chartsRef.current.status?.destroy();
     } catch {}
 
-    // Revenue line + area
-    const revenueSeries = [12000, 19000, 15000, 25000, 22000, 30000];
-    const labels = ["Jan", "Feb", "Mar", "Apr", "May", "Jun"];
+    // Revenue line + area - Use real data
+    const monthNames = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+    const labels: string[] = [];
+    const currentDate = new Date();
+    for (let i = 5; i >= 0; i--) {
+      const date = new Date();
+      date.setMonth(currentDate.getMonth() - i);
+      labels.push(monthNames[date.getMonth()]);
+    }
+    
+    const revenueSeries = revenueByMonth.length > 0 ? revenueByMonth : [0, 0, 0, 0, 0, 0];
     const ctx = revCanvasRef.current?.getContext("2d");
     let gradient: CanvasGradient | undefined;
     if (ctx) {
@@ -110,7 +212,10 @@ export default function DashboardPage() {
               color: "#94a3b8",
               callback: function (value: number) {
                 const v = Number(value);
-                return `$${Math.round(v / 1000)}k`;
+                if (v >= 1000) {
+                  return `$${Math.round(v / 1000)}k`;
+                }
+                return `$${v}`;
               },
             },
           },
@@ -118,16 +223,30 @@ export default function DashboardPage() {
       },
     });
 
-    // Booking status donut
+    // Booking status donut - Use real data
+    const statusLabels = Object.keys(bookingsByStatus).length > 0 
+      ? Object.keys(bookingsByStatus) 
+      : ["Pending", "Confirmed"];
+    const statusData = Object.keys(bookingsByStatus).length > 0 
+      ? Object.values(bookingsByStatus) 
+      : [1, 1];
+    const statusColors: { [key: string]: string } = {
+      "Pending": "#f59e0b",
+      "Confirmed": "#10b981",
+      "Completed": "#3b82f6",
+      "Canceled": "#ef4444",
+    };
+    const backgroundColors = statusLabels.map(label => statusColors[label] || "#64748b");
+
     const ctx2 = statusCanvasRef.current?.getContext("2d");
     const status = new Chart(ctx2 as any, {
       type: "doughnut",
       data: {
-        labels: ["Confirmed", "Pending"],
+        labels: statusLabels,
         datasets: [
           {
-            data: [1, 1],
-            backgroundColor: ["#10b981", "#f59e0b"],
+            data: statusData,
+            backgroundColor: backgroundColors,
             borderWidth: 0,
           },
         ],
@@ -169,6 +288,15 @@ export default function DashboardPage() {
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // Rebuild charts when data changes
+  useEffect(() => {
+    if (builtRef.current && (revenueByMonth.length > 0 || Object.keys(bookingsByStatus).length > 0)) {
+      builtRef.current = false;
+      buildCharts();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [revenueByMonth, bookingsByStatus]);
   return (
     <div id="app" className="flex h-screen overflow-hidden bg-white">
       <Sidebar />
@@ -224,10 +352,12 @@ export default function DashboardPage() {
                 <h3 className="text-3xl font-bold text-slate-900">AU${monthlyRevenue.toLocaleString()}</h3>
               </div>
               <div className="flex items-center space-x-2">
-                <span className="px-2 py-1 bg-emerald-50 text-emerald-700 rounded-lg text-xs font-semibold flex items-center">
-                  <i className="fas fa-arrow-up text-xs mr-1" />
-                  +12%
-                </span>
+                {revenueGrowth !== 0 && (
+                  <span className={`px-2 py-1 ${revenueGrowth > 0 ? "bg-emerald-50 text-emerald-700" : "bg-rose-50 text-rose-700"} rounded-lg text-xs font-semibold flex items-center`}>
+                    <i className={`fas fa-arrow-${revenueGrowth > 0 ? "up" : "down"} text-xs mr-1`} />
+                    {revenueGrowth > 0 ? "+" : ""}{revenueGrowth}%
+                  </span>
+                )}
                 <span className="text-xs text-slate-500">vs last month</span>
               </div>
             </div>
@@ -244,9 +374,9 @@ export default function DashboardPage() {
                 <h3 className="text-3xl font-bold text-slate-900">{totalBookings}</h3>
               </div>
               <div className="flex items-center space-x-2">
-                <span className="px-2 py-1 bg-emerald-50 text-emerald-700 rounded-lg text-xs font-semibold flex items-center">
-                  <i className="fas fa-plus text-xs mr-1" />
-                  +0
+                <span className="px-2 py-1 bg-blue-50 text-blue-700 rounded-lg text-xs font-semibold flex items-center">
+                  <i className="fas fa-calendar-week text-xs mr-1" />
+                  {weeklyBookings}
                 </span>
                 <span className="text-xs text-slate-500">this week</span>
               </div>
@@ -285,7 +415,7 @@ export default function DashboardPage() {
               <div className="flex items-center justify-between mb-6">
                 <div>
                   <h3 className="font-semibold text-lg text-slate-900">
-                    Revenue Trend (Mock)
+                    Revenue Trend
                   </h3>
                   <p className="text-sm text-slate-500 mt-1">
                     Last 6 months
@@ -302,7 +432,7 @@ export default function DashboardPage() {
                   Booking Status
                 </h3>
                 <p className="text-sm text-slate-500 mt-1">
-                  Confirmed vs Pending (Mock)
+                  Current distribution
                 </p>
               </div>
               <div className="space-y-4">
@@ -316,71 +446,98 @@ export default function DashboardPage() {
             <div className="p-6 border-b border-slate-200">
               <div className="flex items-center justify-between">
                 <div>
-                  <h3 className="font-semibold text-lg text-slate-900">Recent Activity</h3>
-                  <p className="text-sm text-slate-500 mt-1">Latest onboarding activity</p>
+                  <h3 className="font-semibold text-lg text-slate-900">Recent Bookings</h3>
+                  <p className="text-sm text-slate-500 mt-1">Latest booking activity</p>
                 </div>
-                <button className="px-4 py-2 text-sm font-medium text-pink-600 hover:bg-pink-50 rounded-lg transition">
+                <button 
+                  onClick={() => router.push("/bookings")}
+                  className="px-4 py-2 text-sm font-medium text-pink-600 hover:bg-pink-50 rounded-lg transition"
+                >
                   View All
                   <i className="fas fa-arrow-right ml-2 text-xs" />
                 </button>
               </div>
             </div>
             <div className="overflow-x-auto">
-              <table className="w-full">
-                <thead className="bg-slate-50 border-b border-slate-200">
-                  <tr>
-                    <th className="px-6 py-4 text-left text-xs font-semibold text-slate-600 uppercase tracking-wider">Business Name</th>
-                    <th className="px-6 py-4 text-left text-xs font-semibold text-slate-600 uppercase tracking-wider">Location</th>
-                    <th className="px-6 py-4 text-left text-xs font-semibold text-slate-600 uppercase tracking-wider">Plan</th>
-                    <th className="px-6 py-4 text-left text-xs font-semibold text-slate-600 uppercase tracking-wider">Status</th>
-                    <th className="px-6 py-4 text-right text-xs font-semibold text-slate-600 uppercase tracking-wider">Action</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-200">
-                  {[
-                    { abbr: "BB", name: "Bondi Beach Cuts", time: "Registered 2h ago", state: "NSW", plan: "Pro", price: "AU$149", statusCls: "bg-emerald-50 text-emerald-700", statusIcon: "fa-check-circle", status: "Active", colorFrom: "from-pink-400", colorTo: "to-pink-600", stateCls: "bg-blue-50 text-blue-700" },
-                    { abbr: "GS", name: "Glamour Studio Melbourne", time: "Registered 5h ago", state: "VIC", plan: "Enterprise", price: "AU$299", statusCls: "bg-amber-50 text-amber-700", statusIcon: "fa-clock", status: "Provisioning", colorFrom: "from-blue-400", colorTo: "to-blue-600", stateCls: "bg-purple-50 text-purple-700" },
-                    { abbr: "SB", name: "Style Bar Brisbane", time: "Registered 1d ago", state: "QLD", plan: "Starter", price: "AU$99", statusCls: "bg-rose-50 text-rose-700", statusIcon: "fa-exclamation-circle", status: "Pending ABN", colorFrom: "from-purple-400", colorTo: "to-purple-600", stateCls: "bg-orange-50 text-orange-700" },
-                    { abbr: "CH", name: "Chic Hair Perth", time: "Registered 1d ago", state: "WA", plan: "Pro", price: "AU$149", statusCls: "bg-emerald-50 text-emerald-700", statusIcon: "fa-check-circle", status: "Active", colorFrom: "from-teal-400", colorTo: "to-teal-600", stateCls: "bg-indigo-50 text-indigo-700" },
-                    { abbr: "LS", name: "Luxe Salon Adelaide", time: "Registered 2d ago", state: "SA", plan: "Starter", price: "AU$99", statusCls: "bg-emerald-50 text-emerald-700", statusIcon: "fa-check-circle", status: "Active", colorFrom: "from-rose-400", colorTo: "to-rose-600", stateCls: "bg-green-50 text-green-700" },
-                  ].map((r) => (
-                    <tr key={r.name} className="hover:bg-slate-50 transition">
-                      <td className="px-6 py-4">
-                        <div className="flex items-center space-x-3">
-                          <div className={`w-10 h-10 bg-gradient-to-br ${r.colorFrom} ${r.colorTo} rounded-lg flex items-center justify-center`}>
-                            <span className="text-white font-semibold text-sm">{r.abbr}</span>
-                          </div>
-                          <div>
-                            <p className="font-medium text-slate-900">{r.name}</p>
-                            <p className="text-xs text-slate-500">{r.time}</p>
-                          </div>
-                        </div>
-                      </td>
-                      <td className="px-6 py-4">
-                        <span className={`px-2 py-1 ${r.stateCls} rounded-lg text-sm font-medium`}>{r.state}</span>
-                      </td>
-                      <td className="px-6 py-4">
-                        <div className="flex items-center space-x-2">
-                          <span className="px-3 py-1 bg-pink-50 text-pink-700 rounded-lg text-sm font-semibold">{r.plan}</span>
-                          <span className="text-sm text-slate-500">{r.price}</span>
-                        </div>
-                      </td>
-                      <td className="px-6 py-4">
-                        <span className={`px-3 py-1 ${r.statusCls} rounded-lg text-sm font-medium flex items-center w-fit`}>
-                          <i className={`fas ${r.statusIcon} text-xs mr-1.5`} />
-                          {r.status}
-                        </span>
-                      </td>
-                      <td className="px-6 py-4 text-right">
-                        <button className="px-4 py-2 text-sm font-medium text-pink-600 hover:bg-pink-50 rounded-lg transition">
-                          Manage
-                          <i className="fas fa-arrow-right ml-2 text-xs" />
-                        </button>
-                      </td>
+              {recentBookings.length === 0 ? (
+                <div className="p-8 text-center">
+                  <div className="w-16 h-16 bg-slate-100 rounded-full flex items-center justify-center mx-auto mb-4">
+                    <i className="fas fa-calendar-alt text-2xl text-slate-400" />
+                  </div>
+                  <p className="text-slate-600 font-medium mb-2">No bookings yet</p>
+                  <p className="text-sm text-slate-500">Bookings will appear here once created</p>
+                </div>
+              ) : (
+                <table className="w-full">
+                  <thead className="bg-slate-50 border-b border-slate-200">
+                    <tr>
+                      <th className="px-6 py-4 text-left text-xs font-semibold text-slate-600 uppercase tracking-wider">Client</th>
+                      <th className="px-6 py-4 text-left text-xs font-semibold text-slate-600 uppercase tracking-wider">Service</th>
+                      <th className="px-6 py-4 text-left text-xs font-semibold text-slate-600 uppercase tracking-wider">Date & Time</th>
+                      <th className="px-6 py-4 text-left text-xs font-semibold text-slate-600 uppercase tracking-wider">Staff</th>
+                      <th className="px-6 py-4 text-left text-xs font-semibold text-slate-600 uppercase tracking-wider">Price</th>
+                      <th className="px-6 py-4 text-left text-xs font-semibold text-slate-600 uppercase tracking-wider">Status</th>
                     </tr>
-                  ))}
-                </tbody>
-              </table>
+                  </thead>
+                  <tbody className="divide-y divide-slate-200">
+                    {recentBookings.map((booking, idx) => {
+                      const statusColors: { [key: string]: { bg: string; text: string; icon: string } } = {
+                        "Pending": { bg: "bg-amber-50", text: "text-amber-700", icon: "fa-clock" },
+                        "Confirmed": { bg: "bg-emerald-50", text: "text-emerald-700", icon: "fa-check-circle" },
+                        "Completed": { bg: "bg-blue-50", text: "text-blue-700", icon: "fa-check-double" },
+                        "Canceled": { bg: "bg-rose-50", text: "text-rose-700", icon: "fa-times-circle" },
+                      };
+                      const status = booking.status || "Pending";
+                      const statusStyle = statusColors[status] || statusColors["Pending"];
+                      const initials = booking.client?.split(" ").map((n: string) => n[0]).join("").substring(0, 2).toUpperCase() || "??";
+                      const colors = [
+                        "from-pink-400 to-pink-600",
+                        "from-blue-400 to-blue-600",
+                        "from-purple-400 to-purple-600",
+                        "from-teal-400 to-teal-600",
+                        "from-rose-400 to-rose-600",
+                      ];
+                      const colorClass = colors[idx % colors.length];
+
+                      return (
+                        <tr key={booking.id} className="hover:bg-slate-50 transition">
+                          <td className="px-6 py-4">
+                            <div className="flex items-center space-x-3">
+                              <div className={`w-10 h-10 bg-gradient-to-br ${colorClass} rounded-lg flex items-center justify-center`}>
+                                <span className="text-white font-semibold text-sm">{initials}</span>
+                              </div>
+                              <div>
+                                <p className="font-medium text-slate-900">{booking.client || "Unknown"}</p>
+                                <p className="text-xs text-slate-500">{booking.clientEmail || ""}</p>
+                              </div>
+                            </div>
+                          </td>
+                          <td className="px-6 py-4">
+                            <p className="text-sm text-slate-900">{booking.serviceName || "Service"}</p>
+                            <p className="text-xs text-slate-500">{booking.duration || 0} min</p>
+                          </td>
+                          <td className="px-6 py-4">
+                            <p className="text-sm text-slate-900">{booking.date || "N/A"}</p>
+                            <p className="text-xs text-slate-500">{booking.time || ""}</p>
+                          </td>
+                          <td className="px-6 py-4">
+                            <p className="text-sm text-slate-900">{booking.staffName || "N/A"}</p>
+                          </td>
+                          <td className="px-6 py-4">
+                            <p className="text-sm font-medium text-slate-900">AU${Number(booking.price || 0).toFixed(2)}</p>
+                          </td>
+                          <td className="px-6 py-4">
+                            <span className={`px-3 py-1 ${statusStyle.bg} ${statusStyle.text} rounded-lg text-sm font-medium flex items-center w-fit`}>
+                              <i className={`fas ${statusStyle.icon} text-xs mr-1.5`} />
+                              {status}
+                            </span>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              )}
             </div>
           </div>
         </main>
