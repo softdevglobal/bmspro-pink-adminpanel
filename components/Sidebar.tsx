@@ -162,7 +162,7 @@ export default function Sidebar({ mobile = false, onClose }: SidebarProps) {
                   }`}
                 >
                   <i className="fas fa-gauge w-4" />
-                  <span>Booking All</span>
+                  <span>All Bookings</span>
                 </Link>
                 <Link
                   href="/bookings/pending"

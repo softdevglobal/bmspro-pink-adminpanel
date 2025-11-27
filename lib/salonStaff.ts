@@ -30,6 +30,7 @@ export type SalonStaffInput = {
   avatar?: string;
   training?: StaffTraining;
   authUid?: string;
+  systemRole?: string;
 };
 
 export async function createSalonStaffForOwner(ownerUid: string, data: SalonStaffInput) {
@@ -44,6 +45,7 @@ export async function createSalonStaffForOwner(ownerUid: string, data: SalonStaf
     avatar: data.avatar || data.name,
     training: data.training || { ohs: false, prod: false, tool: false },
     authUid: data.authUid || null,
+    systemRole: data.systemRole || "salon_staff",
     createdAt: serverTimestamp(),
     updatedAt: serverTimestamp(),
   });

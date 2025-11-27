@@ -3,7 +3,8 @@ import React, { useEffect, useState } from "react";
 import Sidebar from "@/components/Sidebar";
 import { useRouter } from "next/navigation";
 import { onAuthStateChanged } from "firebase/auth";
-import { auth } from "@/lib/firebase";
+import { auth, db } from "@/lib/firebase";
+import { doc, setDoc, serverTimestamp } from "firebase/firestore";
 import { subscribeBranchesForOwner } from "@/lib/branches";
 import {
   createSalonStaffForOwner as createStaff,
@@ -48,6 +49,7 @@ export default function SettingsPage() {
     status: "Active" | "Suspended";
     avatar: string;
     training: StaffTraining;
+    systemRole?: string;
   };
   type Branch = { id: string; name: string; address?: string; revenue?: number; hours?: HoursMap };
 
@@ -94,6 +96,7 @@ export default function SettingsPage() {
         branchId: String((r as any).branchId || ""),
         email: (r as any).email || null,
         authUid: (r as any).authUid || null,
+        systemRole: (r as any).systemRole || "salon_staff",
         status: (r.status as any) === "Suspended" ? "Suspended" : "Active",
         avatar: String(r.avatar || r.name || ""),
         training: {
@@ -132,7 +135,10 @@ export default function SettingsPage() {
     const name = String(formData.get("name") || "").trim();
     const role = String(formData.get("role") || "").trim();
     const email = String(formData.get("email") || "").trim().toLowerCase();
+    const password = String(formData.get("password") || "").trim();
     const branchId = String(formData.get("branch") || "").trim();
+    const systemRole = String(formData.get("system_role") || "salon_staff");
+
     if (!name || !role || !email || !branchId || !ownerUid) return;
     const branchRow = data.branches.find((b) => b.id === branchId);
     setSavingStaff(true);
@@ -143,12 +149,19 @@ export default function SettingsPage() {
           role,
           branchId,
           branchName: branchRow?.name || "",
+          systemRole,
           training: {
             ohs: formData.get("train_ohs") === "on",
             prod: formData.get("train_prod") === "on",
             tool: formData.get("train_tool") === "on",
           },
         });
+        // Also update users collection role if authUid exists
+        if (editingStaff?.authUid) {
+           try {
+             await setDoc(doc(db, "users", editingStaff.authUid), { role: systemRole }, { merge: true });
+           } catch {}
+        }
       } else {
         // 1) create auth user via server API
         let authUid: string | null = null;
@@ -156,11 +169,27 @@ export default function SettingsPage() {
           const res = await fetch("/api/staff/auth/create", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ email, displayName: name }),
+            body: JSON.stringify({ email, displayName: name, password }),
           });
           const json = await res.json();
-          if (res.ok && json?.uid) authUid = String(json.uid);
-        } catch {}
+          if (res.ok && json?.uid) {
+            authUid = String(json.uid);
+            // Create the actual user document in 'users' collection so they can login with correct role
+            await setDoc(doc(db, "users", authUid), {
+              uid: authUid,
+              email,
+              displayName: name,
+              role: systemRole, // salon_staff or salon_branch_admin
+              ownerUid,
+              createdAt: serverTimestamp(),
+              updatedAt: serverTimestamp(),
+              provider: "password",
+              status: "Active"
+            });
+          }
+        } catch (err) {
+          console.error("Failed to create auth user", err);
+        }
 
         // 2) create staff record
         await createStaff(ownerUid, {
@@ -171,6 +200,7 @@ export default function SettingsPage() {
           branchName: branchRow?.name || "",
           status: "Active",
           authUid: authUid || undefined,
+          systemRole,
           avatar: name,
           training: {
             ohs: formData.get("train_ohs") === "on",
@@ -562,6 +592,18 @@ export default function SettingsPage() {
                   defaultValue={editingStaff?.email || ""}
                 />
               </div>
+              {!editingStaffId && (
+                <div>
+                  <label className="block text-xs font-bold text-slate-600 mb-1">Password</label>
+                  <input
+                    type="text"
+                    name="password"
+                    className="w-full border border-slate-300 rounded-lg p-2.5 text-sm focus:ring-2 focus:ring-pink-500 focus:outline-none"
+                    placeholder="Leave empty for auto-generated"
+                  />
+                  <p className="text-[10px] text-slate-500 mt-1">Set a password for them to login immediately.</p>
+                </div>
+              )}
               <div>
                 <label className="block text-xs font-bold text-slate-600 mb-1">Full Name</label>
                 <input
@@ -583,6 +625,18 @@ export default function SettingsPage() {
                   placeholder="Senior Therapist"
                   defaultValue={editingStaff?.role || ""}
                 />
+              </div>
+              <div>
+                <label className="block text-xs font-bold text-slate-600 mb-1">Access Level</label>
+                <select
+                  name="system_role"
+                  className="w-full border border-slate-300 rounded-lg p-2.5 text-sm bg-white focus:ring-2 focus:ring-pink-500 focus:outline-none"
+                  defaultValue={(editingStaff as any)?.systemRole || "salon_staff"}
+                >
+                  <option value="salon_staff">Standard Staff</option>
+                  <option value="salon_branch_admin">Branch Admin</option>
+                </select>
+                <p className="text-[10px] text-slate-500 mt-1">Branch Admins can manage bookings and staff for their branch.</p>
               </div>
               <div>
                 <label className="block text-xs font-bold text-slate-600 mb-1">Branch</label>
