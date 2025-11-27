@@ -138,7 +138,7 @@ export default function Sidebar({ mobile = false, onClose }: SidebarProps) {
           <i className="fas fa-chart-line w-5" />
           <span>Dashboard</span>
         </Link>
-        {mounted && role === "salon_owner" && (
+        {mounted && (role === "salon_owner" || role === "salon_branch_admin") && (
           <>
             <div
               role="button"
@@ -215,7 +215,7 @@ export default function Sidebar({ mobile = false, onClose }: SidebarProps) {
             <span>Services</span>
           </Link>
         )}
-      {mounted && role === "salon_owner" && (
+      {mounted && (role === "salon_owner" || role === "salon_branch_admin") && (
         <Link
           href="/customers"
           className={`flex items-center space-x-3 px-4 py-3 rounded-xl text-sm transition ${
@@ -243,7 +243,7 @@ export default function Sidebar({ mobile = false, onClose }: SidebarProps) {
             <span>Tenant Management</span>
           </Link>
         )}
-        {mounted && role === "salon_owner" && (
+        {mounted && (role === "salon_owner" || role === "salon_branch_admin") && (
           <Link href="/staff" className={`flex items-center space-x-3 px-4 py-3 rounded-xl text-sm transition ${isStaff ? "bg-pink-500 text-white shadow-lg" : "hover:bg-slate-800 text-slate-400 hover:text-white"}`}>
             <i className="fas fa-users w-5" />
             <span>Staff Management</span>

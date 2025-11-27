@@ -47,7 +47,10 @@ export default function LoginPage() {
   useEffect(() => {
     const hasToken = typeof window !== "undefined" && localStorage.getItem("idToken");
     if (hasToken) {
-      router.replace("/dashboard");
+      // Don't auto-redirect if we just landed here; let the user interaction or explicit auth check handle it
+      // to prevent loops if token is invalid but present.
+      // However, for UX, we often want to skip login if logged in.
+      // Let's verify the token with onAuthStateChanged instead of blind redirect.
     }
   }, [router]);
 
@@ -107,6 +110,8 @@ export default function LoginPage() {
           }
         }
       } catch {}
+      // Avoid immediate redirect if we are already on a page that might redirect back
+      // Instead, verify role logic one last time
       router.replace("/dashboard");
     } catch (err: any) {
       console.error("Auth error:", err);

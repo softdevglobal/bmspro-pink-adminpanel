@@ -11,6 +11,7 @@ import {
   updateDoc,
   where,
 } from "firebase/firestore";
+import { promoteStaffToBranchAdmin } from "@/lib/salonStaff";
 
 export type BranchInput = {
   name: string;
@@ -32,6 +33,7 @@ export type BranchInput = {
       };
   capacity?: number;
   manager?: string;
+  adminStaffId?: string;
   status?: "Active" | "Pending" | "Closed";
 };
 
@@ -42,6 +44,11 @@ export async function createBranchForOwner(ownerUid: string, data: BranchInput) 
     createdAt: serverTimestamp(),
     updatedAt: serverTimestamp(),
   });
+
+  if (data.adminStaffId) {
+    await promoteStaffToBranchAdmin(data.adminStaffId);
+  }
+
   return ref.id;
 }
 
@@ -50,6 +57,10 @@ export async function updateBranch(branchId: string, data: Partial<BranchInput>)
     ...data,
     updatedAt: serverTimestamp(),
   });
+
+  if (data.adminStaffId) {
+    await promoteStaffToBranchAdmin(data.adminStaffId);
+  }
 }
 
 export async function deleteBranch(branchId: string) {
@@ -65,5 +76,3 @@ export function subscribeBranchesForOwner(
     onChange(snap.docs.map((d) => ({ id: d.id, ...(d.data() as DocumentData) })));
   });
 }
-
-

@@ -31,6 +31,7 @@ type Branch = {
       };
   capacity?: number;
   manager?: string;
+  adminStaffId?: string;
   status?: "Active" | "Pending" | "Closed";
 };
 
@@ -59,7 +60,6 @@ export default function BranchesPage() {
   const [name, setName] = useState("");
   const [address, setAddress] = useState("");
   const [phone, setPhone] = useState("");
-  const [email, setEmail] = useState("");
   // structured hours builder state
   const [hoursObj, setHoursObj] = useState<HoursMap>({
     Monday: { open: "09:00", close: "17:00", closed: false },
@@ -71,11 +71,11 @@ export default function BranchesPage() {
     Sunday: { open: "10:00", close: "16:00", closed: true },
   });
   const [capacity, setCapacity] = useState<number | "">("");
-  const [manager, setManager] = useState("");
+  const [adminStaffId, setAdminStaffId] = useState("");
   const [status, setStatus] = useState<"Active" | "Pending" | "Closed">("Active");
   // checklists sourced from services store (if present)
   const [serviceOptions, setServiceOptions] = useState<Array<{ id: string; name: string }>>([]);
-  const [staffOptions, setStaffOptions] = useState<Array<{ id: string; name: string; status?: string; branch?: string }>>([]);
+  const [staffOptions, setStaffOptions] = useState<Array<{ id: string; name: string; email?: string; status?: string; branch?: string }>>([]);
   const [selectedServiceIds, setSelectedServiceIds] = useState<Record<string, boolean>>({});
   const [selectedStaffIds, setSelectedStaffIds] = useState<Record<string, boolean>>({});
 
@@ -143,6 +143,7 @@ export default function BranchesPage() {
         rows.map((s: any) => ({
           id: String(s.id),
           name: String(s.name || s.displayName || "Staff"),
+          email: s.email,
           status: s.status,
           branch: s.branchName,
         }))
@@ -169,7 +170,6 @@ export default function BranchesPage() {
     setName("");
     setAddress("");
     setPhone("");
-    setEmail("");
     setHoursObj({
       Monday: { open: "09:00", close: "17:00", closed: false },
       Tuesday: { open: "09:00", close: "17:00", closed: false },
@@ -180,7 +180,7 @@ export default function BranchesPage() {
       Sunday: { open: "10:00", close: "16:00", closed: true },
     });
     setCapacity("");
-    setManager("");
+    setAdminStaffId("");
     setStatus("Active");
     setSelectedServiceIds({});
     setSelectedStaffIds({});
@@ -193,7 +193,6 @@ export default function BranchesPage() {
     setName(b.name || "");
     setAddress((b as any).address || "");
     setPhone((b as any).phone || "");
-    setEmail((b as any).email || "");
     // prefill assignments
     const staffMap: Record<string, boolean> = {};
     const serviceMap: Record<string, boolean> = {};
@@ -217,7 +216,7 @@ export default function BranchesPage() {
       });
     }
     setCapacity((b as any).capacity ?? "");
-    setManager((b as any).manager || "");
+    setAdminStaffId((b as any).adminStaffId || "");
     setStatus(((b as any).status as any) || "Active");
     setIsModalOpen(true);
   };
@@ -227,16 +226,28 @@ export default function BranchesPage() {
     if (!name.trim() || !address.trim() || !ownerUid) return;
     setSaving(true);
     try {
+      // Derive manager and email from adminStaffId if present
+      let derivedManager: string | undefined = undefined;
+      let derivedEmail: string | undefined = undefined;
+      if (adminStaffId) {
+        const st = staffOptions.find((s) => s.id === adminStaffId);
+        if (st) {
+          derivedManager = st.name;
+          derivedEmail = st.email;
+        }
+      }
+
       const payload: BranchInput = {
         name: name.trim(),
         address: address.trim(),
         phone: phone.trim() || undefined,
-        email: email.trim() || undefined,
+        email: derivedEmail,
         staffIds: Object.keys(selectedStaffIds).filter((id) => selectedStaffIds[id]),
         serviceIds: Object.keys(selectedServiceIds).filter((id) => selectedServiceIds[id]),
         hours: hoursObj,
         capacity: typeof capacity === "number" ? capacity : capacity === "" ? undefined : Number(capacity),
-        manager: manager.trim() || undefined,
+        manager: derivedManager,
+        adminStaffId: adminStaffId || undefined,
         status,
       };
       if (editingId) {
@@ -414,16 +425,6 @@ export default function BranchesPage() {
                       placeholder="e.g. 0400 000 000"
                     />
                   </div>
-                  <div>
-                    <label className="block text-xs font-bold text-slate-600 mb-1">Primary Contact Email</label>
-                    <input
-                      value={email}
-                      onChange={(e) => setEmail(e.target.value)}
-                      type="email"
-                      className="w-full border border-slate-300 rounded-lg p-2.5 text-sm focus:ring-2 focus:ring-purple-500 focus:outline-none"
-                      placeholder="e.g. manager@salon.com"
-                    />
-                  </div>
                 </div>
                 <div>
                   <label className="block text-xs font-bold text-slate-600 mb-2">Operating Hours</label>
@@ -488,15 +489,24 @@ export default function BranchesPage() {
                       placeholder="e.g. 12"
                     />
                   </div>
-                  <div>
-                    <label className="block text-xs font-bold text-slate-600 mb-1">Branch Manager/Head</label>
-                    <input
-                      value={manager}
-                      onChange={(e) => setManager(e.target.value)}
-                      className="w-full border border-slate-300 rounded-lg p-2.5 text-sm focus:ring-2 focus:ring-purple-500 focus:outline-none"
-                      placeholder="e.g. Jane Doe"
-                    />
-                  </div>
+                </div>
+                <div>
+                  <label className="block text-xs font-bold text-slate-600 mb-1">Assign Branch Admin (Promotes Staff Member)</label>
+                  <select
+                    value={adminStaffId}
+                    onChange={(e) => setAdminStaffId(e.target.value)}
+                    className="w-full border border-slate-300 rounded-lg p-2.5 text-sm bg-white focus:ring-2 focus:ring-purple-500 focus:outline-none"
+                  >
+                    <option value="">-- Select Staff to Promote --</option>
+                    {staffOptions.map((s) => (
+                      <option key={s.id} value={s.id}>
+                        {s.name} {s.branch ? `(${s.branch})` : ""}
+                      </option>
+                    ))}
+                  </select>
+                  <p className="text-xs text-slate-500 mt-1">
+                    Selecting a staff member will update their role to <strong>Salon Branch Admin</strong>.
+                  </p>
                 </div>
                 <div>
                   <label className="block text-xs font-bold text-slate-600 mb-1">System Status</label>

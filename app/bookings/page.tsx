@@ -50,13 +50,25 @@ export default function BookingsPage() {
         try {
           const token = await user.getIdToken();
           if (typeof window !== "undefined") localStorage.setItem("idToken", token);
+          
+          // Resolve ownerUid based on role
+          const { getDoc, doc } = await import("firebase/firestore");
+          const snap = await getDoc(doc(db, "users", user.uid));
+          const userData = snap.data();
+          const role = (userData?.role || "").toString();
+
+          if (role === "salon_owner") {
+            setOwnerUid(user.uid);
+          } else if (role === "salon_branch_admin") {
+            setOwnerUid(userData?.ownerUid || null);
+          } else {
+            setOwnerUid(user.uid);
+          }
+
         } catch {
           router.replace("/login");
         }
         // use authenticated user id as ownerUid
-        try {
-          setOwnerUid(user?.uid || null);
-        } catch {}
       });
       return () => unsub();
     })();

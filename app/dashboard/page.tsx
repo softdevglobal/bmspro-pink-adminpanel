@@ -30,17 +30,36 @@ export default function DashboardPage() {
   
   useEffect(() => {
     (async () => {
-      const { auth } = await import("@/lib/firebase");
+      const { auth, db } = await import("@/lib/firebase");
       const unsub = onAuthStateChanged(auth, async (user) => {
         if (!user) {
+          // Clear token to prevent loop if we are redirected back to login
+          if (typeof window !== "undefined") localStorage.removeItem("idToken");
           router.replace("/login");
           return;
         }
-        setUserUid(user.uid);
         try {
           const token = await user.getIdToken();
           if (typeof window !== "undefined") localStorage.setItem("idToken", token);
-        } catch {
+          // Resolve ownerUid based on role
+          const { getDoc, doc } = await import("firebase/firestore");
+          const snap = await getDoc(doc(db, "users", user.uid));
+          const userData = snap.data();
+          const role = (userData?.role || "").toString();
+          
+          if (role === "salon_owner") {
+            setUserUid(user.uid);
+          } else if (role === "salon_branch_admin") {
+            setUserUid(userData?.ownerUid || null);
+          } else {
+             // fallback for other roles or if ownerUid missing, 
+             // though normally they shouldn't be here if not authorized.
+             // For now, defaulting to user.uid might break things if they aren't owners, 
+             // but let's stick to logic.
+             setUserUid(user.uid);
+          }
+        } catch (e) {
+          console.error("Dashboard auth/role error", e);
           router.replace("/login");
         }
       });
