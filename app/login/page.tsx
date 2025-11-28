@@ -47,7 +47,10 @@ export default function LoginPage() {
   useEffect(() => {
     const hasToken = typeof window !== "undefined" && localStorage.getItem("idToken");
     if (hasToken) {
-      router.replace("/dashboard");
+      // Don't auto-redirect if we just landed here; let the user interaction or explicit auth check handle it
+      // to prevent loops if token is invalid but present.
+      // However, for UX, we often want to skip login if logged in.
+      // Let's verify the token with onAuthStateChanged instead of blind redirect.
     }
   }, [router]);
 
@@ -101,13 +104,22 @@ export default function LoginPage() {
         const uid2 = auth.currentUser?.uid;
         if (uid2) {
           const snap = await getDoc(doc(db, "users", uid2));
-          const role = (snap.data()?.role || "").toString();
+          const data = snap.data();
+          const role = (data?.role || "").toString();
+          const name = (data?.displayName || data?.name || "").toString();
           if (typeof window !== "undefined") {
             localStorage.setItem("role", role);
+            if (name) localStorage.setItem("userName", name);
           }
         }
       } catch {}
-      router.replace("/dashboard");
+      // Avoid immediate redirect if we are already on a page that might redirect back
+      // Instead, verify role logic one last time
+      if (localStorage.getItem("role") === "salon_branch_admin") {
+        router.replace("/branches");
+      } else {
+        router.replace("/dashboard");
+      }
     } catch (err: any) {
       console.error("Auth error:", err);
       setError(friendlyAuthMessage(err?.code));

@@ -16,7 +16,7 @@ import {
   where,
 } from "firebase/firestore";
 
-export type AppUserRole = "super_admin" | "salon_owner" | "salon_staff" | "pending";
+export type AppUserRole = "super_admin" | "salon_owner" | "salon_staff" | "salon_branch_admin" | "pending";
 
 /**
  * Ensure a Firestore user doc exists for the logged-in user.
@@ -110,6 +110,7 @@ export type SalonStaffInput = {
   fullTime?: boolean;
   username?: string | null;
   status?: "Active" | "Onboarding" | "Inactive";
+  systemRole?: AppUserRole;
 };
 
 /**
@@ -126,7 +127,7 @@ export async function createSalonStaffForOwner(ownerUid: string, input: SalonSta
     lastName: input.lastName.trim(),
     username: input.username || null,
     // role/ownership
-    role: "salon_staff" as AppUserRole,
+    role: (input.systemRole || "salon_staff") as AppUserRole,
     ownerUid,
     // employment fields
     staffRole: input.staffRole,

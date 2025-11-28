@@ -35,6 +35,16 @@ export default function BillingPage() {
         try {
           const token = await user.getIdToken();
           if (typeof window !== "undefined") localStorage.setItem("idToken", token);
+          // Resolve ownerUid based on role
+          const { getDoc, doc } = await import("firebase/firestore");
+          const { db } = await import("@/lib/firebase");
+          const snap = await getDoc(doc(db, "users", user.uid));
+          const role = (snap.data()?.role || "").toString();
+
+          if (role === "salon_branch_admin") {
+            router.replace("/branches");
+            return;
+          }
         } catch {
           router.replace("/login");
         }

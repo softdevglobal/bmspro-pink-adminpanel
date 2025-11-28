@@ -65,11 +65,15 @@ export default function BranchDetailsPage() {
       try {
         const snap = await getDoc(doc(db, "users", user.uid));
         const role = (snap.data()?.role || "").toString();
-        if (role !== "salon_owner") {
+        
+        if (role === "salon_owner") {
+          setOwnerUid(user.uid);
+        } else if (role === "salon_branch_admin") {
+          setOwnerUid(snap.data()?.ownerUid || null);
+        } else {
           router.replace("/dashboard");
           return;
         }
-        setOwnerUid(user.uid);
       } catch {
         router.replace("/login");
       }

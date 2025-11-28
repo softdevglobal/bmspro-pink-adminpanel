@@ -5,12 +5,14 @@ import {
   deleteDoc,
   doc,
   DocumentData,
+  getDoc,
   onSnapshot,
   query,
   serverTimestamp,
   updateDoc,
   where,
 } from "firebase/firestore";
+import { promoteStaffToBranchAdmin, demoteStaffFromBranchAdmin } from "@/lib/salonStaff";
 
 export type BranchInput = {
   name: string;
@@ -32,6 +34,7 @@ export type BranchInput = {
       };
   capacity?: number;
   manager?: string;
+  adminStaffId?: string | null;
   status?: "Active" | "Pending" | "Closed";
 };
 
@@ -42,17 +45,43 @@ export async function createBranchForOwner(ownerUid: string, data: BranchInput) 
     createdAt: serverTimestamp(),
     updatedAt: serverTimestamp(),
   });
+
+  if (data.adminStaffId) {
+    await promoteStaffToBranchAdmin(data.adminStaffId);
+  }
+
   return ref.id;
 }
 
 export async function updateBranch(branchId: string, data: Partial<BranchInput>) {
-  await updateDoc(doc(db, "branches", branchId), {
+  const branchRef = doc(db, "branches", branchId);
+  
+  // Fetch current branch to see if admin changed
+  const snap = await getDoc(branchRef);
+  const currentData = snap.data();
+  const oldAdminId = currentData?.adminStaffId;
+
+  await updateDoc(branchRef, {
     ...data,
     updatedAt: serverTimestamp(),
   });
+
+  const newAdminId = data.adminStaffId;
+
+  // 1. If there was an old admin, and (we are setting a new one OR explicitly clearing it), and it's different
+  if (oldAdminId && newAdminId !== undefined && oldAdminId !== newAdminId) {
+    await demoteStaffFromBranchAdmin(oldAdminId);
+  }
+
+  // 2. If there is a new admin, promote them
+  if (newAdminId) {
+    await promoteStaffToBranchAdmin(newAdminId);
+  }
 }
 
 export async function deleteBranch(branchId: string) {
+  // Optional: Demote admin before deleting?
+  // For now, simple delete.
   await deleteDoc(doc(db, "branches", branchId));
 }
 
@@ -65,5 +94,3 @@ export function subscribeBranchesForOwner(
     onChange(snap.docs.map((d) => ({ id: d.id, ...(d.data() as DocumentData) })));
   });
 }
-
-

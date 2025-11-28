@@ -3,7 +3,8 @@ import React, { useEffect, useState } from "react";
 import Sidebar from "@/components/Sidebar";
 import { useRouter } from "next/navigation";
 import { onAuthStateChanged } from "firebase/auth";
-import { auth } from "@/lib/firebase";
+import { auth, db } from "@/lib/firebase";
+import { doc, setDoc, serverTimestamp } from "firebase/firestore";
 import { subscribeBranchesForOwner } from "@/lib/branches";
 import {
   createSalonStaffForOwner as createStaff,
@@ -11,6 +12,8 @@ import {
   updateSalonStaff,
   deleteSalonStaff,
 } from "@/lib/salonStaff";
+import { updateBranch } from "@/lib/branches";
+import { deleteDoc } from "firebase/firestore";
 
 export default function SettingsPage() {
   const router = useRouter();
@@ -25,6 +28,7 @@ export default function SettingsPage() {
   const [previewStaff, setPreviewStaff] = useState<Staff | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<Staff | null>(null);
   const [deleting, setDeleting] = useState(false);
+  const [showPassword, setShowPassword] = useState(false);
 
   type StaffTraining = { ohs: boolean; prod: boolean; tool: boolean };
   type HoursDay = { open?: string; close?: string; closed?: boolean };
@@ -48,6 +52,7 @@ export default function SettingsPage() {
     status: "Active" | "Suspended";
     avatar: string;
     training: StaffTraining;
+    systemRole?: string;
   };
   type Branch = { id: string; name: string; address?: string; revenue?: number; hours?: HoursMap };
 
@@ -65,11 +70,25 @@ export default function SettingsPage() {
       try {
         const token = await user.getIdToken();
         if (typeof window !== "undefined") localStorage.setItem("idToken", token);
+        
+        // Check role
+        const { getDoc, doc } = await import("firebase/firestore");
+        const snap = await getDoc(doc(db, "users", user.uid));
+        const role = (snap.data()?.role || "").toString();
+        
+        if (role === "salon_branch_admin") {
+          router.replace("/branches");
+          return;
+        }
+        if (role !== "salon_owner") {
+          router.replace("/dashboard");
+          return;
+        }
+        
+        setOwnerUid(user.uid);
       } catch {
         router.replace("/login");
-        return;
       }
-      setOwnerUid(user.uid);
     });
     return () => unsub();
   }, [router]);
@@ -94,6 +113,7 @@ export default function SettingsPage() {
         branchId: String((r as any).branchId || ""),
         email: (r as any).email || null,
         authUid: (r as any).authUid || null,
+        systemRole: (r as any).systemRole || "salon_staff",
         status: (r.status as any) === "Suspended" ? "Suspended" : "Active",
         avatar: String(r.avatar || r.name || ""),
         training: {
@@ -132,23 +152,153 @@ export default function SettingsPage() {
     const name = String(formData.get("name") || "").trim();
     const role = String(formData.get("role") || "").trim();
     const email = String(formData.get("email") || "").trim().toLowerCase();
+    const password = String(formData.get("password") || "").trim();
     const branchId = String(formData.get("branch") || "").trim();
-    if (!name || !role || !email || !branchId || !ownerUid) return;
+    const systemRole = String(formData.get("system_role") || "salon_staff");
+
+    if (!name || !role || !email || !ownerUid) return;
     const branchRow = data.branches.find((b) => b.id === branchId);
     setSavingStaff(true);
     try {
       if (editingStaffId) {
-        await updateSalonStaff(editingStaffId, {
-          name,
-          role,
-          branchId,
-          branchName: branchRow?.name || "",
-          training: {
-            ohs: formData.get("train_ohs") === "on",
-            prod: formData.get("train_prod") === "on",
-            tool: formData.get("train_tool") === "on",
-          },
-        });
+        // Check if we need to generate auth credentials for an existing staff member who has none
+        let newAuthUid = editingStaff?.authUid;
+        if (!newAuthUid && (systemRole === "salon_branch_admin" || password)) {
+           try {
+              const res = await fetch("/api/staff/auth/create", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ email, displayName: name, password }),
+              });
+              const json = await res.json();
+              if (res.ok && json?.uid) {
+                newAuthUid = String(json.uid);
+                // Create user doc
+                await setDoc(doc(db, "users", newAuthUid), {
+                  uid: newAuthUid,
+                  email,
+                  displayName: name,
+                  role: systemRole,
+                  ownerUid,
+                  createdAt: serverTimestamp(),
+                  updatedAt: serverTimestamp(),
+                  provider: "password",
+                  status: "Active"
+                });
+              }
+           } catch (err) {
+             console.error("Failed to generate auth for existing staff", err);
+           }
+        }
+
+        // MIGRATION LOGIC:
+        // If we have a valid authUid, but the current document ID (editingStaffId) DOES NOT match it,
+        // it means we have a legacy record (random ID) that needs to be migrated to be keyed by authUid.
+        if (newAuthUid && newAuthUid !== editingStaffId) {
+          // 1. Create/Overwrite the correct record at users/{newAuthUid}
+          // Need to use the same create logic as "Add Staff" but ensure it uses newAuthUid
+          // We can call createStaff with authUid: newAuthUid
+          await createStaff(ownerUid, {
+            email,
+            name,
+            role,
+            branchId,
+            branchName: branchRow?.name || "",
+            status: "Active",
+            authUid: newAuthUid,
+            systemRole,
+            avatar: name,
+            training: {
+              ohs: formData.get("train_ohs") === "on",
+              prod: formData.get("train_prod") === "on",
+              tool: formData.get("train_tool") === "on",
+            },
+          });
+          
+          // 2. Delete the old legacy record (users/{editingStaffId})
+          // We use try-catch because it might not exist if it was in the old 'salon_staff' collection
+          try {
+            await deleteSalonStaff(editingStaffId);
+            // Also try to delete from legacy collection just in case (requires importing deleteDoc, doc, db from firebase/firestore)
+            // Assuming these are available in scope or imported at top
+            await deleteDoc(doc(db, "salon_staff", editingStaffId));
+          } catch {}
+
+          // 3. Update local state to reflect the new ID to prevent further errors if modal stays open
+          setEditingStaffId(newAuthUid);
+
+        } else {
+          // Standard Update (ID matches or no Auth ID to migrate to)
+          try {
+            await updateSalonStaff(editingStaffId, {
+              name,
+              role,
+              branchId,
+              branchName: branchRow?.name || "",
+              systemRole,
+              authUid: newAuthUid || undefined, 
+              training: {
+                ohs: formData.get("train_ohs") === "on",
+                prod: formData.get("train_prod") === "on",
+                tool: formData.get("train_tool") === "on",
+              },
+            });
+          } catch (err: any) {
+            // If update fails (e.g. doc not found), try to recreate it if we have data
+            if (err?.code === 'not-found' || err?.message?.includes('No document')) {
+               if (newAuthUid) {
+                 // Fallback: Create new
+                 await createStaff(ownerUid, {
+                    email,
+                    name,
+                    role,
+                    branchId,
+                    branchName: branchRow?.name || "",
+                    status: "Active",
+                    authUid: newAuthUid,
+                    systemRole,
+                    avatar: name,
+                    training: {
+                      ohs: formData.get("train_ohs") === "on",
+                      prod: formData.get("train_prod") === "on",
+                      tool: formData.get("train_tool") === "on",
+                    },
+                 });
+                 // Try to cleanup old ID if possible
+                 try { await deleteDoc(doc(db, "salon_staff", editingStaffId)); } catch {}
+               } else {
+                 throw err; // Cannot recover without ID
+               }
+            } else {
+              throw err;
+            }
+          }
+        }
+        
+        // NOTE: No need to separately update 'users' doc role, as updateSalonStaff now targets 'users' directly.
+
+        // SYNC: If role is branch admin, update the branch record
+        if (systemRole === "salon_branch_admin" && branchId) {
+          await updateBranch(branchId, { adminStaffId: editingStaffId });
+        }
+        // SYNC: If role was branch admin but changed to staff, remove from branch if they were the admin
+        if (editingStaff?.systemRole === "salon_branch_admin" && systemRole === "salon_staff" && editingStaff.branchId) {
+          // We need to check if they were the admin of their old branch.
+          // Since we don't have that specific check handy without fetching, we can just try to update 
+          // the old branch. But `updateBranch` logic handles clearing if we pass null/undefined? 
+          // Actually `updateBranch` in lib/branches handles "if adminStaffId provided".
+          // We'd need to fetch the branch to see if they are the admin. 
+          // Or we can just assume if they are demoted, we should clear admin IF it matches them.
+          // For now, let's rely on the user to assign a new admin in Branch settings, 
+          // OR we could try to clear it. 
+          // Let's fetch the branch to be safe.
+          try {
+            const bSnap = await import("firebase/firestore").then(m => m.getDoc(m.doc(db, "branches", editingStaff.branchId!)));
+            if (bSnap.exists() && bSnap.data().adminStaffId === editingStaffId) {
+               await updateBranch(editingStaff.branchId!, { adminStaffId: null });
+            }
+          } catch {}
+        }
       } else {
         // 1) create auth user via server API
         let authUid: string | null = null;
@@ -156,28 +306,58 @@ export default function SettingsPage() {
           const res = await fetch("/api/staff/auth/create", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ email, displayName: name }),
+            body: JSON.stringify({ email, displayName: name, password }),
           });
           const json = await res.json();
-          if (res.ok && json?.uid) authUid = String(json.uid);
-        } catch {}
+          if (res.ok && json?.uid) {
+            authUid = String(json.uid);
+            // Create the actual user document in 'users' collection so they can login with correct role
+            await setDoc(doc(db, "users", authUid), {
+              uid: authUid,
+              email,
+              displayName: name,
+              role: systemRole, // salon_staff or salon_branch_admin
+              ownerUid,
+              createdAt: serverTimestamp(),
+              updatedAt: serverTimestamp(),
+              provider: "password",
+              status: "Active"
+            });
+          }
+        } catch (err) {
+          console.error("Failed to create auth user", err);
+        }
 
-        // 2) create staff record
-        await createStaff(ownerUid, {
-          email,
-          name,
-          role,
-          branchId,
-          branchName: branchRow?.name || "",
-          status: "Active",
-          authUid: authUid || undefined,
-          avatar: name,
-          training: {
-            ohs: formData.get("train_ohs") === "on",
-            prod: formData.get("train_prod") === "on",
-            tool: formData.get("train_tool") === "on",
-          },
-        });
+        // 2) create staff record in users collection
+        // We MUST have an authUid now because we force creation/lookup above
+        if (authUid) {
+          const newRef = await createStaff(ownerUid, {
+            email,
+            name,
+            role,
+            branchId,
+            branchName: branchRow?.name || "",
+            status: "Active",
+            authUid: authUid,
+            systemRole,
+            avatar: name,
+            training: {
+              ohs: formData.get("train_ohs") === "on",
+              prod: formData.get("train_prod") === "on",
+              tool: formData.get("train_tool") === "on",
+            },
+          });
+
+          // SYNC: If new staff is branch admin, update branch
+          if (systemRole === "salon_branch_admin" && branchId) {
+             await updateBranch(branchId, { adminStaffId: newRef });
+          }
+        } else {
+          // Fallback if auth failed (should catch above)
+          showToast("Failed to create user account. Please try again.");
+          setSavingStaff(false);
+          return;
+        }
       }
       setIsStaffModalOpen(false);
       form.reset();
@@ -562,6 +742,27 @@ export default function SettingsPage() {
                   defaultValue={editingStaff?.email || ""}
                 />
               </div>
+              {(!editingStaffId || (editingStaffId && !editingStaff?.authUid)) && (
+                <div>
+                  <label className="block text-xs font-bold text-slate-600 mb-1">Password</label>
+                  <div className="relative">
+                    <input
+                      type={showPassword ? "text" : "password"}
+                      name="password"
+                      className="w-full border border-slate-300 rounded-lg p-2.5 pr-10 text-sm focus:ring-2 focus:ring-pink-500 focus:outline-none"
+                      placeholder={editingStaffId ? "Create password for login" : "Leave empty for auto-generated"}
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowPassword(!showPassword)}
+                      className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
+                    >
+                      <i className={`fa-solid ${showPassword ? "fa-eye-slash" : "fa-eye"}`} />
+                    </button>
+                  </div>
+                  <p className="text-[10px] text-slate-500 mt-1">Set a password for them to login immediately.</p>
+                </div>
+              )}
               <div>
                 <label className="block text-xs font-bold text-slate-600 mb-1">Full Name</label>
                 <input
@@ -585,13 +786,25 @@ export default function SettingsPage() {
                 />
               </div>
               <div>
-                <label className="block text-xs font-bold text-slate-600 mb-1">Branch</label>
+                <label className="block text-xs font-bold text-slate-600 mb-1">Access Level</label>
+                <select
+                  name="system_role"
+                  className="w-full border border-slate-300 rounded-lg p-2.5 text-sm bg-white focus:ring-2 focus:ring-pink-500 focus:outline-none"
+                  defaultValue={(editingStaff as any)?.systemRole || "salon_staff"}
+                >
+                  <option value="salon_staff">Standard Staff</option>
+                  <option value="salon_branch_admin">Branch Admin</option>
+                </select>
+                <p className="text-[10px] text-slate-500 mt-1">Branch Admins can manage bookings and staff for their branch.</p>
+              </div>
+              <div>
+                <label className="block text-xs font-bold text-slate-600 mb-1">Branch (Optional)</label>
                 <select
                   name="branch"
-                  required
                   className="w-full border border-slate-300 rounded-lg p-2.5 text-sm bg-white focus:ring-2 focus:ring-pink-500 focus:outline-none"
                   defaultValue={editingStaff?.branchId || ""}
                 >
+                  <option value="">-- Unassigned --</option>
                   {data.branches.length > 0 ? (
                     data.branches.map((b) => (
                       <option key={b.id} value={b.id}>

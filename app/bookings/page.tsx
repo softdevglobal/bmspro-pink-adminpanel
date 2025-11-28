@@ -50,13 +50,27 @@ export default function BookingsPage() {
         try {
           const token = await user.getIdToken();
           if (typeof window !== "undefined") localStorage.setItem("idToken", token);
+          
+          // Resolve ownerUid based on role
+          const { getDoc, doc } = await import("firebase/firestore");
+          const snap = await getDoc(doc(db, "users", user.uid));
+          const userData = snap.data();
+          const role = (userData?.role || "").toString();
+
+          if (role === "salon_owner") {
+            setOwnerUid(user.uid);
+          } else if (role === "salon_branch_admin") {
+            // Redirect branch admin to their management page
+            router.replace("/branches");
+            return;
+          } else {
+            setOwnerUid(user.uid);
+          }
+
         } catch {
           router.replace("/login");
         }
         // use authenticated user id as ownerUid
-        try {
-          setOwnerUid(user?.uid || null);
-        } catch {}
       });
       return () => unsub();
     })();
@@ -726,7 +740,7 @@ export default function BookingsPage() {
                         <div className="w-10 h-10 rounded-xl bg-white/20 flex items-center justify-center">
                           <i className="fas fa-calendar-check" />
                         </div>
-                        <h1 className="text-2xl font-bold">Booking All</h1>
+                        <h1 className="text-2xl font-bold">All Bookings</h1>
                       </div>
                       <p className="text-sm text-white/80 mt-2">
                         Today’s schedule, availability, and status.

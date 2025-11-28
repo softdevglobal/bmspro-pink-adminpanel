@@ -95,4 +95,28 @@ export async function updateBookingStatus(bookingId: string, nextStatus: Booking
   }
 }
 
+import { getDocs, query, where, onSnapshot, DocumentData } from "firebase/firestore";
+
+/**
+ * Fetch all bookings for a specific owner
+ */
+export async function fetchBookingsForOwner(ownerUid: string) {
+  const q = query(collection(db, "bookings"), where("ownerUid", "==", ownerUid));
+  const snapshot = await getDocs(q);
+  return snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
+}
+
+/**
+ * Subscribe to real-time bookings updates for an owner
+ */
+export function subscribeBookingsForOwner(
+  ownerUid: string,
+  onChange: (rows: Array<{ id: string } & DocumentData>) => void
+) {
+  const q = query(collection(db, "bookings"), where("ownerUid", "==", ownerUid));
+  return onSnapshot(q, (snap) => {
+    onChange(snap.docs.map((d) => ({ id: d.id, ...(d.data() as DocumentData) })));
+  });
+}
+
 

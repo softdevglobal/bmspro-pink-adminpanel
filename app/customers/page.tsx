@@ -51,6 +51,10 @@ export default function CustomersPage() {
       try {
         const snap = await getDoc(doc(db, "users", user.uid));
         const role = (snap.data()?.role || "").toString();
+        if (role === "salon_branch_admin") {
+          router.replace("/branches");
+          return;
+        }
         if (role !== "salon_owner") {
           router.replace("/dashboard");
           return;
@@ -267,45 +271,66 @@ export default function CustomersPage() {
                   return (
                     <div
                       key={c.id}
-                      className={`bg-white rounded-xl border border-slate-200 p-4 flex items-center justify-between border-l-4 ${borderColor} ${
+                      className={`bg-white rounded-xl border border-slate-200 p-4 border-l-4 ${borderColor} ${
                         inactive ? "opacity-75" : ""
-                      }`}
+                      } hover:shadow-md transition-shadow`}
                     >
-                      <div className="flex items-center gap-4">
-                        <div className="w-12 h-12 rounded-full bg-gradient-to-br from-pink-100 to-pink-200 text-pink-700 flex items-center justify-center font-bold">
+                      {/* Mobile & Tablet Layout */}
+                      <div className="flex items-start gap-3 sm:gap-4">
+                        <div className="w-12 h-12 sm:w-14 sm:h-14 rounded-full bg-gradient-to-br from-pink-100 to-pink-200 text-pink-700 flex items-center justify-center font-bold text-lg flex-shrink-0">
                           {c.name.substring(0, 1).toUpperCase()}
                         </div>
-                        <div>
-                          <div className="font-bold text-slate-900">{c.name}</div>
-                          <div className="text-xs text-slate-500">
-                            {c.phone || "No phone"} • {c.email || "No email"}
+                        
+                        <div className="flex-1 min-w-0">
+                          {/* Name and Contact */}
+                          <div className="mb-3">
+                            <div className="font-bold text-base sm:text-lg text-slate-900 mb-1">{c.name}</div>
+                            <div className="text-xs sm:text-sm text-slate-500 flex flex-wrap gap-x-2 gap-y-1">
+                              <span className="flex items-center gap-1">
+                                <i className="fas fa-phone text-pink-600" />
+                                {c.phone || "No phone"}
+                              </span>
+                              <span className="hidden sm:inline">•</span>
+                              <span className="flex items-center gap-1">
+                                <i className="fas fa-envelope text-indigo-600" />
+                                {c.email || "No email"}
+                              </span>
+                            </div>
                           </div>
-                        </div>
-                      </div>
-                      <div className="flex items-center gap-4">
-                        <div className="text-right">
-                          <div className="text-xs text-slate-500">Bookings</div>
-                          <div className="font-semibold text-slate-800">{c.visits ?? 0}</div>
-                        </div>
-                        <div className="text-right">
-                          <div className="text-xs text-slate-500">Last Visit</div>
-                          <div className="font-semibold text-slate-800">{c.lastVisit || "—"}</div>
-                        </div>
-                        <div className="text-right">
-                          <div className="flex items-center gap-3 justify-end mt-1 text-slate-400">
-                            <button
-                              className="hover:text-slate-600"
-                              title="Preview"
-                              onClick={() => {
-                                setPreviewCust(c);
-                                setPreviewOpen(true);
-                              }}
-                            >
-                              <i className="fas fa-eye" />
-                            </button>
-                            <button className="hover:text-rose-600" title="Delete" onClick={() => removeCustomer(c.id)}>
-                              <i className="fas fa-trash" />
-                            </button>
+                          
+                          {/* Stats Row */}
+                          <div className="flex items-center justify-between gap-3">
+                            <div className="flex items-center gap-4 sm:gap-6">
+                              <div>
+                                <div className="text-xs text-slate-500 mb-0.5">Bookings</div>
+                                <div className="font-bold text-pink-600">{c.visits ?? 0}</div>
+                              </div>
+                              <div>
+                                <div className="text-xs text-slate-500 mb-0.5">Last Visit</div>
+                                <div className="font-semibold text-sm text-slate-800">{c.lastVisit || "—"}</div>
+                              </div>
+                            </div>
+                            
+                            {/* Action Buttons */}
+                            <div className="flex items-center gap-2">
+                              <button
+                                className="w-9 h-9 rounded-lg bg-slate-100 hover:bg-indigo-100 text-slate-600 hover:text-indigo-600 flex items-center justify-center transition-colors"
+                                title="Preview Customer"
+                                onClick={() => {
+                                  setPreviewCust(c);
+                                  setPreviewOpen(true);
+                                }}
+                              >
+                                <i className="fas fa-eye" />
+                              </button>
+                              <button 
+                                className="w-9 h-9 rounded-lg bg-slate-100 hover:bg-rose-100 text-slate-600 hover:text-rose-600 flex items-center justify-center transition-colors" 
+                                title="Delete Customer" 
+                                onClick={() => removeCustomer(c.id)}
+                              >
+                                <i className="fas fa-trash" />
+                              </button>
+                            </div>
                           </div>
                         </div>
                       </div>
@@ -338,56 +363,127 @@ export default function CustomersPage() {
       {previewOpen && previewCust && (
         <div className="fixed inset-0 z-50">
           <div className="absolute inset-0 bg-black/50" onClick={() => setPreviewOpen(false)} />
-          <div className="relative flex items-center justify-center min-h-screen p-4">
-            <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden">
-              <div className="bg-gradient-to-r from-pink-500 via-fuchsia-600 to-indigo-600 px-5 py-4 text-white flex items-center justify-between">
-                <div className="flex items-center gap-3">
-                  <div className="w-10 h-10 rounded-xl bg-white/20 flex items-center justify-center">
-                    <i className="fas fa-user" />
+          <div className="relative flex items-center justify-center min-h-screen p-2 sm:p-4">
+            <div className="bg-white rounded-2xl shadow-2xl w-full max-w-xl overflow-hidden max-h-[90vh] flex flex-col">
+              <div className="bg-gradient-to-r from-pink-500 via-fuchsia-600 to-indigo-600 px-4 sm:px-5 py-3 sm:py-4 text-white flex items-center justify-between flex-shrink-0">
+                <div className="flex items-center gap-2">
+                  <div className="w-9 h-9 sm:w-10 sm:h-10 rounded-lg bg-white/20 flex items-center justify-center">
+                    <i className="fas fa-user text-sm sm:text-base" />
                   </div>
-                  <h3 className="text-base font-semibold">Customer Preview</h3>
+                  <h3 className="text-base sm:text-lg font-bold">Customer Details</h3>
                 </div>
-                <button className="text-white/80 hover:text-white" onClick={() => setPreviewOpen(false)}>
+                <button className="text-white/80 hover:text-white text-lg" onClick={() => setPreviewOpen(false)}>
                   <i className="fas fa-times" />
                 </button>
               </div>
-              <div className="p-5 space-y-4">
+              
+              <div className="p-4 sm:p-5 space-y-3 sm:space-y-4 overflow-y-auto flex-1">
+                {/* Profile Section */}
                 <div className="flex items-center gap-3">
-                  <div className="w-12 h-12 rounded-full bg-gradient-to-br from-pink-100 to-pink-200 text-pink-700 flex items-center justify-center font-bold">
+                  <div className="w-14 h-14 sm:w-16 sm:h-16 rounded-full bg-gradient-to-br from-pink-100 to-pink-200 text-pink-700 flex items-center justify-center font-bold text-lg sm:text-xl flex-shrink-0">
                     {previewCust.name.substring(0, 1).toUpperCase()}
                   </div>
-                  <div>
-                    <div className="font-semibold text-slate-900">{previewCust.name}</div>
-                    <div className="text-xs text-slate-500">
-                      {previewCust.phone || "No phone"} • {previewCust.email || "No email"}
+                  <div className="flex-1">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <h4 className="font-bold text-base sm:text-lg text-slate-900">{previewCust.name}</h4>
+                      <span className={`px-2 py-0.5 rounded-full text-xs font-semibold ${
+                        previewCust.status === "Inactive" 
+                          ? "bg-red-100 text-red-700" 
+                          : "bg-green-100 text-green-700"
+                      }`}>
+                        {previewCust.status || "Active"}
+                      </span>
                     </div>
                   </div>
                 </div>
-                <div className="grid grid-cols-2 gap-3 text-sm">
-                  <div>
-                    <div className="text-slate-400">Bookings</div>
-                    <div className="font-medium text-slate-800">{previewCust.visits ?? 0}</div>
-                  </div>
-                  <div>
-                    <div className="text-slate-400">Last Visit</div>
-                    <div className="font-medium text-slate-800">{previewCust.lastVisit || "—"}</div>
+
+                {/* Contact Information */}
+                <div className="bg-slate-50 rounded-lg p-3">
+                  <h5 className="font-semibold text-sm text-slate-900 mb-2 flex items-center gap-2">
+                    <i className="fas fa-address-book text-pink-600 text-xs" />
+                    Contact Information
+                  </h5>
+                  <div className="space-y-2">
+                    <div className="flex items-center gap-2">
+                      <div className="w-8 h-8 rounded-lg bg-pink-100 flex items-center justify-center flex-shrink-0">
+                        <i className="fas fa-phone text-pink-600 text-xs" />
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <div className="text-xs text-slate-500">Phone</div>
+                        <div className="font-medium text-sm text-slate-900">{previewCust.phone || "Not provided"}</div>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <div className="w-8 h-8 rounded-lg bg-indigo-100 flex items-center justify-center flex-shrink-0">
+                        <i className="fas fa-envelope text-indigo-600 text-xs" />
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <div className="text-xs text-slate-500">Email</div>
+                        <div className="font-medium text-sm text-slate-900 truncate">{previewCust.email || "Not provided"}</div>
+                      </div>
+                    </div>
                   </div>
                 </div>
+
+                {/* Booking Statistics */}
+                <div className="bg-slate-50 rounded-lg p-3">
+                  <h5 className="font-semibold text-sm text-slate-900 mb-2 flex items-center gap-2">
+                    <i className="fas fa-chart-line text-pink-600 text-xs" />
+                    Booking Statistics
+                  </h5>
+                  <div className="grid grid-cols-2 gap-2">
+                    <div className="bg-white rounded-lg p-2 border border-slate-200 text-center">
+                      <div className="text-2xl font-bold text-pink-600 mb-0.5">{previewCust.visits ?? 0}</div>
+                      <div className="text-xs text-slate-500">Total Bookings</div>
+                    </div>
+                    <div className="bg-white rounded-lg p-2 border border-slate-200 text-center">
+                      <div className="text-sm font-bold text-slate-900 mb-0.5">{previewCust.lastVisit || "Never"}</div>
+                      <div className="text-xs text-slate-500">Last Visit</div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Loyalty Badge */}
+                <div className="flex items-center justify-center gap-2 bg-gradient-to-r from-pink-50 to-indigo-50 rounded-lg p-2 border border-pink-200">
+                  <span className="text-2xl">
+                    {(previewCust.visits ?? 0) >= 10 ? "🌟" : (previewCust.visits ?? 0) >= 5 ? "💎" : "🆕"}
+                  </span>
+                  <span className="font-semibold text-sm text-slate-900">
+                    {(previewCust.visits ?? 0) >= 10 ? "VIP Member" : 
+                     (previewCust.visits ?? 0) >= 5 ? "Regular Customer" : 
+                     "New Customer"}
+                  </span>
+                </div>
+
+                {/* Notes Section */}
                 {previewCust.notes && (
-                  <div>
-                    <div className="text-slate-400 text-sm mb-1">Notes</div>
-                    <div className="text-slate-700 text-sm whitespace-pre-wrap">{previewCust.notes}</div>
+                  <div className="bg-amber-50 rounded-lg p-3 border border-amber-200">
+                    <h5 className="font-semibold text-sm text-slate-900 mb-1.5 flex items-center gap-2">
+                      <i className="fas fa-sticky-note text-amber-600 text-xs" />
+                      Notes
+                    </h5>
+                    <div className="text-xs text-slate-700 whitespace-pre-wrap line-clamp-3">{previewCust.notes}</div>
                   </div>
                 )}
               </div>
-              <div className="px-5 py-4 border-t border-slate-200 flex items-center justify-end gap-2">
-                <button onClick={() => setPreviewOpen(false)} className="px-3 py-1.5 rounded-full text-xs font-semibold bg-slate-100 hover:bg-slate-200 text-slate-700">
-                  Close
-                </button>
-                <button onClick={() => { setPreviewOpen(false); removeCustomer(previewCust.id); }} className="px-3 py-1.5 rounded-full text-xs font-semibold bg-rose-600 hover:bg-rose-700 text-white">
-                  <i className="fas fa-trash mr-1" />
-                  Delete
-                </button>
+
+              <div className="px-4 py-3 border-t border-slate-200 bg-slate-50 flex-shrink-0">
+                <div className="flex items-center gap-2">
+                  <button 
+                    onClick={() => setPreviewOpen(false)} 
+                    className="flex-1 px-4 py-2 rounded-lg text-sm font-semibold bg-slate-200 hover:bg-slate-300 text-slate-700 transition"
+                  >
+                    <i className="fas fa-times mr-1" />
+                    Close
+                  </button>
+                  <button 
+                    onClick={() => { setPreviewOpen(false); removeCustomer(previewCust.id); }} 
+                    className="flex-1 px-4 py-2 rounded-lg text-sm font-semibold bg-rose-600 hover:bg-rose-700 text-white transition"
+                  >
+                    <i className="fas fa-trash mr-1" />
+                    Delete
+                  </button>
+                </div>
               </div>
             </div>
           </div>
