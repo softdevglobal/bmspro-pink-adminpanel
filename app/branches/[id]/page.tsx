@@ -43,6 +43,8 @@ export default function BranchDetailsPage() {
   const [ownerUid, setOwnerUid] = useState<string | null>(null);
   const [branch, setBranch] = useState<Branch | null>(null);
   const [loading, setLoading] = useState(true);
+  const [userRole, setUserRole] = useState<string | null>(null);
+  const [currentUserUid, setCurrentUserUid] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<
     "overview" | "analytics" | "appointments" | "services" | "staff" | "customers" | "schedule"
   >("overview");
@@ -65,6 +67,8 @@ export default function BranchDetailsPage() {
       try {
         const snap = await getDoc(doc(db, "users", user.uid));
         const role = (snap.data()?.role || "").toString();
+        setUserRole(role);
+        setCurrentUserUid(user.uid);
         
         if (role === "salon_owner") {
           setOwnerUid(user.uid);
@@ -92,6 +96,17 @@ export default function BranchDetailsPage() {
         return;
       }
       const data = d.data() as any;
+      
+      // Check if branch admin is trying to access a branch they don't manage
+      if (userRole === "salon_branch_admin" && currentUserUid) {
+        const branchAdminId = data.adminStaffId;
+        if (branchAdminId !== currentUserUid) {
+          // Redirect to branches page if they try to access unauthorized branch
+          router.push("/branches");
+          return;
+        }
+      }
+      
       const b: Branch = {
         id: d.id,
         name: String(data.name || ""),
@@ -110,7 +125,7 @@ export default function BranchDetailsPage() {
       setLoading(false);
     });
     return () => unsub();
-  }, [ownerUid, branchId]);
+  }, [ownerUid, branchId, userRole, currentUserUid, router]);
 
   // subscribe to bookings for this branch
   useEffect(() => {

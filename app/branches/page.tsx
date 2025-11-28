@@ -149,6 +149,11 @@ export default function BranchesPage() {
          if (ownerUid && ownerUid !== currentUserUid) {
             const myBranches = mapped.filter(b => b.adminStaffId === currentUserUid);
             setBranches(myBranches);
+            
+            // Auto-redirect branch admin to their specific branch page
+            if (role === "salon_branch_admin" && myBranches.length === 1) {
+              router.push(`/branches/${myBranches[0].id}`);
+            }
             return;
          }
       }
@@ -156,7 +161,7 @@ export default function BranchesPage() {
       setBranches(mapped.length ? mapped : defaultBranches);
     });
     return () => unsub();
-  }, [ownerUid, defaultBranches]);
+  }, [ownerUid, defaultBranches, role, router]);
 
   // Real-time services and staff lists for assignment checklists
   useEffect(() => {

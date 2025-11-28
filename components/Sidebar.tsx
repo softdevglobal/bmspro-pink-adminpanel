@@ -248,7 +248,7 @@ export default function Sidebar({ mobile = false, onClose }: SidebarProps) {
           <span>Customers</span>
         </Link>
       )}
-      {mounted && role === "salon_owner" && (
+      {mounted && (role === "salon_owner" || role === "salon_branch_admin") && (
         <Link
           href="/branches"
           className={`flex items-center space-x-3 px-4 py-3 rounded-xl text-sm transition ${
