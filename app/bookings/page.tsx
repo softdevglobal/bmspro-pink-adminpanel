@@ -36,7 +36,7 @@ export default function BookingsPage() {
   // Real data from Firestore
   const [ownerUid, setOwnerUid] = useState<string | null>(null);
   const [branches, setBranches] = useState<Array<{ id: string; name: string; address?: string }>>([]);
-  const [servicesList, setServicesList] = useState<Array<{ id: string | number; name: string; price?: number; duration?: number; icon?: string; branches?: string[] }>>([]);
+  const [servicesList, setServicesList] = useState<Array<{ id: string | number; name: string; price?: number; duration?: number; icon?: string; branches?: string[]; staffIds?: string[] }>>([]);
   const [staffList, setStaffList] = useState<Array<{ id: string; name: string; role?: string; status?: string; avatar?: string; branchId?: string; branch?: string }>>([]);
 
   useEffect(() => {
@@ -519,6 +519,7 @@ export default function BookingsPage() {
           duration: typeof (s as any).duration === "number" ? (s as any).duration : undefined,
           icon: String((s as any).icon || "fa-solid fa-star"),
           branches: Array.isArray((s as any).branches) ? (s as any).branches.map(String) : undefined,
+          staffIds: Array.isArray((s as any).staffIds) ? (s as any).staffIds.map(String) : undefined,
         }))
       );
     });
@@ -925,11 +926,26 @@ export default function BookingsPage() {
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   {staffList
                     .filter(
-                      (st: any) =>
-                        st.status === "Active" &&
-                        (!bkBranchId ||
-                          st.branchId === bkBranchId ||
-                          st.branch === branches.find((b: any) => b.id === bkBranchId)?.name)
+                      (st: any) => {
+                        // Must be active
+                        if (st.status !== "Active") return false;
+                        
+                        // Must be at the selected branch
+                        if (bkBranchId && st.branchId !== bkBranchId && st.branch !== branches.find((b: any) => b.id === bkBranchId)?.name) {
+                          return false;
+                        }
+                        
+                        // Must be qualified for the selected service
+                        if (bkServiceId) {
+                          const selectedService = servicesList.find((s) => s.id === bkServiceId);
+                          if (selectedService?.staffIds && selectedService.staffIds.length > 0) {
+                            // Only show staff who are in the service's qualified staff list
+                            return selectedService.staffIds.includes(st.id);
+                          }
+                        }
+                        
+                        return true;
+                      }
                     )
                     .map((st: any) => {
                       const selected = bkStaffId === st.id;
