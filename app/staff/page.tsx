@@ -14,6 +14,7 @@ import {
 } from "@/lib/salonStaff";
 import { updateBranch } from "@/lib/branches";
 import { deleteDoc } from "firebase/firestore";
+import WeeklyScheduleSelector, { WeeklySchedule } from "@/components/staff/WeeklyScheduleSelector";
 
 export default function SettingsPage() {
   const router = useRouter();
@@ -29,6 +30,8 @@ export default function SettingsPage() {
   const [deleteTarget, setDeleteTarget] = useState<Staff | null>(null);
   const [deleting, setDeleting] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
+  const [weeklySchedule, setWeeklySchedule] = useState<WeeklySchedule>({});
+  const [selectedSystemRole, setSelectedSystemRole] = useState<string>("salon_staff");
 
   type StaffTraining = { ohs: boolean; prod: boolean; tool: boolean };
   type HoursDay = { open?: string; close?: string; closed?: boolean };
@@ -53,6 +56,7 @@ export default function SettingsPage() {
     avatar: string;
     training: StaffTraining;
     systemRole?: string;
+    weeklySchedule?: WeeklySchedule;
   };
   type Branch = { id: string; name: string; address?: string; revenue?: number; hours?: HoursMap };
 
@@ -121,6 +125,7 @@ export default function SettingsPage() {
           prod: Boolean(r?.training?.prod),
           tool: Boolean(r?.training?.tool),
         },
+        weeklySchedule: (r as any).weeklySchedule || {},
       }));
       setData((prev) => ({ ...prev, staff }));
     });
@@ -157,7 +162,33 @@ export default function SettingsPage() {
     const systemRole = String(formData.get("system_role") || "salon_staff");
 
     if (!name || !role || !email || !ownerUid) return;
+    
+    // Branch Admin must have a branch assigned
+    if (systemRole === "salon_branch_admin" && !branchId) {
+      showToast("Branch Admins must be assigned to a branch");
+      return;
+    }
+    
     const branchRow = data.branches.find((b) => b.id === branchId);
+    
+    // For Branch Admins, create a schedule with the same branch for all 7 days
+    let finalSchedule: WeeklySchedule = {};
+    if (systemRole === "salon_branch_admin" && branchRow) {
+      const branchAssignment = { branchId: branchRow.id, branchName: branchRow.name };
+      finalSchedule = {
+        Monday: branchAssignment,
+        Tuesday: branchAssignment,
+        Wednesday: branchAssignment,
+        Thursday: branchAssignment,
+        Friday: branchAssignment,
+        Saturday: branchAssignment,
+        Sunday: branchAssignment,
+      };
+    } else {
+      // For regular staff, use the weekly schedule they configured
+      finalSchedule = weeklySchedule;
+    }
+    
     setSavingStaff(true);
     try {
       if (editingStaffId) {
@@ -213,6 +244,7 @@ export default function SettingsPage() {
               prod: formData.get("train_prod") === "on",
               tool: formData.get("train_tool") === "on",
             },
+            weeklySchedule: finalSchedule,
           });
           
           // 2. Delete the old legacy record (users/{editingStaffId})
@@ -242,6 +274,7 @@ export default function SettingsPage() {
                 prod: formData.get("train_prod") === "on",
                 tool: formData.get("train_tool") === "on",
               },
+              weeklySchedule: finalSchedule,
             });
           } catch (err: any) {
             // If update fails (e.g. doc not found), try to recreate it if we have data
@@ -263,6 +296,7 @@ export default function SettingsPage() {
                       prod: formData.get("train_prod") === "on",
                       tool: formData.get("train_tool") === "on",
                     },
+                    weeklySchedule: finalSchedule,
                  });
                  // Try to cleanup old ID if possible
                  try { await deleteDoc(doc(db, "salon_staff", editingStaffId)); } catch {}
@@ -346,6 +380,7 @@ export default function SettingsPage() {
               prod: formData.get("train_prod") === "on",
               tool: formData.get("train_tool") === "on",
             },
+            weeklySchedule: finalSchedule,
           });
 
           // SYNC: If new staff is branch admin, update branch
@@ -363,6 +398,8 @@ export default function SettingsPage() {
       form.reset();
       setEditingStaffId(null);
       setEditingStaff(null);
+      setWeeklySchedule({});
+      setSelectedSystemRole("salon_staff");
       showToast(editingStaffId ? "Staff updated successfully!" : "Staff onboarded successfully!");
     } catch {
       showToast(editingStaffId ? "Failed to update staff" : "Failed to onboard staff");
@@ -374,6 +411,8 @@ export default function SettingsPage() {
   const openEditStaff = (s: Staff) => {
     setEditingStaffId(s.id);
     setEditingStaff(s);
+    setWeeklySchedule(s.weeklySchedule || {});
+    setSelectedSystemRole(s.systemRole || "salon_staff");
     setIsStaffModalOpen(true);
   };
 
@@ -474,7 +513,11 @@ export default function SettingsPage() {
               </div>
 
               <button
-                onClick={() => setIsStaffModalOpen(true)}
+                onClick={() => {
+                  setIsStaffModalOpen(true);
+                  setSelectedSystemRole("salon_staff");
+                  setWeeklySchedule({});
+                }}
                 className="hidden sm:inline-block px-4 py-2 bg-slate-800 text-white rounded-lg text-sm hover:bg-slate-700 font-medium shadow-md transition"
               >
                 <i className="fa-solid fa-user-plus mr-2" /> Onboard Staff
@@ -484,7 +527,11 @@ export default function SettingsPage() {
             {/* Mobile full-width Onboard button */}
             <div className="sm:hidden mb-4">
               <button
-                onClick={() => setIsStaffModalOpen(true)}
+                onClick={() => {
+                  setIsStaffModalOpen(true);
+                  setSelectedSystemRole("salon_staff");
+                  setWeeklySchedule({});
+                }}
                 className="w-full py-2.5 bg-slate-800 text-white rounded-lg text-sm font-semibold shadow-md hover:bg-slate-700"
               >
                 <i className="fa-solid fa-user-plus mr-2" /> Onboard Staff
@@ -509,7 +556,15 @@ export default function SettingsPage() {
                           className="w-12 h-12 rounded-full bg-slate-100 mr-4"
                         />
                         <div className="flex-1">
-                          <h4 className="font-bold text-slate-800">{s.name}</h4>
+                          <div className="flex items-center gap-2">
+                            <h4 className="font-bold text-slate-800">{s.name}</h4>
+                            {s.systemRole === "salon_branch_admin" && (
+                              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-indigo-100 text-indigo-700">
+                                <i className="fas fa-crown" />
+                                Admin
+                              </span>
+                            )}
+                          </div>
                           <p className="text-xs text-slate-500">
                             {s.role} • {s.branch}
                           </p>
@@ -636,19 +691,61 @@ export default function SettingsPage() {
 
             {activeTab === "roster" && (
               <div className="bg-white border border-slate-200 rounded-xl p-4">
-                <h3 className="text-slate-800 text-lg font-bold mb-4">Weekly Roster</h3>
+                <div className="flex items-center justify-between mb-4 flex-wrap gap-3">
+                  <h3 className="text-slate-800 text-lg font-bold">Weekly Roster</h3>
+                  <div className="flex items-center gap-4 text-xs text-slate-600 flex-wrap">
+                    <div className="flex items-center gap-2">
+                      <div className="w-3 h-3 rounded bg-emerald-50 border border-emerald-200" />
+                      <span>Staff Working</span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <div className="w-3 h-3 rounded bg-indigo-50 border border-indigo-200" />
+                      <span>Branch Admin</span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <div className="w-3 h-3 rounded bg-slate-100 border border-slate-200" />
+                      <span>Off Day</span>
+                    </div>
+                  </div>
+                </div>
                 <div className="overflow-x-auto">
                   <table className="w-full text-sm border-collapse">
                     <thead>
-                      <tr className="bg-slate-50 border-b text-slate-700">
-                        <th className="p-3 text-left border-r min-w-[150px]">Staff</th>
-                        <th className="p-3 text-center border-r">Mon</th>
-                        <th className="p-3 text-center border-r">Tue</th>
-                        <th className="p-3 text-center border-r">Wed</th>
-                        <th className="p-3 text-center border-r">Thu</th>
-                        <th className="p-3 text-center border-r">Fri</th>
-                        <th className="p-3 text-center border-r">Sat</th>
-                        <th className="p-3 text-center">Sun</th>
+                      <tr className="bg-gradient-to-r from-slate-50 to-slate-100 border-b-2 border-slate-200 text-slate-700">
+                        <th className="p-3 text-left border-r min-w-[150px] font-bold">
+                          <div className="flex items-center gap-2">
+                            <i className="fas fa-user text-slate-400" />
+                            Staff Member
+                          </div>
+                        </th>
+                        <th className="p-3 text-center border-r">
+                          <div className="font-bold">Mon</div>
+                          <div className="text-[10px] text-slate-500 font-normal">☀️</div>
+                        </th>
+                        <th className="p-3 text-center border-r">
+                          <div className="font-bold">Tue</div>
+                          <div className="text-[10px] text-slate-500 font-normal">🌤️</div>
+                        </th>
+                        <th className="p-3 text-center border-r">
+                          <div className="font-bold">Wed</div>
+                          <div className="text-[10px] text-slate-500 font-normal">🌻</div>
+                        </th>
+                        <th className="p-3 text-center border-r">
+                          <div className="font-bold">Thu</div>
+                          <div className="text-[10px] text-slate-500 font-normal">🌸</div>
+                        </th>
+                        <th className="p-3 text-center border-r">
+                          <div className="font-bold">Fri</div>
+                          <div className="text-[10px] text-slate-500 font-normal">🎉</div>
+                        </th>
+                        <th className="p-3 text-center border-r">
+                          <div className="font-bold">Sat</div>
+                          <div className="text-[10px] text-slate-500 font-normal">🎨</div>
+                        </th>
+                        <th className="p-3 text-center">
+                          <div className="font-bold">Sun</div>
+                          <div className="text-[10px] text-slate-500 font-normal">🌙</div>
+                        </th>
                       </tr>
                     </thead>
                     <tbody>
@@ -662,35 +759,69 @@ export default function SettingsPage() {
                         data.staff
                           .filter((s) => s.status === "Active")
                           .map((s) => {
-                          const branch = data.branches.find((b) => b.id === s.branchId || b.name === s.branch);
-                          const days: Array<{ key: keyof HoursMap; label: string }> = [
-                            { key: "Monday", label: "Mon" },
-                            { key: "Tuesday", label: "Tue" },
-                            { key: "Wednesday", label: "Wed" },
-                            { key: "Thursday", label: "Thu" },
-                            { key: "Friday", label: "Fri" },
-                            { key: "Saturday", label: "Sat" },
-                            { key: "Sunday", label: "Sun" },
+                          const schedule = s.weeklySchedule || {};
+                          const days: Array<keyof WeeklySchedule> = [
+                            "Monday",
+                            "Tuesday",
+                            "Wednesday",
+                            "Thursday",
+                            "Friday",
+                            "Saturday",
+                            "Sunday",
                           ];
                           return (
-                            <tr key={s.id} className="border-b hover:bg-slate-50">
-                              <td className="p-3 border-r font-medium text-slate-800">{s.name}</td>
-                              {days.map((d, i) => {
-                                const h = (branch?.hours?.[d.key] as HoursDay) || undefined;
-                                const isOff = h?.closed;
-                                const text = isOff
-                                  ? "OFF"
-                                  : h?.open && h?.close
-                                  ? `${h.open} - ${h.close}`
-                                  : "";
+                            <tr key={s.id} className="border-b hover:bg-slate-50/50 transition">
+                              <td className="p-3 border-r font-medium text-slate-800">
+                                <div className="flex items-center gap-3">
+                                  <img
+                                    src={`https://api.dicebear.com/7.x/avataaars/svg?seed=${encodeURIComponent(s.avatar)}`}
+                                    alt={s.name}
+                                    className="w-8 h-8 rounded-full bg-slate-100"
+                                  />
+                                  <div>
+                                    <div className="flex items-center gap-1.5">
+                                      <span className="font-semibold">{s.name}</span>
+                                      {s.systemRole === "salon_branch_admin" && (
+                                        <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[9px] font-bold bg-indigo-500 text-white">
+                                          <i className="fas fa-crown" />
+                                        </span>
+                                      )}
+                                    </div>
+                                    <div className="text-[10px] text-slate-500">{s.role}</div>
+                                  </div>
+                                </div>
+                              </td>
+                              {days.map((day) => {
+                                const assignment = schedule[day];
+                                const isWorking = assignment && assignment.branchId;
+                                const isBranchAdmin = s.systemRole === "salon_branch_admin";
                                 return (
                                   <td
-                                    key={i}
-                                    className={`p-3 text-center border-r text-xs ${
-                                      isOff ? "bg-slate-100 text-slate-400" : "text-green-700 font-medium"
+                                    key={day}
+                                    className={`p-3 text-center border-r text-xs transition ${
+                                      isWorking 
+                                        ? isBranchAdmin 
+                                          ? "bg-indigo-50 hover:bg-indigo-100" 
+                                          : "bg-emerald-50 hover:bg-emerald-100"
+                                        : "bg-slate-50 hover:bg-slate-100"
                                     }`}
                                   >
-                                    {text}
+                                    {isWorking ? (
+                                      <div className="space-y-1">
+                                        <div className={`font-semibold text-xs ${isBranchAdmin ? "text-indigo-800" : "text-emerald-800"}`}>
+                                          {assignment.branchName}
+                                        </div>
+                                        <div className={`text-[10px] ${isBranchAdmin ? "text-indigo-600" : "text-emerald-600"}`}>
+                                          <i className={`fas ${isBranchAdmin ? "fa-crown" : "fa-store"} mr-1`} />
+                                          {isBranchAdmin ? "Admin" : "Working"}
+                                        </div>
+                                      </div>
+                                    ) : (
+                                      <div className="text-slate-400 text-xs">
+                                        <i className="fas fa-beach mr-1" />
+                                        Off
+                                      </div>
+                                    )}
                                   </td>
                                 );
                               })}
@@ -700,6 +831,54 @@ export default function SettingsPage() {
                       )}
                     </tbody>
                   </table>
+                </div>
+                
+                {/* Summary Cards */}
+                <div className="mt-6 grid grid-cols-1 sm:grid-cols-3 gap-4">
+                  <div className="bg-gradient-to-br from-emerald-50 to-teal-50 rounded-xl p-4 border border-emerald-100">
+                    <div className="flex items-center gap-3">
+                      <div className="w-10 h-10 rounded-lg bg-emerald-500 text-white flex items-center justify-center">
+                        <i className="fas fa-calendar-check" />
+                      </div>
+                      <div>
+                        <div className="text-2xl font-bold text-emerald-900">
+                          {data.staff.reduce((acc, s) => {
+                            const schedule = s.weeklySchedule || {};
+                            return acc + Object.values(schedule).filter(v => v !== null && v !== undefined).length;
+                          }, 0)}
+                        </div>
+                        <div className="text-xs text-emerald-700">Total Shifts This Week</div>
+                      </div>
+                    </div>
+                  </div>
+                  
+                  <div className="bg-gradient-to-br from-blue-50 to-indigo-50 rounded-xl p-4 border border-blue-100">
+                    <div className="flex items-center gap-3">
+                      <div className="w-10 h-10 rounded-lg bg-blue-500 text-white flex items-center justify-center">
+                        <i className="fas fa-users" />
+                      </div>
+                      <div>
+                        <div className="text-2xl font-bold text-blue-900">
+                          {data.staff.filter(s => s.status === "Active").length}
+                        </div>
+                        <div className="text-xs text-blue-700">Active Staff Members</div>
+                      </div>
+                    </div>
+                  </div>
+                  
+                  <div className="bg-gradient-to-br from-purple-50 to-pink-50 rounded-xl p-4 border border-purple-100">
+                    <div className="flex items-center gap-3">
+                      <div className="w-10 h-10 rounded-lg bg-purple-500 text-white flex items-center justify-center">
+                        <i className="fas fa-store" />
+                      </div>
+                      <div>
+                        <div className="text-2xl font-bold text-purple-900">
+                          {data.branches.length}
+                        </div>
+                        <div className="text-xs text-purple-700">Total Branches</div>
+                      </div>
+                    </div>
+                  </div>
                 </div>
               </div>
             )}
@@ -722,141 +901,245 @@ export default function SettingsPage() {
 
       {/* Staff Modal */}
       {isStaffModalOpen && (
-        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center">
-          <div className="bg-white rounded-xl shadow-2xl w-full max-w-md mx-4 sm:mx-0">
-            <div className="bg-slate-50 p-4 border-b border-slate-100 flex justify-between items-center rounded-t-xl">
-              <h3 className="font-bold text-slate-800">{editingStaffId ? "Edit Staff" : "Onboard Staff"}</h3>
-              <button onClick={() => setIsStaffModalOpen(false)} className="text-slate-400 hover:text-red-500">
-                <i className="fa-solid fa-xmark" />
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-xl shadow-2xl w-full max-w-3xl max-h-[90vh] flex flex-col">
+            <div className="bg-gradient-to-r from-slate-800 to-slate-900 p-5 border-b border-slate-700 flex justify-between items-center rounded-t-xl shrink-0">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-lg bg-white/10 flex items-center justify-center">
+                  <i className="fa-solid fa-user-pen text-white" />
+                </div>
+                <h3 className="font-bold text-white text-lg">{editingStaffId ? "Edit Staff Member" : "Onboard New Staff"}</h3>
+              </div>
+              <button 
+                type="button"
+                onClick={() => {
+                  setIsStaffModalOpen(false);
+                  setEditingStaffId(null);
+                  setEditingStaff(null);
+                  setWeeklySchedule({});
+                  setSelectedSystemRole("salon_staff");
+                }} 
+                className="text-white/60 hover:text-white transition w-8 h-8 rounded-lg hover:bg-white/10 flex items-center justify-center"
+              >
+                <i className="fa-solid fa-xmark text-xl" />
               </button>
             </div>
-            <form onSubmit={handleStaffSubmit} className="p-6 space-y-4">
-              <div>
-                <label className="block text-xs font-bold text-slate-600 mb-1">Email</label>
-                <input
-                  type="email"
-                  name="email"
-                  required={!editingStaffId}
-                  className="w-full border border-slate-300 rounded-lg p-2.5 text-sm focus:ring-2 focus:ring-pink-500 focus:outline-none"
-                  placeholder="name@salon.com"
-                  defaultValue={editingStaff?.email || ""}
-                />
-              </div>
-              {(!editingStaffId || (editingStaffId && !editingStaff?.authUid)) && (
-                <div>
-                  <label className="block text-xs font-bold text-slate-600 mb-1">Password</label>
-                  <div className="relative">
+            <form onSubmit={handleStaffSubmit} className="flex-1 overflow-y-auto custom-scrollbar">
+              <div className="p-6 space-y-4">
+              {/* Basic Information Section */}
+              <div className="bg-slate-50 rounded-xl p-4 border border-slate-200">
+                <h4 className="text-sm font-bold text-slate-700 mb-3 flex items-center gap-2">
+                  <i className="fas fa-id-card text-pink-600" />
+                  Basic Information
+                </h4>
+                <div className="space-y-3">
+                  <div>
+                    <label className="block text-xs font-bold text-slate-600 mb-1">Email</label>
                     <input
-                      type={showPassword ? "text" : "password"}
-                      name="password"
-                      className="w-full border border-slate-300 rounded-lg p-2.5 pr-10 text-sm focus:ring-2 focus:ring-pink-500 focus:outline-none"
-                      placeholder={editingStaffId ? "Create password for login" : "Leave empty for auto-generated"}
+                      type="email"
+                      name="email"
+                      required={!editingStaffId}
+                      className="w-full border border-slate-300 rounded-lg p-2.5 text-sm focus:ring-2 focus:ring-pink-500 focus:outline-none"
+                      placeholder="name@salon.com"
+                      defaultValue={editingStaff?.email || ""}
                     />
-                    <button
-                      type="button"
-                      onClick={() => setShowPassword(!showPassword)}
-                      className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
-                    >
-                      <i className={`fa-solid ${showPassword ? "fa-eye-slash" : "fa-eye"}`} />
-                    </button>
                   </div>
-                  <p className="text-[10px] text-slate-500 mt-1">Set a password for them to login immediately.</p>
+                  {(!editingStaffId || (editingStaffId && !editingStaff?.authUid)) && (
+                    <div>
+                      <label className="block text-xs font-bold text-slate-600 mb-1">Password</label>
+                      <div className="relative">
+                        <input
+                          type={showPassword ? "text" : "password"}
+                          name="password"
+                          className="w-full border border-slate-300 rounded-lg p-2.5 pr-10 text-sm focus:ring-2 focus:ring-pink-500 focus:outline-none"
+                          placeholder={editingStaffId ? "Create password for login" : "Leave empty for auto-generated"}
+                        />
+                        <button
+                          type="button"
+                          onClick={() => setShowPassword(!showPassword)}
+                          className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
+                        >
+                          <i className={`fa-solid ${showPassword ? "fa-eye-slash" : "fa-eye"}`} />
+                        </button>
+                      </div>
+                      <p className="text-[10px] text-slate-500 mt-1">Set a password for them to login immediately.</p>
+                    </div>
+                  )}
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-xs font-bold text-slate-600 mb-1">Full Name</label>
+                      <input
+                        type="text"
+                        name="name"
+                        required
+                        className="w-full border border-slate-300 rounded-lg p-2.5 text-sm focus:ring-2 focus:ring-pink-500 focus:outline-none"
+                        placeholder="Mike Ross"
+                        defaultValue={editingStaff?.name || ""}
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-bold text-slate-600 mb-1">Role/Title</label>
+                      <input
+                        type="text"
+                        name="role"
+                        required
+                        className="w-full border border-slate-300 rounded-lg p-2.5 text-sm focus:ring-2 focus:ring-pink-500 focus:outline-none"
+                        placeholder="Senior Therapist"
+                        defaultValue={editingStaff?.role || ""}
+                      />
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Access & Branch Section */}
+              <div className="bg-indigo-50 rounded-xl p-4 border border-indigo-200">
+                <h4 className="text-sm font-bold text-slate-700 mb-3 flex items-center gap-2">
+                  <i className="fas fa-shield-halved text-indigo-600" />
+                  Access & Branch Assignment
+                </h4>
+                <div className="space-y-3">
+                  <div>
+                    <label className="block text-xs font-bold text-slate-600 mb-1">Access Level</label>
+                    <select
+                      name="system_role"
+                      className="w-full border border-indigo-300 rounded-lg p-2.5 text-sm bg-white focus:ring-2 focus:ring-indigo-500 focus:outline-none"
+                      defaultValue={(editingStaff as any)?.systemRole || "salon_staff"}
+                      onChange={(e) => setSelectedSystemRole(e.target.value)}
+                    >
+                      <option value="salon_staff">Standard Staff</option>
+                      <option value="salon_branch_admin">Branch Admin</option>
+                    </select>
+                    <p className="text-[10px] text-slate-500 mt-1">
+                      {selectedSystemRole === "salon_branch_admin" 
+                        ? "Branch Admins are assigned to ONE branch for the entire week and can manage all bookings and staff."
+                        : "Standard Staff can be assigned to different branches on different days of the week."
+                      }
+                    </p>
+                  </div>
+                  <div>
+                    <label className="block text-xs font-bold text-slate-600 mb-1">
+                      {selectedSystemRole === "salon_branch_admin" ? "Assigned Branch (Required)" : "Primary Branch (Optional)"}
+                    </label>
+                    <select
+                      name="branch"
+                      className="w-full border border-indigo-300 rounded-lg p-2.5 text-sm bg-white focus:ring-2 focus:ring-indigo-500 focus:outline-none"
+                      defaultValue={editingStaff?.branchId || ""}
+                      required={selectedSystemRole === "salon_branch_admin"}
+                    >
+                      <option value="">-- {selectedSystemRole === "salon_branch_admin" ? "Select Branch" : "Unassigned"} --</option>
+                      {data.branches.length > 0 ? (
+                        data.branches.map((b) => (
+                          <option key={b.id} value={b.id}>
+                            {b.name}
+                          </option>
+                        ))
+                      ) : (
+                        <option value="" disabled>
+                          No Branches Configured
+                        </option>
+                      )}
+                    </select>
+                    {selectedSystemRole === "salon_branch_admin" && (
+                      <p className="text-[10px] text-indigo-600 mt-1 font-medium">
+                        <i className="fas fa-info-circle mr-1" />
+                        This branch will be assigned for all 7 days of the week.
+                      </p>
+                    )}
+                  </div>
+                </div>
+              </div>
+              {/* Training Section */}
+              <div className="bg-emerald-50 rounded-xl p-4 border border-emerald-200">
+                <h4 className="text-sm font-bold text-slate-700 mb-3 flex items-center gap-2">
+                  <i className="fas fa-graduation-cap text-emerald-600" />
+                  Initial Training Complete?
+                </h4>
+                <div className="flex gap-3">
+                  <label className="flex items-center cursor-pointer">
+                    <input id="train_ohs" type="checkbox" name="train_ohs" className="peer sr-only" defaultChecked={Boolean(editingStaff?.training?.ohs)} />
+                    <span className="px-4 py-2 rounded-lg text-xs font-semibold bg-slate-600 text-white/90 peer-checked:bg-emerald-600 peer-checked:text-white border border-slate-500 peer-checked:border-emerald-700 shadow-sm select-none transition-all hover:scale-105">
+                      <i className="fas fa-hard-hat mr-1" /> OHS
+                    </span>
+                  </label>
+                  <label className="flex items-center cursor-pointer">
+                    <input id="train_prod" type="checkbox" name="train_prod" className="peer sr-only" defaultChecked={Boolean(editingStaff?.training?.prod)} />
+                    <span className="px-4 py-2 rounded-lg text-xs font-semibold bg-slate-600 text-white/90 peer-checked:bg-emerald-600 peer-checked:text-white border border-slate-500 peer-checked:border-emerald-700 shadow-sm select-none transition-all hover:scale-105">
+                      <i className="fas fa-box mr-1" /> Product
+                    </span>
+                  </label>
+                  <label className="flex items-center cursor-pointer">
+                    <input id="train_tool" type="checkbox" name="train_tool" className="peer sr-only" defaultChecked={Boolean(editingStaff?.training?.tool)} />
+                    <span className="px-4 py-2 rounded-lg text-xs font-semibold bg-slate-600 text-white/90 peer-checked:bg-emerald-600 peer-checked:text-white border border-slate-500 peer-checked:border-emerald-700 shadow-sm select-none transition-all hover:scale-105">
+                      <i className="fas fa-wrench mr-1" /> Tools
+                    </span>
+                  </label>
+                </div>
+              </div>
+              
+              {/* Weekly Schedule Selector - Only for Standard Staff */}
+              {selectedSystemRole === "salon_staff" && (
+                <div className="bg-gradient-to-br from-purple-50 to-pink-50 rounded-xl p-4 border border-purple-200">
+                  <WeeklyScheduleSelector
+                    branches={data.branches}
+                    schedule={weeklySchedule}
+                    onChange={setWeeklySchedule}
+                  />
                 </div>
               )}
-              <div>
-                <label className="block text-xs font-bold text-slate-600 mb-1">Full Name</label>
-                <input
-                  type="text"
-                  name="name"
-                  required
-                  className="w-full border border-slate-300 rounded-lg p-2.5 text-sm focus:ring-2 focus:ring-pink-500 focus:outline-none"
-                  placeholder="Mike Ross"
-                  defaultValue={editingStaff?.name || ""}
-                />
-              </div>
-              <div>
-                <label className="block text-xs font-bold text-slate-600 mb-1">Role/Title</label>
-                <input
-                  type="text"
-                  name="role"
-                  required
-                  className="w-full border border-slate-300 rounded-lg p-2.5 text-sm focus:ring-2 focus:ring-pink-500 focus:outline-none"
-                  placeholder="Senior Therapist"
-                  defaultValue={editingStaff?.role || ""}
-                />
-              </div>
-              <div>
-                <label className="block text-xs font-bold text-slate-600 mb-1">Access Level</label>
-                <select
-                  name="system_role"
-                  className="w-full border border-slate-300 rounded-lg p-2.5 text-sm bg-white focus:ring-2 focus:ring-pink-500 focus:outline-none"
-                  defaultValue={(editingStaff as any)?.systemRole || "salon_staff"}
-                >
-                  <option value="salon_staff">Standard Staff</option>
-                  <option value="salon_branch_admin">Branch Admin</option>
-                </select>
-                <p className="text-[10px] text-slate-500 mt-1">Branch Admins can manage bookings and staff for their branch.</p>
-              </div>
-              <div>
-                <label className="block text-xs font-bold text-slate-600 mb-1">Branch (Optional)</label>
-                <select
-                  name="branch"
-                  className="w-full border border-slate-300 rounded-lg p-2.5 text-sm bg-white focus:ring-2 focus:ring-pink-500 focus:outline-none"
-                  defaultValue={editingStaff?.branchId || ""}
-                >
-                  <option value="">-- Unassigned --</option>
-                  {data.branches.length > 0 ? (
-                    data.branches.map((b) => (
-                      <option key={b.id} value={b.id}>
-                        {b.name}
-                      </option>
-                    ))
-                  ) : (
-                    <option value="" disabled>
-                      No Branches Configured
-                    </option>
-                  )}
-                </select>
-              </div>
-              <div className="border-t pt-2">
-                <label className="block text-xs font-bold text-slate-600 mb-2">Initial Training Complete?</label>
-                <div className="flex gap-3">
-                  <label className="flex items-center">
-                    <input id="train_ohs" type="checkbox" name="train_ohs" className="peer sr-only" defaultChecked={Boolean(editingStaff?.training?.ohs)} />
-                    <span className="px-3 py-1.5 rounded-md text-xs font-semibold bg-slate-600 text-white/90 peer-checked:bg-emerald-600 peer-checked:text-white border border-slate-500 peer-checked:border-emerald-700 shadow-sm select-none transition-colors">
-                      OHS
-                    </span>
-                  </label>
-                  <label className="flex items-center">
-                    <input id="train_prod" type="checkbox" name="train_prod" className="peer sr-only" defaultChecked={Boolean(editingStaff?.training?.prod)} />
-                    <span className="px-3 py-1.5 rounded-md text-xs font-semibold bg-slate-600 text-white/90 peer-checked:bg-emerald-600 peer-checked:text-white border border-slate-500 peer-checked:border-emerald-700 shadow-sm select-none transition-colors">
-                      Product
-                    </span>
-                  </label>
-                  <label className="flex items-center">
-                    <input id="train_tool" type="checkbox" name="train_tool" className="peer sr-only" defaultChecked={Boolean(editingStaff?.training?.tool)} />
-                    <span className="px-3 py-1.5 rounded-md text-xs font-semibold bg-slate-600 text-white/90 peer-checked:bg-emerald-600 peer-checked:text-white border border-slate-500 peer-checked:border-emerald-700 shadow-sm select-none transition-colors">
-                      Tools
-                    </span>
-                  </label>
+              
+              {/* Branch Admin Notice */}
+              {selectedSystemRole === "salon_branch_admin" && (
+                <div className="bg-gradient-to-br from-indigo-50 to-blue-50 rounded-xl p-4 border-2 border-indigo-200">
+                  <div className="flex items-start gap-3">
+                    <div className="w-10 h-10 rounded-lg bg-indigo-500 text-white flex items-center justify-center shrink-0">
+                      <i className="fas fa-building" />
+                    </div>
+                    <div>
+                      <h4 className="text-sm font-bold text-indigo-900 mb-1">
+                        Branch Admin Schedule
+                      </h4>
+                      <p className="text-xs text-indigo-700 leading-relaxed">
+                        As a <strong>Branch Admin</strong>, this staff member will be assigned to their selected branch for all 7 days of the week. They will have full management access to bookings, staff, and operations for their branch.
+                      </p>
+                      <div className="mt-3 flex items-center gap-2 text-xs">
+                        <div className="flex items-center gap-1 px-2 py-1 bg-white/60 rounded-md">
+                          <i className="fas fa-calendar-week text-indigo-600" />
+                          <span className="font-medium text-indigo-800">Mon-Sun Coverage</span>
+                        </div>
+                        <div className="flex items-center gap-1 px-2 py-1 bg-white/60 rounded-md">
+                          <i className="fas fa-crown text-indigo-600" />
+                          <span className="font-medium text-indigo-800">Full Branch Access</span>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
                 </div>
+              )}
               </div>
-              <button
-                type="submit"
-                disabled={savingStaff}
-                className={`w-full bg-slate-800 text-white font-bold py-2.5 rounded-lg shadow-md transition mt-2 ${
-                  savingStaff ? "opacity-60 cursor-not-allowed" : "hover:bg-slate-900"
-                }`}
-              >
-                {savingStaff ? (
-                  <span className="inline-flex items-center justify-center gap-2">
-                    <i className="fa-solid fa-circle-notch fa-spin" />
-                    Saving...
-                  </span>
-                ) : (
-                  editingStaffId ? "Save Changes" : "Onboard Staff"
-                )}
-              </button>
+              
+              {/* Footer with Submit Button */}
+              <div className="p-4 bg-slate-50 border-t border-slate-200 rounded-b-xl shrink-0">
+                <button
+                  type="submit"
+                  disabled={savingStaff}
+                  className={`w-full bg-gradient-to-r from-pink-600 to-purple-600 text-white font-bold py-3 rounded-lg shadow-lg transition-all ${
+                    savingStaff ? "opacity-60 cursor-not-allowed" : "hover:from-pink-700 hover:to-purple-700 hover:shadow-xl transform hover:scale-[1.02]"
+                  }`}
+                >
+                  {savingStaff ? (
+                    <span className="inline-flex items-center justify-center gap-2">
+                      <i className="fa-solid fa-circle-notch fa-spin" />
+                      Saving...
+                    </span>
+                  ) : (
+                    <span className="inline-flex items-center justify-center gap-2">
+                      <i className="fa-solid fa-save" />
+                      {editingStaffId ? "Save Changes" : "Onboard Staff"}
+                    </span>
+                  )}
+                </button>
+              </div>
             </form>
           </div>
         </div>

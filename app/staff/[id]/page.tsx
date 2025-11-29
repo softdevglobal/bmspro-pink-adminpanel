@@ -19,6 +19,16 @@ type HoursMap = {
   Sunday?: HoursDay;
 };
 
+type WeeklySchedule = {
+  Monday?: { branchId: string; branchName: string } | null;
+  Tuesday?: { branchId: string; branchName: string } | null;
+  Wednesday?: { branchId: string; branchName: string } | null;
+  Thursday?: { branchId: string; branchName: string } | null;
+  Friday?: { branchId: string; branchName: string } | null;
+  Saturday?: { branchId: string; branchName: string } | null;
+  Sunday?: { branchId: string; branchName: string } | null;
+};
+
 type Staff = {
   id: string;
   name: string;
@@ -29,6 +39,7 @@ type Staff = {
   branchId?: string;
   branchName?: string;
   training?: StaffTraining;
+  weeklySchedule?: WeeklySchedule;
 };
 
 export default function StaffPreviewPage() {
@@ -65,7 +76,7 @@ export default function StaffPreviewPage() {
   useEffect(() => {
     if (!ownerUid || !staffId) return;
     setLoading(true);
-    const unsub = onSnapshot(doc(db, "salon_staff", staffId), async (d) => {
+    const unsub = onSnapshot(doc(db, "users", staffId), async (d) => {
       if (!d.exists()) {
         setStaff(null);
         setLoading(false);
@@ -74,14 +85,15 @@ export default function StaffPreviewPage() {
       const s = d.data() as any;
       const row: Staff = {
         id: d.id,
-        name: String(s.name || ""),
-        role: String(s.role || ""),
+        name: String(s.displayName || s.name || ""),
+        role: String(s.staffRole || s.role || ""),
         email: s.email || null,
         status: (s.status as StaffStatus) || "Active",
-        avatar: String(s.avatar || s.name || ""),
+        avatar: String(s.avatar || s.name || s.displayName || ""),
         branchId: s.branchId || undefined,
         branchName: s.branchName || undefined,
         training: (s.training as StaffTraining) || {},
+        weeklySchedule: (s.weeklySchedule as WeeklySchedule) || {},
       };
       setStaff(row);
       // fetch hours for their branch for schedule tab
@@ -249,50 +261,102 @@ export default function StaffPreviewPage() {
             ) : (
               <>
                 {activeTab === "overview" && (
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                    <div className="rounded-2xl border border-pink-100 shadow-sm overflow-hidden bg-gradient-to-br from-pink-50 to-rose-50">
-                      <div className="px-6 py-4 bg-gradient-to-r from-pink-500 to-fuchsia-600 text-white flex items-center gap-2">
-                        <div className="w-8 h-8 rounded-lg bg-white/20 flex items-center justify-center">
-                          <i className="fas fa-address-card" />
+                  <div className="space-y-6">
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                      <div className="rounded-2xl border border-pink-100 shadow-sm overflow-hidden bg-gradient-to-br from-pink-50 to-rose-50">
+                        <div className="px-6 py-4 bg-gradient-to-r from-pink-500 to-fuchsia-600 text-white flex items-center gap-2">
+                          <div className="w-8 h-8 rounded-lg bg-white/20 flex items-center justify-center">
+                            <i className="fas fa-address-card" />
+                          </div>
+                          <div className="text-sm font-semibold">Contact</div>
                         </div>
-                        <div className="text-sm font-semibold">Contact</div>
+                        <div className="p-6 text-sm text-slate-700">
+                          <div className="flex flex-wrap gap-2">
+                            {staff.email && (
+                              <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-white border border-pink-100 truncate">
+                                <i className="fas fa-envelope text-pink-600" /> {staff.email}
+                              </div>
+                            )}
+                            {staff.branchName && (
+                              <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-white border border-pink-100">
+                                <i className="fas fa-store text-pink-600" /> {staff.branchName}
+                              </div>
+                            )}
+                          </div>
+                        </div>
                       </div>
-                      <div className="p-6 text-sm text-slate-700">
-                        <div className="flex flex-wrap gap-2">
-                          {staff.email && (
-                            <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-white border border-pink-100 truncate">
-                              <i className="fas fa-envelope text-pink-600" /> {staff.email}
-                            </div>
-                          )}
-                          {staff.branchName && (
-                            <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-white border border-pink-100">
-                              <i className="fas fa-store text-pink-600" /> {staff.branchName}
-                            </div>
-                          )}
+
+                      <div className="rounded-2xl border border-indigo-100 shadow-sm overflow-hidden bg-white">
+                        <div className="px-6 py-4 bg-gradient-to-r from-indigo-500 to-purple-600 text-white flex items-center gap-2">
+                          <div className="w-8 h-8 rounded-lg bg-white/20 flex items-center justify-center">
+                            <i className="fas fa-shield-heart" />
+                          </div>
+                          <div className="text-sm font-semibold">Role & Status</div>
+                        </div>
+                        <div className="p-6 text-sm text-slate-700">
+                          <div className="flex flex-wrap items-center gap-2">
+                            <span className="px-3 py-1.5 rounded-full bg-slate-100">{staff.role}</span>
+                            <span
+                              className={`px-3 py-1.5 rounded-full text-xs ${
+                                staff.status === "Active" ? "bg-emerald-50 text-emerald-700" : "bg-rose-50 text-rose-700"
+                              }`}
+                            >
+                              {staff.status}
+                            </span>
+                          </div>
                         </div>
                       </div>
                     </div>
 
-                    <div className="rounded-2xl border border-indigo-100 shadow-sm overflow-hidden bg-white">
-                      <div className="px-6 py-4 bg-gradient-to-r from-indigo-500 to-purple-600 text-white flex items-center gap-2">
-                        <div className="w-8 h-8 rounded-lg bg-white/20 flex items-center justify-center">
-                          <i className="fas fa-shield-heart" />
+                    {/* Weekly Schedule Overview */}
+                    {staff.weeklySchedule && Object.keys(staff.weeklySchedule).length > 0 && (
+                      <div className="rounded-2xl border border-slate-200 shadow-sm overflow-hidden bg-white">
+                        <div className="px-6 py-4 bg-gradient-to-r from-emerald-500 to-teal-600 text-white flex items-center gap-2">
+                          <div className="w-8 h-8 rounded-lg bg-white/20 flex items-center justify-center">
+                            <i className="fas fa-calendar-week" />
+                          </div>
+                          <div className="text-sm font-semibold">Weekly Schedule</div>
                         </div>
-                        <div className="text-sm font-semibold">Role & Status</div>
-                      </div>
-                      <div className="p-6 text-sm text-slate-700">
-                        <div className="flex flex-wrap items-center gap-2">
-                          <span className="px-3 py-1.5 rounded-full bg-slate-100">{staff.role}</span>
-                          <span
-                            className={`px-3 py-1.5 rounded-full text-xs ${
-                              staff.status === "Active" ? "bg-emerald-50 text-emerald-700" : "bg-rose-50 text-rose-700"
-                            }`}
-                          >
-                            {staff.status}
-                          </span>
+                        <div className="p-6">
+                          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-7 gap-3">
+                            {[
+                              { key: "Monday" as keyof WeeklySchedule, label: "Mon", icon: "☀️" },
+                              { key: "Tuesday" as keyof WeeklySchedule, label: "Tue", icon: "🌤️" },
+                              { key: "Wednesday" as keyof WeeklySchedule, label: "Wed", icon: "🌻" },
+                              { key: "Thursday" as keyof WeeklySchedule, label: "Thu", icon: "🌸" },
+                              { key: "Friday" as keyof WeeklySchedule, label: "Fri", icon: "🎉" },
+                              { key: "Saturday" as keyof WeeklySchedule, label: "Sat", icon: "🎨" },
+                              { key: "Sunday" as keyof WeeklySchedule, label: "Sun", icon: "🌙" },
+                            ].map((day) => {
+                              const assignment = staff.weeklySchedule?.[day.key];
+                              const isWorking = assignment && assignment.branchId;
+                              return (
+                                <div
+                                  key={day.key}
+                                  className={`rounded-lg border-2 p-3 text-center transition ${
+                                    isWorking
+                                      ? "border-emerald-200 bg-emerald-50"
+                                      : "border-slate-200 bg-slate-50"
+                                  }`}
+                                >
+                                  <div className="text-xl mb-1">{day.icon}</div>
+                                  <div className="text-xs font-bold text-slate-700 mb-1">
+                                    {day.label}
+                                  </div>
+                                  {isWorking ? (
+                                    <div className="text-[10px] text-emerald-700 font-medium truncate">
+                                      {assignment.branchName}
+                                    </div>
+                                  ) : (
+                                    <div className="text-[10px] text-slate-400">Off</div>
+                                  )}
+                                </div>
+                              );
+                            })}
+                          </div>
                         </div>
                       </div>
-                    </div>
+                    )}
                   </div>
                 )}
 

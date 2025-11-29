@@ -21,6 +21,16 @@ export type StaffTraining = {
   tool?: boolean;
 };
 
+export type WeeklySchedule = {
+  Monday?: { branchId: string; branchName: string } | null;
+  Tuesday?: { branchId: string; branchName: string } | null;
+  Wednesday?: { branchId: string; branchName: string } | null;
+  Thursday?: { branchId: string; branchName: string } | null;
+  Friday?: { branchId: string; branchName: string } | null;
+  Saturday?: { branchId: string; branchName: string } | null;
+  Sunday?: { branchId: string; branchName: string } | null;
+};
+
 export type SalonStaffInput = {
   email?: string;
   name: string;
@@ -32,6 +42,7 @@ export type SalonStaffInput = {
   training?: StaffTraining;
   authUid?: string; // This should now be mandatory or strongly encouraged for 'users' model
   systemRole?: string;
+  weeklySchedule?: WeeklySchedule;
 };
 
 // Creates a staff member directly in the 'users' collection using the authUid as the document key
@@ -56,6 +67,7 @@ export async function createSalonStaffForOwner(ownerUid: string, data: SalonStaf
     training: data.training || { ohs: false, prod: false, tool: false },
     authUid: data.authUid, // Redundant but keeps schema consistent if UI expects it
     systemRole: data.systemRole || "salon_staff",
+    weeklySchedule: data.weeklySchedule || null,
     
     createdAt: serverTimestamp(),
     updatedAt: serverTimestamp(),
