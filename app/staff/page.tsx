@@ -901,14 +901,14 @@ export default function SettingsPage() {
 
       {/* Staff Modal */}
       {isStaffModalOpen && (
-        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-          <div className="bg-white rounded-xl shadow-2xl w-full max-w-3xl max-h-[90vh] flex flex-col">
-            <div className="bg-gradient-to-r from-slate-800 to-slate-900 p-5 border-b border-slate-700 flex justify-between items-center rounded-t-xl shrink-0">
-              <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-lg bg-white/10 flex items-center justify-center">
-                  <i className="fa-solid fa-user-pen text-white" />
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-2 sm:p-4">
+          <div className="bg-white rounded-xl shadow-2xl w-full max-w-3xl max-h-[85vh] sm:max-h-[90vh] flex flex-col">
+            <div className="bg-gradient-to-r from-slate-800 to-slate-900 p-3 sm:p-5 border-b border-slate-700 flex justify-between items-center rounded-t-xl shrink-0">
+              <div className="flex items-center gap-2 sm:gap-3">
+                <div className="w-8 h-8 sm:w-10 sm:h-10 rounded-lg bg-white/10 flex items-center justify-center">
+                  <i className="fa-solid fa-user-pen text-white text-sm sm:text-base" />
                 </div>
-                <h3 className="font-bold text-white text-lg">{editingStaffId ? "Edit Staff Member" : "Onboard New Staff"}</h3>
+                <h3 className="font-bold text-white text-sm sm:text-lg">{editingStaffId ? "Edit Staff" : "Onboard New Staff"}</h3>
               </div>
               <button 
                 type="button"
@@ -925,21 +925,21 @@ export default function SettingsPage() {
               </button>
             </div>
             <form onSubmit={handleStaffSubmit} className="flex-1 overflow-y-auto custom-scrollbar">
-              <div className="p-6 space-y-4">
+              <div className="p-3 sm:p-6 space-y-3 sm:space-y-4">
               {/* Basic Information Section */}
-              <div className="bg-slate-50 rounded-xl p-4 border border-slate-200">
-                <h4 className="text-sm font-bold text-slate-700 mb-3 flex items-center gap-2">
+              <div className="bg-slate-50 rounded-lg sm:rounded-xl p-3 sm:p-4 border border-slate-200">
+                <h4 className="text-xs sm:text-sm font-bold text-slate-700 mb-2 sm:mb-3 flex items-center gap-2">
                   <i className="fas fa-id-card text-pink-600" />
                   Basic Information
                 </h4>
-                <div className="space-y-3">
+                <div className="space-y-2.5 sm:space-y-3">
                   <div>
                     <label className="block text-xs font-bold text-slate-600 mb-1">Email</label>
                     <input
                       type="email"
                       name="email"
                       required={!editingStaffId}
-                      className="w-full border border-slate-300 rounded-lg p-2.5 text-sm focus:ring-2 focus:ring-pink-500 focus:outline-none"
+                      className="w-full border border-slate-300 rounded-lg p-2 sm:p-2.5 text-xs sm:text-sm focus:ring-2 focus:ring-pink-500 focus:outline-none"
                       placeholder="name@salon.com"
                       defaultValue={editingStaff?.email || ""}
                     />
@@ -951,7 +951,7 @@ export default function SettingsPage() {
                         <input
                           type={showPassword ? "text" : "password"}
                           name="password"
-                          className="w-full border border-slate-300 rounded-lg p-2.5 pr-10 text-sm focus:ring-2 focus:ring-pink-500 focus:outline-none"
+                          className="w-full border border-slate-300 rounded-lg p-2 sm:p-2.5 pr-10 text-xs sm:text-sm focus:ring-2 focus:ring-pink-500 focus:outline-none"
                           placeholder={editingStaffId ? "Create password for login" : "Leave empty for auto-generated"}
                         />
                         <button
@@ -965,14 +965,14 @@ export default function SettingsPage() {
                       <p className="text-[10px] text-slate-500 mt-1">Set a password for them to login immediately.</p>
                     </div>
                   )}
-                  <div className="grid grid-cols-2 gap-3">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 sm:gap-3">
                     <div>
                       <label className="block text-xs font-bold text-slate-600 mb-1">Full Name</label>
                       <input
                         type="text"
                         name="name"
                         required
-                        className="w-full border border-slate-300 rounded-lg p-2.5 text-sm focus:ring-2 focus:ring-pink-500 focus:outline-none"
+                        className="w-full border border-slate-300 rounded-lg p-2 sm:p-2.5 text-xs sm:text-sm focus:ring-2 focus:ring-pink-500 focus:outline-none"
                         placeholder="Mike Ross"
                         defaultValue={editingStaff?.name || ""}
                       />
@@ -983,7 +983,7 @@ export default function SettingsPage() {
                         type="text"
                         name="role"
                         required
-                        className="w-full border border-slate-300 rounded-lg p-2.5 text-sm focus:ring-2 focus:ring-pink-500 focus:outline-none"
+                        className="w-full border border-slate-300 rounded-lg p-2 sm:p-2.5 text-xs sm:text-sm focus:ring-2 focus:ring-pink-500 focus:outline-none"
                         placeholder="Senior Therapist"
                         defaultValue={editingStaff?.role || ""}
                       />
@@ -993,17 +993,17 @@ export default function SettingsPage() {
               </div>
 
               {/* Access & Branch Section */}
-              <div className="bg-indigo-50 rounded-xl p-4 border border-indigo-200">
-                <h4 className="text-sm font-bold text-slate-700 mb-3 flex items-center gap-2">
+              <div className="bg-indigo-50 rounded-lg sm:rounded-xl p-3 sm:p-4 border border-indigo-200">
+                <h4 className="text-xs sm:text-sm font-bold text-slate-700 mb-2 sm:mb-3 flex items-center gap-2">
                   <i className="fas fa-shield-halved text-indigo-600" />
-                  Access & Branch Assignment
+                  Access & Branch
                 </h4>
-                <div className="space-y-3">
+                <div className="space-y-2.5 sm:space-y-3">
                   <div>
                     <label className="block text-xs font-bold text-slate-600 mb-1">Access Level</label>
                     <select
                       name="system_role"
-                      className="w-full border border-indigo-300 rounded-lg p-2.5 text-sm bg-white focus:ring-2 focus:ring-indigo-500 focus:outline-none"
+                      className="w-full border border-indigo-300 rounded-lg p-2 sm:p-2.5 text-xs sm:text-sm bg-white focus:ring-2 focus:ring-indigo-500 focus:outline-none"
                       defaultValue={(editingStaff as any)?.systemRole || "salon_staff"}
                       onChange={(e) => setSelectedSystemRole(e.target.value)}
                     >
@@ -1012,8 +1012,8 @@ export default function SettingsPage() {
                     </select>
                     <p className="text-[10px] text-slate-500 mt-1">
                       {selectedSystemRole === "salon_branch_admin" 
-                        ? "Branch Admins are assigned to ONE branch for the entire week and can manage all bookings and staff."
-                        : "Standard Staff can be assigned to different branches on different days of the week."
+                        ? "Assigned to ONE branch for the entire week."
+                        : "Can be assigned to different branches per day."
                       }
                     </p>
                   </div>
@@ -1023,7 +1023,7 @@ export default function SettingsPage() {
                     </label>
                     <select
                       name="branch"
-                      className="w-full border border-indigo-300 rounded-lg p-2.5 text-sm bg-white focus:ring-2 focus:ring-indigo-500 focus:outline-none"
+                      className="w-full border border-indigo-300 rounded-lg p-2 sm:p-2.5 text-xs sm:text-sm bg-white focus:ring-2 focus:ring-indigo-500 focus:outline-none"
                       defaultValue={editingStaff?.branchId || ""}
                       required={selectedSystemRole === "salon_branch_admin"}
                     >
@@ -1043,34 +1043,34 @@ export default function SettingsPage() {
                     {selectedSystemRole === "salon_branch_admin" && (
                       <p className="text-[10px] text-indigo-600 mt-1 font-medium">
                         <i className="fas fa-info-circle mr-1" />
-                        This branch will be assigned for all 7 days of the week.
+                        Assigned for all 7 days of the week.
                       </p>
                     )}
                   </div>
                 </div>
               </div>
               {/* Training Section */}
-              <div className="bg-emerald-50 rounded-xl p-4 border border-emerald-200">
-                <h4 className="text-sm font-bold text-slate-700 mb-3 flex items-center gap-2">
+              <div className="bg-emerald-50 rounded-lg sm:rounded-xl p-3 sm:p-4 border border-emerald-200">
+                <h4 className="text-xs sm:text-sm font-bold text-slate-700 mb-2 sm:mb-3 flex items-center gap-2">
                   <i className="fas fa-graduation-cap text-emerald-600" />
                   Initial Training Complete?
                 </h4>
-                <div className="flex gap-3">
+                <div className="flex flex-wrap gap-2 sm:gap-3">
                   <label className="flex items-center cursor-pointer">
                     <input id="train_ohs" type="checkbox" name="train_ohs" className="peer sr-only" defaultChecked={Boolean(editingStaff?.training?.ohs)} />
-                    <span className="px-4 py-2 rounded-lg text-xs font-semibold bg-slate-600 text-white/90 peer-checked:bg-emerald-600 peer-checked:text-white border border-slate-500 peer-checked:border-emerald-700 shadow-sm select-none transition-all hover:scale-105">
+                    <span className="px-3 sm:px-4 py-1.5 sm:py-2 rounded-lg text-[10px] sm:text-xs font-semibold bg-slate-600 text-white/90 peer-checked:bg-emerald-600 peer-checked:text-white border border-slate-500 peer-checked:border-emerald-700 shadow-sm select-none transition-all active:scale-95 sm:hover:scale-105">
                       <i className="fas fa-hard-hat mr-1" /> OHS
                     </span>
                   </label>
                   <label className="flex items-center cursor-pointer">
                     <input id="train_prod" type="checkbox" name="train_prod" className="peer sr-only" defaultChecked={Boolean(editingStaff?.training?.prod)} />
-                    <span className="px-4 py-2 rounded-lg text-xs font-semibold bg-slate-600 text-white/90 peer-checked:bg-emerald-600 peer-checked:text-white border border-slate-500 peer-checked:border-emerald-700 shadow-sm select-none transition-all hover:scale-105">
+                    <span className="px-3 sm:px-4 py-1.5 sm:py-2 rounded-lg text-[10px] sm:text-xs font-semibold bg-slate-600 text-white/90 peer-checked:bg-emerald-600 peer-checked:text-white border border-slate-500 peer-checked:border-emerald-700 shadow-sm select-none transition-all active:scale-95 sm:hover:scale-105">
                       <i className="fas fa-box mr-1" /> Product
                     </span>
                   </label>
                   <label className="flex items-center cursor-pointer">
                     <input id="train_tool" type="checkbox" name="train_tool" className="peer sr-only" defaultChecked={Boolean(editingStaff?.training?.tool)} />
-                    <span className="px-4 py-2 rounded-lg text-xs font-semibold bg-slate-600 text-white/90 peer-checked:bg-emerald-600 peer-checked:text-white border border-slate-500 peer-checked:border-emerald-700 shadow-sm select-none transition-all hover:scale-105">
+                    <span className="px-3 sm:px-4 py-1.5 sm:py-2 rounded-lg text-[10px] sm:text-xs font-semibold bg-slate-600 text-white/90 peer-checked:bg-emerald-600 peer-checked:text-white border border-slate-500 peer-checked:border-emerald-700 shadow-sm select-none transition-all active:scale-95 sm:hover:scale-105">
                       <i className="fas fa-wrench mr-1" /> Tools
                     </span>
                   </label>
@@ -1079,7 +1079,7 @@ export default function SettingsPage() {
               
               {/* Weekly Schedule Selector - Only for Standard Staff */}
               {selectedSystemRole === "salon_staff" && (
-                <div className="bg-gradient-to-br from-purple-50 to-pink-50 rounded-xl p-4 border border-purple-200">
+                <div className="bg-gradient-to-br from-purple-50 to-pink-50 rounded-lg sm:rounded-xl p-3 sm:p-4 border border-purple-200">
                   <WeeklyScheduleSelector
                     branches={data.branches}
                     schedule={weeklySchedule}
@@ -1090,26 +1090,26 @@ export default function SettingsPage() {
               
               {/* Branch Admin Notice */}
               {selectedSystemRole === "salon_branch_admin" && (
-                <div className="bg-gradient-to-br from-indigo-50 to-blue-50 rounded-xl p-4 border-2 border-indigo-200">
-                  <div className="flex items-start gap-3">
-                    <div className="w-10 h-10 rounded-lg bg-indigo-500 text-white flex items-center justify-center shrink-0">
-                      <i className="fas fa-building" />
+                <div className="bg-gradient-to-br from-indigo-50 to-blue-50 rounded-lg sm:rounded-xl p-3 sm:p-4 border-2 border-indigo-200">
+                  <div className="flex items-start gap-2 sm:gap-3">
+                    <div className="w-8 h-8 sm:w-10 sm:h-10 rounded-lg bg-indigo-500 text-white flex items-center justify-center shrink-0">
+                      <i className="fas fa-building text-xs sm:text-base" />
                     </div>
-                    <div>
-                      <h4 className="text-sm font-bold text-indigo-900 mb-1">
+                    <div className="flex-1 min-w-0">
+                      <h4 className="text-xs sm:text-sm font-bold text-indigo-900 mb-1">
                         Branch Admin Schedule
                       </h4>
-                      <p className="text-xs text-indigo-700 leading-relaxed">
-                        As a <strong>Branch Admin</strong>, this staff member will be assigned to their selected branch for all 7 days of the week. They will have full management access to bookings, staff, and operations for their branch.
+                      <p className="text-[10px] sm:text-xs text-indigo-700 leading-relaxed">
+                        As a <strong>Branch Admin</strong>, this staff member will be assigned to their selected branch for all 7 days. Full management access to bookings, staff, and operations.
                       </p>
-                      <div className="mt-3 flex items-center gap-2 text-xs">
-                        <div className="flex items-center gap-1 px-2 py-1 bg-white/60 rounded-md">
+                      <div className="mt-2 sm:mt-3 flex flex-wrap items-center gap-1.5 sm:gap-2 text-[10px] sm:text-xs">
+                        <div className="flex items-center gap-1 px-1.5 sm:px-2 py-0.5 sm:py-1 bg-white/60 rounded-md">
                           <i className="fas fa-calendar-week text-indigo-600" />
-                          <span className="font-medium text-indigo-800">Mon-Sun Coverage</span>
+                          <span className="font-medium text-indigo-800 whitespace-nowrap">Mon-Sun</span>
                         </div>
-                        <div className="flex items-center gap-1 px-2 py-1 bg-white/60 rounded-md">
+                        <div className="flex items-center gap-1 px-1.5 sm:px-2 py-0.5 sm:py-1 bg-white/60 rounded-md">
                           <i className="fas fa-crown text-indigo-600" />
-                          <span className="font-medium text-indigo-800">Full Branch Access</span>
+                          <span className="font-medium text-indigo-800 whitespace-nowrap">Full Access</span>
                         </div>
                       </div>
                     </div>
@@ -1119,12 +1119,12 @@ export default function SettingsPage() {
               </div>
               
               {/* Footer with Submit Button */}
-              <div className="p-4 bg-slate-50 border-t border-slate-200 rounded-b-xl shrink-0">
+              <div className="p-3 sm:p-4 bg-slate-50 border-t border-slate-200 rounded-b-xl shrink-0">
                 <button
                   type="submit"
                   disabled={savingStaff}
-                  className={`w-full bg-gradient-to-r from-pink-600 to-purple-600 text-white font-bold py-3 rounded-lg shadow-lg transition-all ${
-                    savingStaff ? "opacity-60 cursor-not-allowed" : "hover:from-pink-700 hover:to-purple-700 hover:shadow-xl transform hover:scale-[1.02]"
+                  className={`w-full bg-gradient-to-r from-pink-600 to-purple-600 text-white font-bold py-2.5 sm:py-3 rounded-lg shadow-lg transition-all text-sm sm:text-base ${
+                    savingStaff ? "opacity-60 cursor-not-allowed" : "hover:from-pink-700 hover:to-purple-700 hover:shadow-xl transform active:scale-95 sm:hover:scale-[1.02]"
                   }`}
                 >
                   {savingStaff ? (

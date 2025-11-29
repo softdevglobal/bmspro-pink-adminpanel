@@ -55,15 +55,15 @@ export default function WeeklyScheduleSelector({
   };
 
   return (
-    <div className="space-y-3">
-      <div className="flex items-center justify-between mb-3">
-        <div>
-          <label className="block text-sm font-bold text-slate-700 flex items-center gap-2">
+    <div className="space-y-2 sm:space-y-3">
+      <div className="flex items-start sm:items-center justify-between mb-2 sm:mb-3 gap-2">
+        <div className="flex-1 min-w-0">
+          <label className="block text-xs sm:text-sm font-bold text-slate-700 flex items-center gap-2">
             <i className="fas fa-calendar-week text-purple-600" />
-            Weekly Branch Schedule
+            <span className="truncate">Weekly Branch Schedule</span>
           </label>
-          <p className="text-[10px] text-slate-500 mt-1">
-            Assign branches for each day of the week
+          <p className="text-[10px] text-slate-500 mt-0.5 sm:mt-1">
+            Assign branches for each day
           </p>
         </div>
         <button
@@ -81,14 +81,15 @@ export default function WeeklyScheduleSelector({
               onChange(allDaysSchedule);
             }
           }}
-          className="text-xs text-purple-600 hover:text-purple-700 font-semibold bg-white px-3 py-1.5 rounded-lg border border-purple-200 hover:bg-purple-50 transition-all"
+          className="text-[10px] sm:text-xs text-purple-600 hover:text-purple-700 font-semibold bg-white px-2 sm:px-3 py-1 sm:py-1.5 rounded-lg border border-purple-200 hover:bg-purple-50 transition-all shrink-0 whitespace-nowrap"
         >
           <i className="fas fa-magic mr-1" />
-          Auto-fill
+          <span className="hidden xs:inline">Auto-fill</span>
+          <span className="xs:hidden">Auto</span>
         </button>
       </div>
 
-      <div className="grid grid-cols-1 gap-2 max-h-[300px] overflow-y-auto pr-1 custom-scrollbar">
+      <div className="grid grid-cols-1 gap-1.5 sm:gap-2 max-h-[240px] sm:max-h-[300px] overflow-y-auto pr-0.5 sm:pr-1 custom-scrollbar">
         {DAYS.map((day) => {
           const assignment = schedule[day.key];
           const selectedBranchId = assignment?.branchId || "";
@@ -96,28 +97,28 @@ export default function WeeklyScheduleSelector({
           return (
             <div
               key={day.key}
-              className="group relative rounded-lg border border-slate-200 hover:border-purple-300 transition-all bg-white overflow-hidden hover:shadow-sm"
+              className="group relative rounded-md sm:rounded-lg border border-slate-200 hover:border-purple-300 transition-all bg-white overflow-hidden hover:shadow-sm"
             >
               {/* Gradient accent bar */}
-              <div className={`absolute left-0 top-0 bottom-0 w-1 bg-gradient-to-b ${day.color}`} />
+              <div className={`absolute left-0 top-0 bottom-0 w-0.5 sm:w-1 bg-gradient-to-b ${day.color}`} />
               
-              <div className="flex items-center gap-2 p-2.5 pl-3">
+              <div className="flex items-center gap-1.5 sm:gap-2 p-2 sm:p-2.5 pl-2 sm:pl-3">
                 {/* Day icon and name */}
-                <div className="flex items-center gap-2 min-w-[90px]">
-                  <span className="text-lg">{day.icon}</span>
+                <div className="flex items-center gap-1 sm:gap-2 min-w-[90px] sm:min-w-[100px]">
+                  <span className="text-sm sm:text-lg">{day.icon}</span>
                   <div>
-                    <div className="text-xs font-semibold text-slate-800">
+                    <div className="text-[10px] sm:text-xs font-semibold text-slate-800">
                       {day.label}
                     </div>
                   </div>
                 </div>
 
                 {/* Branch selector */}
-                <div className="flex-1">
+                <div className="flex-1 min-w-0">
                   <select
                     value={selectedBranchId}
                     onChange={(e) => handleDayChange(day.key, e.target.value)}
-                    className="w-full border border-slate-200 rounded-md px-2 py-1.5 text-xs bg-white focus:ring-2 focus:ring-purple-400 focus:border-purple-400 focus:outline-none transition"
+                    className="w-full border border-slate-200 rounded-md px-1.5 sm:px-2 py-1 sm:py-1.5 text-[10px] sm:text-xs bg-white focus:ring-2 focus:ring-purple-400 focus:border-purple-400 focus:outline-none transition"
                   >
                     <option value="">🏖️ Off Day</option>
                     {branches.map((branch) => (
@@ -131,9 +132,9 @@ export default function WeeklyScheduleSelector({
                 {/* Status indicator */}
                 <div className="shrink-0">
                   {assignment ? (
-                    <div className="w-2.5 h-2.5 rounded-full bg-emerald-400" />
+                    <div className="w-2 h-2 sm:w-2.5 sm:h-2.5 rounded-full bg-emerald-400" />
                   ) : (
-                    <div className="w-2.5 h-2.5 rounded-full bg-slate-300" />
+                    <div className="w-2 h-2 sm:w-2.5 sm:h-2.5 rounded-full bg-slate-300" />
                   )}
                 </div>
               </div>
@@ -143,18 +144,18 @@ export default function WeeklyScheduleSelector({
       </div>
 
       {/* Summary */}
-      <div className="mt-3 pt-3 border-t border-purple-100">
-        <div className="flex items-center justify-between text-xs">
-          <div className="flex items-center gap-3">
-            <div className="flex items-center gap-1.5 px-2 py-1 bg-emerald-50 rounded-md">
-              <div className="w-2 h-2 rounded-full bg-emerald-400" />
-              <span className="text-emerald-700 font-medium">
+      <div className="mt-2 sm:mt-3 pt-2 sm:pt-3 border-t border-purple-100">
+        <div className="flex items-center justify-between text-[10px] sm:text-xs gap-2">
+          <div className="flex items-center gap-1.5 sm:gap-3 flex-wrap">
+            <div className="flex items-center gap-1 sm:gap-1.5 px-1.5 sm:px-2 py-0.5 sm:py-1 bg-emerald-50 rounded-md">
+              <div className="w-1.5 h-1.5 sm:w-2 sm:h-2 rounded-full bg-emerald-400" />
+              <span className="text-emerald-700 font-medium whitespace-nowrap">
                 {Object.values(schedule).filter((s) => s !== null && s !== undefined).length} Working
               </span>
             </div>
-            <div className="flex items-center gap-1.5 px-2 py-1 bg-slate-50 rounded-md">
-              <div className="w-2 h-2 rounded-full bg-slate-300" />
-              <span className="text-slate-600 font-medium">
+            <div className="flex items-center gap-1 sm:gap-1.5 px-1.5 sm:px-2 py-0.5 sm:py-1 bg-slate-50 rounded-md">
+              <div className="w-1.5 h-1.5 sm:w-2 sm:h-2 rounded-full bg-slate-300" />
+              <span className="text-slate-600 font-medium whitespace-nowrap">
                 {7 - Object.values(schedule).filter((s) => s !== null && s !== undefined).length} Off
               </span>
             </div>
@@ -163,10 +164,11 @@ export default function WeeklyScheduleSelector({
           <button
             type="button"
             onClick={() => onChange({})}
-            className="text-rose-600 hover:text-rose-700 font-semibold hover:bg-rose-50 px-2 py-1 rounded-md transition-all"
+            className="text-rose-600 hover:text-rose-700 font-semibold hover:bg-rose-50 px-1.5 sm:px-2 py-0.5 sm:py-1 rounded-md transition-all shrink-0 whitespace-nowrap"
           >
-            <i className="fas fa-times-circle mr-1" />
-            Clear All
+            <i className="fas fa-times-circle mr-0.5 sm:mr-1" />
+            <span className="hidden xs:inline">Clear All</span>
+            <span className="xs:hidden">Clear</span>
           </button>
         </div>
       </div>
