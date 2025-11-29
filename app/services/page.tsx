@@ -333,60 +333,85 @@ export default function ServicesPage() {
 
       {/* Add Service Modal */}
       {isModalOpen && (
-        <div className="fixed inset-0 z-50">
-          <div className="absolute inset-0 bg-black/50" onClick={closeModal} />
-          <div className="relative flex items-center justify-center min-h-screen p-4 overflow-y-auto">
-            <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md max-h-[90vh] flex flex-col">
-              <div className="px-5 py-4 border-b border-slate-200 flex items-center justify-between">
-                <h3 className="text-base font-semibold text-slate-900">{editingServiceId ? "Edit Service" : "Add Service"}</h3>
-                <button className="text-slate-400 hover:text-slate-600" onClick={closeModal}>
-                  <i className="fas fa-times" />
-                </button>
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-2 sm:p-4">
+          <div className="bg-white rounded-xl shadow-2xl w-full max-w-2xl max-h-[85vh] sm:max-h-[90vh] flex flex-col">
+            <div className="bg-gradient-to-r from-slate-800 to-slate-900 p-3 sm:p-5 border-b border-slate-700 flex justify-between items-center rounded-t-xl shrink-0">
+              <div className="flex items-center gap-2 sm:gap-3">
+                <div className="w-8 h-8 sm:w-10 sm:h-10 rounded-lg bg-white/10 flex items-center justify-center">
+                  <i className="fa-solid fa-tags text-white text-sm sm:text-base" />
+                </div>
+                <h3 className="font-bold text-white text-sm sm:text-lg">{editingServiceId ? "Edit Service" : "Add New Service"}</h3>
               </div>
-              <form onSubmit={handleSubmit} className="flex-1 flex flex-col overflow-hidden">
-                <div className="p-6 space-y-4 overflow-y-auto">
-                  <div>
-                    <label className="block text-xs font-bold text-slate-600 mb-1">Service Name</label>
-                    <input value={name} onChange={(e) => setName(e.target.value)} required className="w-full border border-slate-300 rounded-lg p-2.5 text-sm focus:ring-2 focus:ring-pink-500 focus:outline-none" placeholder="e.g. Deep Tissue Massage" />
-                  </div>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <button 
+                type="button"
+                onClick={closeModal}
+                className="text-white/60 hover:text-white transition w-8 h-8 rounded-lg hover:bg-white/10 flex items-center justify-center"
+              >
+                <i className="fa-solid fa-xmark text-xl" />
+              </button>
+            </div>
+            <form onSubmit={handleSubmit} className="flex-1 overflow-y-auto custom-scrollbar">
+              <div className="p-3 sm:p-6 space-y-3 sm:space-y-4">
+                {/* Basic Service Information */}
+                <div className="bg-slate-50 rounded-lg sm:rounded-xl p-3 sm:p-4 border border-slate-200">
+                  <h4 className="text-xs sm:text-sm font-bold text-slate-700 mb-2 sm:mb-3 flex items-center gap-2">
+                    <i className="fas fa-sparkles text-pink-600" />
+                    Service Details
+                  </h4>
+                  <div className="space-y-2.5 sm:space-y-3">
                     <div>
-                      <label className="block text-xs font-bold text-slate-600 mb-1">Cust. Price ($)</label>
-                      <input value={price} onChange={(e) => setPrice(e.target.value === "" ? "" : Number(e.target.value))} type="number" required className="w-full border border-slate-300 rounded-lg p-2.5 text-sm focus:ring-2 focus:ring-pink-500 focus:outline-none" placeholder="120" />
+                      <label className="block text-xs font-bold text-slate-600 mb-1">Service Name</label>
+                      <input value={name} onChange={(e) => setName(e.target.value)} required className="w-full border border-slate-300 rounded-lg p-2 sm:p-2.5 text-xs sm:text-sm focus:ring-2 focus:ring-pink-500 focus:outline-none" placeholder="e.g. Deep Tissue Massage" />
+                    </div>
+                    <div className="grid grid-cols-2 gap-2.5 sm:gap-3">
+                      <div>
+                        <label className="block text-xs font-bold text-slate-600 mb-1">Duration (mins)</label>
+                        <input value={duration} onChange={(e) => setDuration(e.target.value === "" ? "" : Number(e.target.value))} type="number" required className="w-full border border-slate-300 rounded-lg p-2 sm:p-2.5 text-xs sm:text-sm focus:ring-2 focus:ring-pink-500 focus:outline-none" placeholder="60" />
+                      </div>
+                      <div>
+                        <label className="block text-xs font-bold text-slate-600 mb-1">Customer Price ($)</label>
+                        <input value={price} onChange={(e) => setPrice(e.target.value === "" ? "" : Number(e.target.value))} type="number" required className="w-full border border-slate-300 rounded-lg p-2 sm:p-2.5 text-xs sm:text-sm focus:ring-2 focus:ring-pink-500 focus:outline-none" placeholder="120" />
+                      </div>
                     </div>
                     <div>
                       <label className="block text-xs font-bold text-slate-600 mb-1">Internal Cost ($)</label>
-                      <input value={cost} onChange={(e) => setCost(e.target.value === "" ? "" : Number(e.target.value))} type="number" required className="w-full border border-slate-300 rounded-lg p-2.5 text-sm focus:ring-2 focus:ring-pink-500 focus:outline-none" placeholder="40" />
+                      <input value={cost} onChange={(e) => setCost(e.target.value === "" ? "" : Number(e.target.value))} type="number" required className="w-full border border-slate-300 rounded-lg p-2 sm:p-2.5 text-xs sm:text-sm focus:ring-2 focus:ring-pink-500 focus:outline-none" placeholder="40" />
+                      <p className="text-[10px] text-slate-500 mt-1">Your cost to provide this service</p>
                     </div>
                   </div>
-                  <div>
-                    <label className="block text-xs font-bold text-slate-600 mb-1">Duration (mins)</label>
-                    <input value={duration} onChange={(e) => setDuration(e.target.value === "" ? "" : Number(e.target.value))} type="number" required className="w-full border border-slate-300 rounded-lg p-2.5 text-sm focus:ring-2 focus:ring-pink-500 focus:outline-none" placeholder="60" />
-                  </div>
-                  <div>
-                    <label className="block text-xs font-bold text-slate-600 mb-1">Icon</label>
+                </div>
+                {/* Icon Selection */}
+                <div className="bg-gradient-to-br from-pink-50 to-purple-50 rounded-lg sm:rounded-xl p-3 sm:p-4 border border-pink-200">
+                  <h4 className="text-xs sm:text-sm font-bold text-slate-700 mb-2 sm:mb-3 flex items-center gap-2">
+                    <i className="fas fa-icons text-purple-600" />
+                    Service Icon
+                  </h4>
+                  <div className="space-y-2">
                     <div className="flex items-center gap-2">
-                      <div className="w-10 h-10 rounded-lg bg-pink-100 text-pink-600 flex items-center justify-center shrink-0">
-                        <i className={icon} />
+                      <div className="w-12 h-12 sm:w-14 sm:h-14 rounded-xl bg-gradient-to-br from-pink-500 to-purple-600 text-white flex items-center justify-center shrink-0 shadow-lg">
+                        <i className={`${icon} text-xl`} />
                       </div>
-                      <input
-                        value={icon}
-                        onChange={(e) => setIcon(e.target.value)}
-                        className="w-full border border-slate-300 rounded-lg p-2.5 text-sm focus:ring-2 focus:ring-pink-500 focus:outline-none"
-                        placeholder="fa-solid fa-star"
-                      />
+                      <div className="flex-1 min-w-0">
+                        <input
+                          value={icon}
+                          onChange={(e) => setIcon(e.target.value)}
+                          className="w-full border border-pink-300 rounded-lg p-2 sm:p-2.5 text-xs sm:text-sm focus:ring-2 focus:ring-purple-500 focus:outline-none bg-white"
+                          placeholder="fa-solid fa-star"
+                        />
+                      </div>
                       <button
                         type="button"
                         onClick={() => setIconPickerOpen((v) => !v)}
-                        className="px-3 py-2 text-sm rounded-lg border border-slate-300 bg-slate-800 text-white hover:bg-slate-700"
+                        className="px-2 sm:px-3 py-2 text-xs sm:text-sm rounded-lg bg-gradient-to-r from-pink-600 to-purple-600 text-white hover:from-pink-700 hover:to-purple-700 shadow-md transition-all shrink-0 font-medium"
                         title="Choose icon"
                       >
-                        Choose
+                        <i className="fas fa-palette mr-1" />
+                        <span className="hidden sm:inline">Pick</span>
                       </button>
                     </div>
                     {iconPickerOpen && (
-                      <div className="mt-2 border border-slate-200 rounded-lg p-3 bg-slate-50">
-                        <div className="grid grid-cols-3 sm:grid-cols-4 gap-2">
+                      <div className="mt-2 border-2 border-purple-200 rounded-xl p-3 bg-white shadow-inner">
+                        <div className="grid grid-cols-3 gap-2 max-h-[180px] overflow-y-auto custom-scrollbar pr-1">
                           {iconOptions.map((opt) => (
                             <button
                               key={opt.value}
@@ -395,89 +420,127 @@ export default function ServicesPage() {
                                 setIcon(opt.value);
                                 setIconPickerOpen(false);
                               }}
-                              className={`flex items-center gap-2 px-2 py-2 rounded-lg bg-white hover:bg-slate-100 border ${
-                                icon === opt.value ? "border-pink-400" : "border-slate-200"
+                              className={`flex flex-col items-center gap-1.5 p-2 rounded-lg hover:bg-purple-50 border-2 transition-all ${
+                                icon === opt.value ? "border-purple-500 bg-purple-50 shadow-md" : "border-slate-200"
                               }`}
                             >
-                              <span className="w-7 h-7 rounded bg-pink-100 text-pink-600 flex items-center justify-center">
+                              <span className="w-8 h-8 rounded-lg bg-gradient-to-br from-pink-100 to-purple-100 text-pink-600 flex items-center justify-center">
                                 <i className={opt.value} />
                               </span>
-                              <span className="text-xs text-slate-700">{opt.label}</span>
+                              <span className="text-[10px] font-medium text-slate-700 text-center leading-tight">{opt.label}</span>
                             </button>
                           ))}
                         </div>
-                        <div className="text-[10px] text-slate-400 mt-2">
-                          Uses Font Awesome classes. You can type a custom class above as well.
+                        <div className="text-[10px] text-slate-500 mt-2 pt-2 border-t border-purple-100">
+                          <i className="fas fa-info-circle mr-1" />
+                          Select an icon or enter Font Awesome class above
                         </div>
                       </div>
                     )}
                   </div>
-                  <div>
-                    <label className="block text-xs font-bold text-slate-600 mb-2">Available Branches</label>
-                    <div className="grid grid-cols-1 gap-2 max-h-32 overflow-y-auto border border-slate-200 rounded-lg p-3 bg-slate-50">
-                      {branches.length > 0 ? (
-                        branches.map((b) => (
-                          <label key={b.id} className="flex items-center space-x-2 p-1 hover:bg-slate-100 rounded cursor-pointer">
+                </div>
+                {/* Available Branches */}
+                <div className="bg-blue-50 rounded-lg sm:rounded-xl p-3 sm:p-4 border border-blue-200">
+                  <h4 className="text-xs sm:text-sm font-bold text-slate-700 mb-2 sm:mb-3 flex items-center gap-2">
+                    <i className="fas fa-store text-blue-600" />
+                    Available Branches
+                  </h4>
+                  <div className="grid grid-cols-1 gap-1.5 max-h-48 overflow-y-auto border-2 border-blue-200 rounded-lg p-2 sm:p-3 bg-white custom-scrollbar">
+                    {branches.length > 0 ? (
+                      branches.map((b) => (
+                        <label key={b.id} className="flex items-center gap-2 p-2 hover:bg-blue-50 rounded-md cursor-pointer transition group">
+                          <input
+                            type="checkbox"
+                            checked={!!selectedBranches[b.id]}
+                            onChange={(e) => setSelectedBranches((m) => ({ ...m, [b.id]: e.target.checked }))}
+                            className="rounded border-blue-300 text-blue-600 focus:ring-blue-500 w-4 h-4"
+                          />
+                          <span className="text-xs sm:text-sm text-slate-700 font-medium group-hover:text-blue-700">
+                            <i className="fas fa-building text-blue-400 mr-1.5" />
+                            {b.name}
+                          </span>
+                        </label>
+                      ))
+                    ) : (
+                      <div className="text-xs text-slate-400 text-center py-3">
+                        <i className="fas fa-store-slash mb-1 block text-slate-300" />
+                        No Branches Configured.
+                      </div>
+                    )}
+                  </div>
+                  <p className="text-[10px] text-blue-600 mt-1.5">
+                    <i className="fas fa-info-circle mr-1" />
+                    Select which locations offer this service
+                  </p>
+                </div>
+                {/* Qualified Staff */}
+                <div className="bg-emerald-50 rounded-lg sm:rounded-xl p-3 sm:p-4 border border-emerald-200">
+                  <h4 className="text-xs sm:text-sm font-bold text-slate-700 mb-2 sm:mb-3 flex items-center gap-2">
+                    <i className="fas fa-user-check text-emerald-600" />
+                    Qualified Staff
+                  </h4>
+                  <div className="grid grid-cols-1 gap-1.5 max-h-64 overflow-y-auto border-2 border-emerald-200 rounded-lg p-2 sm:p-3 bg-white custom-scrollbar">
+                    {staff.filter((s) => s.status === "Active").length > 0 ? (
+                      staff
+                        .filter((s) => s.status === "Active")
+                        .map((s) => (
+                          <label key={s.id} className="flex items-center gap-2 p-2 hover:bg-emerald-50 rounded-md cursor-pointer transition group">
                             <input
                               type="checkbox"
-                              checked={!!selectedBranches[b.id]}
-                              onChange={(e) => setSelectedBranches((m) => ({ ...m, [b.id]: e.target.checked }))}
-                              className="rounded border-slate-300 text-purple-600 focus:ring-purple-500"
+                              checked={!!selectedStaff[s.id]}
+                              onChange={(e) => setSelectedStaff((m) => ({ ...m, [s.id]: e.target.checked }))}
+                              className="rounded border-emerald-300 text-emerald-600 focus:ring-emerald-500 w-4 h-4"
                             />
-                            <span className="text-sm text-slate-700">{b.name}</span>
+                            <img
+                              src={`https://api.dicebear.com/7.x/avataaars/svg?seed=${encodeURIComponent(s.avatar)}`}
+                              alt={s.name}
+                              className="w-6 h-6 rounded-full bg-slate-100"
+                            />
+                            <div className="flex-1 min-w-0">
+                              <span className="text-xs sm:text-sm text-slate-700 font-medium group-hover:text-emerald-700 block truncate">{s.name}</span>
+                              <span className="text-[10px] text-slate-500">{s.role}</span>
+                            </div>
                           </label>
                         ))
-                      ) : (
-                        <div className="text-xs text-slate-400 text-center py-2">No Branches Configured.</div>
-                      )}
-                    </div>
-                    <p className="text-[10px] text-slate-400 mt-1">Select which locations offer this service.</p>
+                    ) : (
+                      <div className="text-xs text-slate-400 text-center py-3">
+                        <i className="fas fa-user-slash mb-1 block text-slate-300" />
+                        No Active Staff Found.
+                      </div>
+                    )}
                   </div>
-                  <div>
-                    <label className="block text-xs font-bold text-slate-600 mb-2">Qualified Staff</label>
-                    <div className="grid grid-cols-1 gap-2 max-h-32 overflow-y-auto border border-slate-200 rounded-lg p-3 bg-slate-50">
-                      {staff.filter((s) => s.status === "Active").length > 0 ? (
-                        staff
-                          .filter((s) => s.status === "Active")
-                          .map((s) => (
-                            <label key={s.id} className="flex items-center space-x-2 p-1 hover:bg-slate-100 rounded cursor-pointer">
-                              <input
-                                type="checkbox"
-                                checked={!!selectedStaff[s.id]}
-                                onChange={(e) => setSelectedStaff((m) => ({ ...m, [s.id]: e.target.checked }))}
-                                className="rounded border-slate-300 text-pink-600 focus:ring-pink-500"
-                              />
-                              <span className="text-sm text-slate-700">{s.name}</span>
-                            </label>
-                          ))
-                      ) : (
-                        <div className="text-xs text-slate-400 text-center py-2">No Active Staff Found.</div>
-                      )}
-                    </div>
-                    <p className="text-[10px] text-slate-400 mt-1">Only selected staff can be assigned this service.</p>
-                  </div>
+                  <p className="text-[10px] text-emerald-600 mt-1.5">
+                    <i className="fas fa-info-circle mr-1" />
+                    Only selected staff can perform this service
+                  </p>
                 </div>
-                <div className="px-6 py-4 border-t border-slate-200">
+                </div>
+                
+                {/* Footer with Submit Button */}
+                <div className="p-3 sm:p-4 bg-slate-50 border-t border-slate-200 rounded-b-xl shrink-0">
                   <button
                     type="submit"
                     disabled={saving}
-                    className={`w-full bg-pink-600 text-white font-bold py-2.5 rounded-lg shadow-md transition ${
-                      saving ? "opacity-60 cursor-not-allowed" : "hover:bg-pink-700"
+                    className={`w-full bg-gradient-to-r from-pink-600 to-purple-600 text-white font-bold py-2.5 sm:py-3 rounded-lg shadow-lg transition-all text-sm sm:text-base ${
+                      saving ? "opacity-60 cursor-not-allowed" : "hover:from-pink-700 hover:to-purple-700 hover:shadow-xl transform active:scale-95 sm:hover:scale-[1.02]"
                     }`}
                   >
                     {saving ? (
-                      <span className="inline-flex items-center gap-2">
-                        <i className="fas fa-circle-notch fa-spin" /> Saving...
+                      <span className="inline-flex items-center justify-center gap-2">
+                        <i className="fa-solid fa-circle-notch fa-spin" />
+                        Saving...
                       </span>
                     ) : (
-                      editingServiceId ? "Save Changes" : "Save Service"
+                      <span className="inline-flex items-center justify-center gap-2">
+                        <i className="fa-solid fa-save" />
+                        {editingServiceId ? "Save Changes" : "Add Service"}
+                      </span>
                     )}
                   </button>
                 </div>
               </form>
             </div>
           </div>
-        </div>
       )}
 
       {/* Preview Service Modal */}
