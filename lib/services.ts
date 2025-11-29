@@ -15,9 +15,9 @@ import {
 export type ServiceInput = {
   name: string;
   price: number;
-  cost: number;
   duration: number; // minutes
-  icon: string;
+  icon?: string;
+  imageUrl?: string;
   reviews?: number;
   branches: string[]; // branchIds
   staffIds: string[]; // salon_staff ids

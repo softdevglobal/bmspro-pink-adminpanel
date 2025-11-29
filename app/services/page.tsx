@@ -1,10 +1,11 @@
 "use client";
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useState, useRef } from "react";
 import Sidebar from "@/components/Sidebar";
 import { useRouter } from "next/navigation";
 import { auth, db } from "@/lib/firebase";
 import { onAuthStateChanged } from "firebase/auth";
 import { doc, getDoc } from "firebase/firestore";
+import { getStorage, ref as storageRef, uploadBytes, getDownloadURL } from "firebase/storage";
 import { subscribeBranchesForOwner } from "@/lib/branches";
 import { subscribeSalonStaffForOwner } from "@/lib/salonStaff";
 import { createServiceForOwner, deleteService as deleteServiceDoc, subscribeServicesForOwner, updateService } from "@/lib/services";
@@ -13,9 +14,9 @@ type Service = {
   id: string;
   name: string;
   price: number;
-  cost: number;
   duration: number;
-  icon: string;
+  icon?: string;
+  imageUrl?: string;
   reviews?: number;
   staffIds: string[];
   branches: string[];
@@ -38,25 +39,18 @@ export default function ServicesPage() {
   const [saving, setSaving] = useState(false);
   const [editingServiceId, setEditingServiceId] = useState<string | null>(null);
   const [previewService, setPreviewService] = useState<Service | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<Service | null>(null);
+  const [deleting, setDeleting] = useState(false);
   const [name, setName] = useState("");
   const [price, setPrice] = useState<number | "">("");
-  const [cost, setCost] = useState<number | "">("");
   const [duration, setDuration] = useState<number | "">("");
-  const [icon, setIcon] = useState("fa-solid fa-star");
+  const [imageUrl, setImageUrl] = useState("");
+  const [imageFile, setImageFile] = useState<File | null>(null);
+  const [imagePreview, setImagePreview] = useState<string | null>(null);
+  const [uploading, setUploading] = useState(false);
   const [selectedStaff, setSelectedStaff] = useState<Record<string, boolean>>({});
   const [selectedBranches, setSelectedBranches] = useState<Record<string, boolean>>({});
-  const [iconPickerOpen, setIconPickerOpen] = useState(false);
-  const iconOptions = [
-    { label: "Star", value: "fa-solid fa-star" },
-    { label: "Scissors", value: "fa-solid fa-scissors" },
-    { label: "Spa", value: "fa-solid fa-spa" },
-    { label: "Spray", value: "fa-solid fa-spray-can-sparkles" },
-    { label: "Hand Sparkles", value: "fa-solid fa-hand-sparkles" },
-    { label: "Heart", value: "fa-solid fa-heart" },
-    { label: "Leaf", value: "fa-solid fa-leaf" },
-    { label: "Gem", value: "fa-solid fa-gem" },
-    { label: "Magic Wand", value: "fa-solid fa-wand-magic-sparkles" },
-  ];
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   // guard
   useEffect(() => {
@@ -115,9 +109,9 @@ export default function ServicesPage() {
           id: String(r.id),
           name: String(r.name || ""),
           price: Number(r.price || 0),
-          cost: Number(r.cost || 0),
           duration: Number(r.duration || 0),
-          icon: String(r.icon || "fa-solid fa-star"),
+          icon: String(r.icon || ""),
+          imageUrl: String((r as any).imageUrl || ""),
           reviews: Number(r.reviews || 0),
           branches: (Array.isArray(r.branches) ? r.branches : []).map(String),
           staffIds: (Array.isArray(r.staffIds) ? r.staffIds : []).map(String),
@@ -143,9 +137,10 @@ export default function ServicesPage() {
     setEditingServiceId(null);
     setName("");
     setPrice("");
-    setCost("");
     setDuration("");
-    setIcon("fa-solid fa-star");
+    setImageUrl("");
+    setImageFile(null);
+    setImagePreview(null);
     const staffMap: Record<string, boolean> = {};
     const branchMap: Record<string, boolean> = {};
     staff.forEach((s) => (staffMap[s.id] = false));
@@ -154,15 +149,20 @@ export default function ServicesPage() {
     setSelectedBranches(branchMap);
     setIsModalOpen(true);
   };
-  const closeModal = () => setIsModalOpen(false);
+  const closeModal = () => {
+    setIsModalOpen(false);
+    setImageFile(null);
+    setImagePreview(null);
+  };
 
   const openEdit = (svc: Service) => {
     setEditingServiceId(svc.id);
     setName(svc.name);
     setPrice(svc.price);
-    setCost(svc.cost);
     setDuration(svc.duration);
-    setIcon(svc.icon || "fa-solid fa-star");
+    setImageUrl(svc.imageUrl || "");
+    setImagePreview(svc.imageUrl || null);
+    setImageFile(null);
     const staffMap: Record<string, boolean> = {};
     const branchMap: Record<string, boolean> = {};
     staff.forEach((s) => (staffMap[s.id] = svc.staffIds?.includes(s.id) || false));
@@ -172,21 +172,80 @@ export default function ServicesPage() {
     setIsModalOpen(true);
   };
 
+  const handleImageChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      // Validate file type
+      if (!file.type.startsWith('image/')) {
+        showToast('Please select an image file');
+        return;
+      }
+      // Validate file size (max 5MB)
+      if (file.size > 5 * 1024 * 1024) {
+        showToast('Image size should be less than 5MB');
+        return;
+      }
+      setImageFile(file);
+      // Create preview
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        setImagePreview(reader.result as string);
+      };
+      reader.readAsDataURL(file);
+    }
+  };
+
+  const uploadImage = async (): Promise<string | null> => {
+    if (!imageFile || !ownerUid) return null;
+    
+    setUploading(true);
+    try {
+      const storage = getStorage();
+      const timestamp = Date.now();
+      const fileName = `services/${ownerUid}/${timestamp}_${imageFile.name}`;
+      const imageRef = storageRef(storage, fileName);
+      
+      await uploadBytes(imageRef, imageFile);
+      const downloadURL = await getDownloadURL(imageRef);
+      
+      return downloadURL;
+    } catch (error) {
+      console.error('Error uploading image:', error);
+      showToast('Failed to upload image');
+      return null;
+    } finally {
+      setUploading(false);
+    }
+  };
+
   const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
-    if (!name.trim() || !price || !cost || !duration) return;
+    if (!name.trim() || !price || !duration) return;
     const qualifiedStaff = Object.keys(selectedStaff).filter((id) => selectedStaff[id]);
     const selectedBrs = Object.keys(selectedBranches).filter((id) => selectedBranches[id]);
     if (!ownerUid) return;
+    
     setSaving(true);
     try {
+      // Upload image if a new file is selected
+      let finalImageUrl = imageUrl;
+      if (imageFile) {
+        const uploadedUrl = await uploadImage();
+        if (uploadedUrl) {
+          finalImageUrl = uploadedUrl;
+        } else {
+          showToast("Failed to upload image");
+          setSaving(false);
+          return;
+        }
+      }
+      
       if (editingServiceId) {
         await updateService(editingServiceId, {
           name: name.trim(),
           price: Number(price),
-          cost: Number(cost),
           duration: Number(duration),
-          icon: icon || "fa-solid fa-star",
+          imageUrl: finalImageUrl || "",
           staffIds: qualifiedStaff,
           branches: selectedBrs,
         });
@@ -194,9 +253,8 @@ export default function ServicesPage() {
         await createServiceForOwner(ownerUid, {
           name: name.trim(),
           price: Number(price),
-          cost: Number(cost),
           duration: Number(duration),
-          icon: icon || "fa-solid fa-star",
+          imageUrl: finalImageUrl || "",
           reviews: 0,
           staffIds: qualifiedStaff,
           branches: selectedBrs,
@@ -204,19 +262,33 @@ export default function ServicesPage() {
       }
       setIsModalOpen(false);
       setEditingServiceId(null);
+      setImageFile(null);
+      setImagePreview(null);
       showToast(editingServiceId ? "Service updated." : "Service added to catalog!");
-    } catch {
+    } catch (error) {
+      console.error('Error saving service:', error);
       showToast(editingServiceId ? "Failed to update service" : "Failed to add service");
     } finally {
       setSaving(false);
     }
   };
 
-  const deleteService = (id: string) => {
-    if (!confirm("Remove this service?")) return;
-    deleteServiceDoc(id)
-      .then(() => showToast("Service removed."))
-      .catch(() => showToast("Failed to remove service."));
+  const handleDeleteClick = (service: Service) => {
+    setDeleteTarget(service);
+  };
+
+  const confirmDeleteService = async () => {
+    if (!deleteTarget) return;
+    setDeleting(true);
+    try {
+      await deleteServiceDoc(deleteTarget.id);
+      showToast("Service removed.");
+      setDeleteTarget(null);
+    } catch {
+      showToast("Failed to remove service.");
+    } finally {
+      setDeleting(false);
+    }
   };
 
   const totalBranches = branches.length;
@@ -269,40 +341,74 @@ export default function ServicesPage() {
                 const branchCount = s.branches?.length || 0;
                 const branchLabel = branchCount === totalBranches ? "All Branches" : `${branchCount} Branches`;
                 return (
-                  <div key={s.id} className="group bg-white rounded-2xl border border-slate-200 shadow-sm p-6 hover:border-pink-300 transition">
-                    <div className="flex justify-between items-start mb-4">
-                      <div className="w-10 h-10 rounded-lg bg-pink-100 text-pink-600 flex items-center justify-center">
-                        <i className={s.icon} />
+                  <div key={s.id} className="group bg-white rounded-xl overflow-hidden hover:shadow-xl transition-all duration-300 border border-slate-200 hover:border-pink-300">
+                    {/* Service Image */}
+                    <div className="relative w-full h-48 bg-gradient-to-br from-pink-100 via-purple-100 to-indigo-100 overflow-hidden">
+                      {s.imageUrl ? (
+                        <img 
+                          src={s.imageUrl} 
+                          alt={s.name}
+                          className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
+                        />
+                      ) : (
+                        <div className="w-full h-full flex items-center justify-center">
+                          <i className="fas fa-spa text-6xl text-pink-300/50" />
+                        </div>
+                      )}
+                      
+                      {/* Price badge */}
+                      <div className="absolute top-3 left-3 bg-gradient-to-r from-pink-600 to-purple-600 text-white px-3 py-1.5 rounded-lg shadow-lg">
+                        <span className="text-lg font-bold">${s.price}</span>
                       </div>
-                      <div className="flex items-start gap-3">
-                        <div className="text-right">
-                          <span className="block text-lg font-bold text-slate-800">${s.price}</span>
-                          <span className="text-xs text-slate-400 block">Cost: ${s.cost || 0}</span>
-                        </div>
-                        <div className="flex items-center gap-3 text-slate-400">
-                          <button onClick={() => setPreviewService(s)} title="Preview" className="hover:text-slate-600">
-                            <i className="fas fa-eye" />
-                          </button>
-                          <button onClick={() => openEdit(s)} title="Edit" className="hover:text-blue-600">
-                            <i className="fas fa-pen" />
-                          </button>
-                          <button onClick={() => deleteService(s.id)} title="Delete" className="hover:text-rose-500">
-                            <i className="fas fa-trash" />
-                          </button>
-                        </div>
+                      
+                      {/* Action buttons - always visible */}
+                      <div className="absolute top-3 right-3 flex items-center gap-1.5">
+                        <button 
+                          onClick={() => setPreviewService(s)} 
+                          className="w-8 h-8 rounded-lg flex items-center justify-center text-white hover:text-pink-200 transition-colors"
+                          title="View Details"
+                        >
+                          <i className="fas fa-eye" />
+                        </button>
+                        <button 
+                          onClick={() => openEdit(s)} 
+                          className="w-8 h-8 rounded-lg flex items-center justify-center text-white hover:text-blue-200 transition-colors"
+                          title="Edit Service"
+                        >
+                          <i className="fas fa-pen" />
+                        </button>
+                        <button 
+                          onClick={() => handleDeleteClick(s)} 
+                          className="w-8 h-8 rounded-lg flex items-center justify-center text-white hover:text-rose-200 transition-colors"
+                          title="Delete Service"
+                        >
+                          <i className="fas fa-trash" />
+                        </button>
                       </div>
                     </div>
-                    <h3 className="font-bold text-lg text-slate-900 mb-1">{s.name}</h3>
-                    <div className="text-xs text-slate-600 mb-3">
-                      {s.duration} mins • <span className="text-purple-600 font-medium">{branchLabel}</span>
-                    </div>
-                    <div className="flex items-center justify-between text-xs mb-1">
-                      <div className="flex items-center gap-1 text-amber-400">
-                        <i className="fas fa-star" />
-                        <span className="text-slate-400 ml-1">({s.reviews || 0})</span>
+                    
+                    {/* Service Details */}
+                    <div className="p-4">
+                      <h3 className="font-bold text-lg text-slate-900 mb-2 line-clamp-1">{s.name}</h3>
+                      
+                      <div className="flex items-center gap-3 text-sm text-slate-600 mb-3">
+                        <span className="flex items-center gap-1">
+                          <i className="fas fa-clock text-purple-500" />
+                          {s.duration} min
+                        </span>
+                        <span className="text-slate-300">•</span>
+                        <span className="text-purple-600 font-medium">{branchLabel}</span>
                       </div>
-                      <div className="text-slate-500 bg-slate-100 px-2 py-1 rounded-full" title="Qualified Staff">
-                        <i className="fas fa-user-check mr-1" /> {staffCount} Staff
+                      
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-1">
+                          <i className="fas fa-star text-amber-400 text-xs" />
+                          <span className="text-xs text-slate-500">({s.reviews || 0})</span>
+                        </div>
+                        <div className="flex items-center gap-1 text-xs bg-emerald-50 text-emerald-700 px-2 py-1 rounded-full font-medium">
+                          <i className="fas fa-users text-xs" />
+                          <span>{staffCount}</span>
+                        </div>
                       </div>
                     </div>
                   </div>
@@ -369,74 +475,77 @@ export default function ServicesPage() {
                         <input value={duration} onChange={(e) => setDuration(e.target.value === "" ? "" : Number(e.target.value))} type="number" required className="w-full border border-slate-300 rounded-lg p-2 sm:p-2.5 text-xs sm:text-sm focus:ring-2 focus:ring-pink-500 focus:outline-none" placeholder="60" />
                       </div>
                       <div>
-                        <label className="block text-xs font-bold text-slate-600 mb-1">Customer Price ($)</label>
+                        <label className="block text-xs font-bold text-slate-600 mb-1">Price ($)</label>
                         <input value={price} onChange={(e) => setPrice(e.target.value === "" ? "" : Number(e.target.value))} type="number" required className="w-full border border-slate-300 rounded-lg p-2 sm:p-2.5 text-xs sm:text-sm focus:ring-2 focus:ring-pink-500 focus:outline-none" placeholder="120" />
                       </div>
                     </div>
-                    <div>
-                      <label className="block text-xs font-bold text-slate-600 mb-1">Internal Cost ($)</label>
-                      <input value={cost} onChange={(e) => setCost(e.target.value === "" ? "" : Number(e.target.value))} type="number" required className="w-full border border-slate-300 rounded-lg p-2 sm:p-2.5 text-xs sm:text-sm focus:ring-2 focus:ring-pink-500 focus:outline-none" placeholder="40" />
-                      <p className="text-[10px] text-slate-500 mt-1">Your cost to provide this service</p>
-                    </div>
                   </div>
                 </div>
-                {/* Icon Selection */}
+                {/* Service Image Upload */}
                 <div className="bg-gradient-to-br from-pink-50 to-purple-50 rounded-lg sm:rounded-xl p-3 sm:p-4 border border-pink-200">
                   <h4 className="text-xs sm:text-sm font-bold text-slate-700 mb-2 sm:mb-3 flex items-center gap-2">
-                    <i className="fas fa-icons text-purple-600" />
-                    Service Icon
+                    <i className="fas fa-image text-purple-600" />
+                    Service Image
                   </h4>
-                  <div className="space-y-2">
-                    <div className="flex items-center gap-2">
-                      <div className="w-12 h-12 sm:w-14 sm:h-14 rounded-xl bg-gradient-to-br from-pink-500 to-purple-600 text-white flex items-center justify-center shrink-0 shadow-lg">
-                        <i className={`${icon} text-xl`} />
+                  <div className="space-y-3">
+                    <input
+                      ref={fileInputRef}
+                      type="file"
+                      accept="image/*"
+                      onChange={handleImageChange}
+                      className="hidden"
+                    />
+                    
+                    {/* Image Preview */}
+                    <div className="flex flex-col sm:flex-row items-center gap-3">
+                      <div className="w-32 h-32 sm:w-40 sm:h-40 rounded-xl bg-gradient-to-br from-pink-100 to-purple-100 border-2 border-dashed border-pink-300 flex items-center justify-center overflow-hidden shadow-inner">
+                        {imagePreview ? (
+                          <img 
+                            src={imagePreview} 
+                            alt="Service preview" 
+                            className="w-full h-full object-cover"
+                          />
+                        ) : (
+                          <div className="text-center text-slate-400">
+                            <i className="fas fa-image text-4xl mb-2 block" />
+                            <p className="text-xs">No image selected</p>
+                          </div>
+                        )}
                       </div>
-                      <div className="flex-1 min-w-0">
-                        <input
-                          value={icon}
-                          onChange={(e) => setIcon(e.target.value)}
-                          className="w-full border border-pink-300 rounded-lg p-2 sm:p-2.5 text-xs sm:text-sm focus:ring-2 focus:ring-purple-500 focus:outline-none bg-white"
-                          placeholder="fa-solid fa-star"
-                        />
+                      
+                      <div className="flex-1 space-y-2 w-full">
+                        <button
+                          type="button"
+                          onClick={() => fileInputRef.current?.click()}
+                          className="w-full px-4 py-2.5 text-sm rounded-lg bg-gradient-to-r from-pink-600 to-purple-600 text-white hover:from-pink-700 hover:to-purple-700 shadow-md transition-all font-medium flex items-center justify-center gap-2"
+                        >
+                          <i className="fas fa-upload" />
+                          {imagePreview ? "Change Image" : "Upload Image"}
+                        </button>
+                        
+                        {imagePreview && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setImageFile(null);
+                              setImagePreview(null);
+                              setImageUrl("");
+                              if (fileInputRef.current) fileInputRef.current.value = "";
+                            }}
+                            className="w-full px-4 py-2 text-xs rounded-lg bg-slate-100 text-slate-600 hover:bg-slate-200 transition-all font-medium flex items-center justify-center gap-2"
+                          >
+                            <i className="fas fa-trash" />
+                            Remove Image
+                          </button>
+                        )}
+                        
+                        <div className="text-[10px] text-slate-500 space-y-1">
+                          <p><i className="fas fa-info-circle mr-1" />Recommended: 500x500px or larger</p>
+                          <p><i className="fas fa-info-circle mr-1" />Max size: 5MB</p>
+                          <p><i className="fas fa-info-circle mr-1" />Formats: JPG, PNG, GIF, WebP</p>
+                        </div>
                       </div>
-                      <button
-                        type="button"
-                        onClick={() => setIconPickerOpen((v) => !v)}
-                        className="px-2 sm:px-3 py-2 text-xs sm:text-sm rounded-lg bg-gradient-to-r from-pink-600 to-purple-600 text-white hover:from-pink-700 hover:to-purple-700 shadow-md transition-all shrink-0 font-medium"
-                        title="Choose icon"
-                      >
-                        <i className="fas fa-palette mr-1" />
-                        <span className="hidden sm:inline">Pick</span>
-                      </button>
                     </div>
-                    {iconPickerOpen && (
-                      <div className="mt-2 border-2 border-purple-200 rounded-xl p-3 bg-white shadow-inner">
-                        <div className="grid grid-cols-3 gap-2 max-h-[180px] overflow-y-auto custom-scrollbar pr-1">
-                          {iconOptions.map((opt) => (
-                            <button
-                              key={opt.value}
-                              type="button"
-                              onClick={() => {
-                                setIcon(opt.value);
-                                setIconPickerOpen(false);
-                              }}
-                              className={`flex flex-col items-center gap-1.5 p-2 rounded-lg hover:bg-purple-50 border-2 transition-all ${
-                                icon === opt.value ? "border-purple-500 bg-purple-50 shadow-md" : "border-slate-200"
-                              }`}
-                            >
-                              <span className="w-8 h-8 rounded-lg bg-gradient-to-br from-pink-100 to-purple-100 text-pink-600 flex items-center justify-center">
-                                <i className={opt.value} />
-                              </span>
-                              <span className="text-[10px] font-medium text-slate-700 text-center leading-tight">{opt.label}</span>
-                            </button>
-                          ))}
-                        </div>
-                        <div className="text-[10px] text-slate-500 mt-2 pt-2 border-t border-purple-100">
-                          <i className="fas fa-info-circle mr-1" />
-                          Select an icon or enter Font Awesome class above
-                        </div>
-                      </div>
-                    )}
                   </div>
                 </div>
                 {/* Available Branches */}
@@ -545,55 +654,169 @@ export default function ServicesPage() {
 
       {/* Preview Service Modal */}
       {previewService && (
-        <div className="fixed inset-0 z-50">
-          <div className="absolute inset-0 bg-black/50" onClick={() => setPreviewService(null)} />
-          <div className="relative flex items-center justify-center min-h-screen p-4 overflow-y-auto">
-            <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden">
-              <div className="px-5 py-4 border-b border-slate-200 flex items-center justify-between">
-                <h3 className="text-base font-semibold text-slate-900">Service Preview</h3>
-                <button className="text-slate-400 hover:text-slate-600" onClick={() => setPreviewService(null)}>
-                  <i className="fas fa-times" />
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm">
+          <div className="absolute inset-0" onClick={() => setPreviewService(null)} />
+          <div className="relative bg-white rounded-3xl shadow-2xl w-full max-w-2xl max-h-[85vh] overflow-y-auto custom-scrollbar animate-in fade-in zoom-in duration-300">
+            {/* Hero Image Section */}
+            <div className="relative w-full h-48 sm:h-56 bg-gradient-to-br from-pink-100 via-purple-100 to-indigo-100 overflow-hidden">
+              {previewService.imageUrl ? (
+                <img 
+                  src={previewService.imageUrl} 
+                  alt={previewService.name}
+                  className="w-full h-full object-cover"
+                />
+              ) : (
+                <div className="w-full h-full flex items-center justify-center">
+                  <i className="fas fa-spa text-8xl text-pink-300/50" />
+                </div>
+              )}
+              
+              {/* Gradient overlay */}
+              <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-transparent to-transparent" />
+              
+              {/* Close button */}
+              <button 
+                onClick={() => setPreviewService(null)}
+                className="absolute top-4 right-4 w-10 h-10 bg-white/90 backdrop-blur-sm hover:bg-white rounded-full flex items-center justify-center text-slate-700 shadow-lg hover:shadow-xl transition-all"
+              >
+                <i className="fas fa-times" />
+              </button>
+              
+              {/* Service name on image */}
+              <div className="absolute bottom-0 left-0 right-0 p-4 text-white">
+                <h2 className="text-2xl font-bold">{previewService.name}</h2>
+              </div>
+            </div>
+            
+            {/* Content Section */}
+            <div className="p-4 sm:p-6">
+              {/* Price and Duration Row */}
+              <div className="grid grid-cols-2 gap-3 mb-4">
+                <div className="bg-gradient-to-br from-pink-50 to-purple-50 rounded-xl p-3 border-2 border-pink-200">
+                  <div className="text-xs text-slate-600 font-medium mb-1">Price</div>
+                  <div className="text-2xl font-bold bg-gradient-to-r from-pink-600 to-purple-600 bg-clip-text text-transparent">
+                    ${previewService.price}
+                  </div>
+                </div>
+                <div className="bg-gradient-to-br from-blue-50 to-indigo-50 rounded-xl p-3 border-2 border-blue-200">
+                  <div className="text-xs text-slate-600 font-medium mb-1">Duration</div>
+                  <div className="text-2xl font-bold text-blue-600">
+                    {previewService.duration}<span className="text-base">min</span>
+                  </div>
+                </div>
+              </div>
+              
+              {/* Stats Row */}
+              <div className="grid grid-cols-2 gap-3 mb-4">
+                <div className="flex items-center gap-2 bg-slate-50 rounded-lg p-3">
+                  <div className="w-10 h-10 rounded-lg bg-amber-100 flex items-center justify-center">
+                    <i className="fas fa-star text-amber-500" />
+                  </div>
+                  <div>
+                    <div className="text-[10px] text-slate-500">Rating</div>
+                    <div className="text-base font-bold text-slate-900">{previewService.reviews || 0} reviews</div>
+                  </div>
+                </div>
+                <div className="flex items-center gap-2 bg-slate-50 rounded-lg p-3">
+                  <div className="w-10 h-10 rounded-lg bg-emerald-100 flex items-center justify-center">
+                    <i className="fas fa-users text-emerald-600" />
+                  </div>
+                  <div>
+                    <div className="text-[10px] text-slate-500">Qualified Staff</div>
+                    <div className="text-base font-bold text-slate-900">{previewService.staffIds?.length || 0} members</div>
+                  </div>
+                </div>
+              </div>
+              
+              {/* Available Branches */}
+              <div className="mb-4">
+                <h3 className="text-sm font-bold text-slate-700 mb-3 flex items-center gap-2">
+                  <i className="fas fa-store text-purple-600" />
+                  Available Locations
+                </h3>
+                <div className="flex flex-wrap gap-2">
+                  {previewService.branches.length > 0 ? (
+                    previewService.branches.map((bid) => {
+                      const b = branches.find((x) => x.id === bid);
+                      return (
+                        <span 
+                          key={bid} 
+                          className="px-4 py-2 rounded-xl bg-gradient-to-r from-purple-50 to-pink-50 border border-purple-200 text-purple-700 text-sm font-medium"
+                        >
+                          <i className="fas fa-map-marker-alt mr-2" />
+                          {b?.name || bid}
+                        </span>
+                      );
+                    })
+                  ) : (
+                    <span className="text-sm text-slate-400 italic">No branches assigned yet</span>
+                  )}
+                </div>
+              </div>
+              
+              {/* Action Buttons */}
+              <div className="flex gap-2 pt-3 border-t border-slate-100">
+                <button
+                  onClick={() => {
+                    setPreviewService(null);
+                    openEdit(previewService);
+                  }}
+                  className="flex-1 px-4 py-2 bg-gradient-to-r from-pink-600 to-purple-600 text-white rounded-lg font-semibold hover:from-pink-700 hover:to-purple-700 shadow-md hover:shadow-lg transition-all text-sm"
+                >
+                  <i className="fas fa-pen mr-2" />
+                  Edit Service
+                </button>
+                <button
+                  onClick={() => setPreviewService(null)}
+                  className="px-4 py-2 bg-slate-100 text-slate-700 rounded-lg font-semibold hover:bg-slate-200 transition-all text-sm"
+                >
+                  Close
                 </button>
               </div>
-              <div className="p-6 space-y-4">
-                <div className="flex items-start gap-4">
-                  <div className="w-12 h-12 rounded-lg bg-pink-100 text-pink-600 flex items-center justify-center">
-                    <i className={previewService.icon} />
-                  </div>
-                  <div className="flex-1">
-                    <div className="text-lg font-semibold text-slate-900">{previewService.name}</div>
-                    <div className="text-xs text-slate-600 mt-1">
-                      {previewService.duration} mins • ${previewService.price} {" "}
-                      <span className="text-slate-400">(Cost: ${previewService.cost})</span>
-                    </div>
-                  </div>
-                </div>
-                <div>
-                  <div className="text-xs font-bold text-slate-600 mb-2">Available Branches</div>
-                  <div className="flex flex-wrap gap-2">
-                    {previewService.branches.length > 0 ? (
-                      previewService.branches.map((bid) => {
-                        const b = branches.find((x) => x.id === bid);
-                        return (
-                          <span key={bid} className="px-2 py-1 rounded-full bg-slate-100 text-slate-700 text-xs">
-                            {b?.name || bid}
-                          </span>
-                        );
-                      })
-                    ) : (
-                      <span className="text-xs text-slate-400">No branches selected.</span>
-                    )}
-                  </div>
-                </div>
-                <div className="flex justify-end">
-                  <button
-                    onClick={() => setPreviewService(null)}
-                    className="px-4 py-2 bg-slate-800 text-white rounded-lg text-sm hover:bg-slate-700 font-medium shadow-md transition"
-                  >
-                    Close
-                  </button>
-                </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Delete Confirmation Modal */}
+      {deleteTarget && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="absolute inset-0" onClick={() => !deleting && setDeleteTarget(null)} />
+          <div className="relative bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden">
+            <div className="p-6 border-b border-slate-100 flex items-center gap-3">
+              <div className="w-12 h-12 rounded-full bg-rose-100 text-rose-600 flex items-center justify-center shrink-0">
+                <i className="fa-solid fa-triangle-exclamation text-xl" />
               </div>
+              <h3 className="font-semibold text-slate-900 text-lg">Delete Service?</h3>
+            </div>
+            <div className="p-6 text-sm text-slate-600">
+              Are you sure you want to delete <span className="font-semibold text-slate-800">"{deleteTarget.name}"</span>? This action cannot be undone.
+            </div>
+            <div className="px-6 pb-6 flex items-center justify-end gap-3">
+              <button
+                onClick={() => setDeleteTarget(null)}
+                disabled={deleting}
+                className="px-5 py-2.5 rounded-lg border border-slate-300 text-slate-700 hover:bg-slate-50 disabled:opacity-60 font-medium transition-all"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={confirmDeleteService}
+                disabled={deleting}
+                className="px-5 py-2.5 rounded-lg bg-rose-600 text-white hover:bg-rose-700 disabled:opacity-60 font-medium transition-all shadow-md hover:shadow-lg"
+              >
+                {deleting ? (
+                  <span className="inline-flex items-center gap-2">
+                    <i className="fa-solid fa-circle-notch fa-spin" />
+                    Deleting...
+                  </span>
+                ) : (
+                  <span>
+                    <i className="fa-solid fa-trash mr-2" />
+                    Delete Service
+                  </span>
+                )}
+              </button>
             </div>
           </div>
         </div>
