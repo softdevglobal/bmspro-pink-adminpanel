@@ -149,17 +149,19 @@ export default function Sidebar({ mobile = false, onClose }: SidebarProps) {
         )}
       </div>
       <div className="flex-1 p-4 space-y-1 overflow-y-auto sidebar-scroll bg-slate-900">
-        <Link
-          href="/dashboard"
-          className={`flex items-center space-x-3 px-4 py-3 rounded-xl font-medium text-sm transition ${
-            isDashboard
-              ? "bg-pink-500 text-white shadow-lg"
-              : "text-slate-400 hover:bg-slate-800 hover:text-white"
-          }`}
-        >
-          <i className="fas fa-chart-line w-5" />
-          <span>Dashboard</span>
-        </Link>
+        {mounted && role !== "salon_branch_admin" && (
+          <Link
+            href="/dashboard"
+            className={`flex items-center space-x-3 px-4 py-3 rounded-xl font-medium text-sm transition ${
+              isDashboard
+                ? "bg-pink-500 text-white shadow-lg"
+                : "text-slate-400 hover:bg-slate-800 hover:text-white"
+            }`}
+          >
+            <i className="fas fa-chart-line w-5" />
+            <span>Dashboard</span>
+          </Link>
+        )}
         {mounted && role === "salon_owner" && (
           <>
             <div
@@ -271,10 +273,12 @@ export default function Sidebar({ mobile = false, onClose }: SidebarProps) {
             <span>Staff Management</span>
           </Link>
         )}
-        <Link href="/billing" className={`flex items-center space-x-3 px-4 py-3 rounded-xl text-sm transition ${isBilling ? "bg-pink-500 text-white shadow-lg" : "hover:bg-slate-800 text-slate-400 hover:text-white"}`}>
-          <i className="fas fa-credit-card w-5" />
-          <span>Billing & Invoices</span>
-        </Link>
+        {mounted && role !== "salon_branch_admin" && (
+          <Link href="/billing" className={`flex items-center space-x-3 px-4 py-3 rounded-xl text-sm transition ${isBilling ? "bg-pink-500 text-white shadow-lg" : "hover:bg-slate-800 text-slate-400 hover:text-white"}`}>
+            <i className="fas fa-credit-card w-5" />
+            <span>Billing & Invoices</span>
+          </Link>
+        )}
         {mounted && role === "super_admin" && (
           <Link href="/settings" className={`flex items-center space-x-3 px-4 py-3 rounded-xl text-sm transition ${isSettings ? "bg-pink-500 text-white shadow-lg" : "hover:bg-slate-800 text-slate-400 hover:text-white"}`}>
             <i className="fas fa-cog w-5" />
@@ -303,6 +307,8 @@ export default function Sidebar({ mobile = false, onClose }: SidebarProps) {
                   ? "Super Admin"
                   : role === "salon_owner"
                   ? "Salon Owner"
+                  : role === "salon_branch_admin"
+                  ? "Branch Admin"
                   : role === "salon_staff"
                   ? "Staff Member"
                   : "User"

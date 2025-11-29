@@ -41,9 +41,16 @@ export default function DashboardPage() {
           if (typeof window !== "undefined") localStorage.setItem("idToken", token);
           setOwnerUid(user.uid);
           
-          // Check if user is super admin
+          // Check if user is super admin or branch admin
           const userDoc = await getDoc(doc(db, "users", user.uid));
           const role = userDoc.data()?.role || "";
+          
+          // Redirect salon_branch_admin to branches page
+          if (role === "salon_branch_admin") {
+            router.replace("/branches");
+            return;
+          }
+          
           setIsSuperAdmin(role === "super_admin");
         } catch {
           router.replace("/login");
