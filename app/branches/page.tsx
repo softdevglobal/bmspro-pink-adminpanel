@@ -664,59 +664,6 @@ export default function BranchesPage() {
                   </div>
                 </div>
               </div>
-
-              {/* Checklists Section (Staff / Services) */}
-              {(staffOptions.length > 0 || serviceOptions.length > 0) && (
-                <div className="mt-8 bg-white p-5 rounded-xl border border-slate-100 shadow-sm">
-                  <div className="flex items-center gap-2 text-slate-800 font-semibold mb-4">
-                    <i className="fas fa-tasks text-purple-500" />
-                    Assignments
-                  </div>
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                    {staffOptions.length > 0 && (
-                      <div>
-                        <label className="block text-xs font-bold text-slate-500 uppercase mb-2">Staff Members</label>
-                        <div className="h-40 overflow-y-auto border border-slate-200 rounded-lg p-2 bg-slate-50/50 space-y-1 custom-scrollbar">
-                          {staffOptions.map((s) => (
-                            <label key={s.id} className="flex items-center gap-3 p-2 rounded-lg hover:bg-white hover:shadow-sm transition-all cursor-pointer group">
-                              <input
-                                type="checkbox"
-                                className="w-4 h-4 rounded border-slate-300 text-purple-600 focus:ring-purple-500 transition"
-                                checked={Boolean(selectedStaffIds[s.id])}
-                                onChange={(e) =>
-                                  setSelectedStaffIds((prev) => ({ ...prev, [s.id]: e.target.checked }))
-                                }
-                              />
-                              <span className="text-sm text-slate-700 group-hover:text-purple-700">{s.name}</span>
-                              {s.branch && <span className="ml-auto text-xs text-slate-400 bg-slate-100 px-2 py-0.5 rounded-full">{s.branch}</span>}
-                            </label>
-                          ))}
-                        </div>
-                      </div>
-                    )}
-                    {serviceOptions.length > 0 && (
-                      <div>
-                        <label className="block text-xs font-bold text-slate-500 uppercase mb-2">Services Offered</label>
-                        <div className="h-40 overflow-y-auto border border-slate-200 rounded-lg p-2 bg-slate-50/50 space-y-1 custom-scrollbar">
-                          {serviceOptions.map((s) => (
-                            <label key={s.id} className="flex items-center gap-3 p-2 rounded-lg hover:bg-white hover:shadow-sm transition-all cursor-pointer group">
-                              <input
-                                type="checkbox"
-                                className="w-4 h-4 rounded border-slate-300 text-purple-600 focus:ring-purple-500 transition"
-                                checked={Boolean(selectedServiceIds[s.id])}
-                                onChange={(e) =>
-                                  setSelectedServiceIds((prev) => ({ ...prev, [s.id]: e.target.checked }))
-                                }
-                              />
-                              <span className="text-sm text-slate-700 group-hover:text-purple-700">{s.name}</span>
-                            </label>
-                          ))}
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                </div>
-              )}
             </form>
 
             {/* Footer */}
