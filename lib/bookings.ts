@@ -9,7 +9,7 @@ export type BookingInput = {
   notes?: string;
   serviceId: string | number;
   serviceName?: string;
-  staffId: string;
+  staffId?: string | null; // Optional - allows booking without specific staff
   staffName?: string;
   branchId: string;
   branchName?: string;

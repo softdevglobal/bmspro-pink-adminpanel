@@ -641,7 +641,7 @@ export default function BookingsPage() {
   };
   const handleConfirmBooking = () => {
     const app = appRef();
-    if (!bkServiceId || !bkStaffId || !bkBranchId || !bkDate || !bkTime) return;
+    if (!bkServiceId || !bkBranchId || !bkDate || !bkTime) return;
     setSubmittingBooking(true);
     const service =
       servicesList.find((s) => String(s.id) === String(bkServiceId)) ||
@@ -651,15 +651,15 @@ export default function BookingsPage() {
       (service as any)?.name ||
       "";
     const branchName = branches.find((b: any) => String(b.id) === String(bkBranchId))?.name || "";
-    const staffName = staffList.find((s: any) => String(s.id) === String(bkStaffId))?.name || "";
+    const staffName = bkStaffId ? staffList.find((s: any) => String(s.id) === String(bkStaffId))?.name || "" : "";
     const client = bkClientName?.trim() || "Walk-in";
     const newBooking = {
       id: Date.now(),
       client,
       serviceId: bkServiceId as any,
       serviceName,
-      staffId: bkStaffId,
-      staffName,
+      staffId: bkStaffId || null,
+      staffName: staffName || "Any Available",
       branchId: bkBranchId,
       branchName,
       date: formatLocalYmd(bkDate),
@@ -1097,9 +1097,9 @@ export default function BookingsPage() {
                     Back
                   </button>
                   <button
-                    disabled={!bkDate || !bkTime || !bkStaffId}
+                    disabled={!bkDate || !bkTime}
                     onClick={() => setBkStep(3)}
-                    className={`px-5 py-2 rounded-lg text-white font-semibold ${bkDate && bkTime && bkStaffId ? "bg-pink-600 hover:bg-pink-700" : "bg-slate-300 cursor-not-allowed"}`}
+                    className={`px-5 py-2 rounded-lg text-white font-semibold ${bkDate && bkTime ? "bg-pink-600 hover:bg-pink-700" : "bg-slate-300 cursor-not-allowed"}`}
                   >
                     Continue to Details
                   </button>
@@ -1163,7 +1163,7 @@ export default function BookingsPage() {
                   <div className="bg-pink-50 rounded-xl border border-pink-100 p-4 space-y-3 text-sm">
                     <div className="flex justify-between"><span className="text-slate-500">Branch</span><span className="font-semibold text-slate-800">{branches.find((b: any) => b.id === bkBranchId)?.name || "-"}</span></div>
                     <div className="flex justify-between"><span className="text-slate-500">Service</span><span className="font-semibold text-slate-800">{servicesList.find((s: any) => String(s.id) === String(bkServiceId))?.name || "-"}</span></div>
-                    <div className="flex justify-between"><span className="text-slate-500">Staff</span><span className="font-semibold text-slate-800">{staffList.find((s: any) => s.id === bkStaffId)?.name || "-"}</span></div>
+                    <div className="flex justify-between"><span className="text-slate-500">Staff</span><span className="font-semibold text-slate-800">{bkStaffId ? staffList.find((s: any) => s.id === bkStaffId)?.name : <span className="text-slate-500 italic">Any Available</span>}</span></div>
                     <div className="flex justify-between"><span className="text-slate-500">Date</span><span className="font-semibold text-slate-800">{bkDate ? bkDate.toLocaleDateString() : "-"}</span></div>
                     <div className="flex justify-between"><span className="text-slate-500">Time</span><span className="font-semibold text-slate-800">{bkTime || "-"}</span></div>
                     <div className="flex justify-between"><span className="text-slate-500">Price</span><span className="font-bold text-pink-600">${servicesList.find((s: any) => String(s.id) === String(bkServiceId))?.price || 0}</span></div>
@@ -1175,9 +1175,9 @@ export default function BookingsPage() {
                     Back
                   </button>
                   <button
-                    disabled={!bkBranchId || !bkServiceId || !bkStaffId || !bkDate || !bkTime || submittingBooking}
+                    disabled={!bkBranchId || !bkServiceId || !bkDate || !bkTime || submittingBooking}
                     onClick={handleConfirmBooking}
-                    className={`px-5 py-2 rounded-lg text-white font-semibold ${bkBranchId && bkServiceId && bkStaffId && bkDate && bkTime && !submittingBooking ? "bg-pink-600 hover:bg-pink-700" : "bg-slate-300 cursor-not-allowed"}`}
+                    className={`px-5 py-2 rounded-lg text-white font-semibold ${bkBranchId && bkServiceId && bkDate && bkTime && !submittingBooking ? "bg-pink-600 hover:bg-pink-700" : "bg-slate-300 cursor-not-allowed"}`}
                   >
                     {submittingBooking ? <span className="inline-flex items-center"><i className="fas fa-spinner animate-spin mr-2" /> Confirming…</span> : "Confirm Booking"}
                   </button>
