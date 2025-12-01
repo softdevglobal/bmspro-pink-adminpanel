@@ -17,7 +17,7 @@ export default function BookingsPage() {
   const [chartReady, setChartReady] = useState(false);
 
   // Booking wizard state
-  const [bkStep, setBkStep] = useState<1 | 2 | 3 | 4 | 5>(1);
+  const [bkStep, setBkStep] = useState<1 | 2 | 3>(1);
   const [bkBranchId, setBkBranchId] = useState<string | null>(null);
   const [bkServiceId, setBkServiceId] = useState<number | null>(null);
   const [bkStaffId, setBkStaffId] = useState<string | null>(null);
@@ -604,17 +604,21 @@ export default function BookingsPage() {
   };
   const computeSlots = () => {
     const app = appRef();
-    if (!bkServiceId || !bkStaffId || !bkDate) return [];
+    // Only need service and date to show time slots (staff is optional)
+    if (!bkServiceId || !bkDate) return [];
     const service =
       servicesList.find((s) => String(s.id) === String(bkServiceId)) ||
       (app ? app.data.services.find((s: any) => String(s.id) === String(bkServiceId)) : null);
     // If service not found or has no duration, fall back to 60 mins so slots still show
     const duration = Number((service as any)?.duration) || 60;
-    const occupied = app
+    
+    // If staff is selected, filter out occupied slots for that staff
+    const occupied = app && bkStaffId
       ? app.data.bookings
           .filter((b: any) => b.staffId === bkStaffId && b.date === formatLocalYmd(bkDate) && b.status !== "Canceled")
           .map((b: any) => ({ start: b.time, end: calculateEndTime(b.time, b.duration) }))
       : [];
+    
     const startHour = 9;
     const endHour = 17;
     const interval = 30;
@@ -816,253 +820,295 @@ export default function BookingsPage() {
 
       {/* Booking Modal - New Multi-step Wizard */}
       <div id="modal-booking" className="modal-backdrop">
-        <div className="bg-white rounded-2xl shadow-2xl w-full max-w-3xl mx-4 sm:mx-0 max-h-[92vh] overflow-y-auto">
-          <div className="bg-gradient-to-r from-pink-500 to-fuchsia-600 text-white p-5 flex justify-between items-center rounded-t-2xl">
-            <h3 className="font-bold">Book an Appointment</h3>
-            <button onClick={() => appRef()?.closeModal("booking")} className="text-white/80 hover:text-white">
-              <i className="fas fa-xmark" />
+        <div className="bg-white rounded-2xl shadow-2xl w-full max-w-3xl mx-4 sm:mx-0 max-h-[92vh] flex flex-col">
+          {/* Fixed Header */}
+          <div className="bg-gradient-to-r from-pink-500 to-fuchsia-600 text-white p-4 sm:p-5 flex justify-between items-center rounded-t-2xl shrink-0">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-lg bg-white/20 flex items-center justify-center">
+                <i className="fas fa-calendar-check" />
+              </div>
+              <h3 className="font-bold text-lg">Book an Appointment</h3>
+            </div>
+            <button onClick={() => appRef()?.closeModal("booking")} className="text-white/80 hover:text-white transition w-8 h-8 rounded-lg hover:bg-white/10 flex items-center justify-center">
+              <i className="fas fa-xmark text-xl" />
             </button>
           </div>
 
-          {/* Stepper */}
-          <div className="px-6 pt-5">
-            <div className="flex items-center justify-between max-w-xl mx-auto mb-4">
-              {[1, 2, 3, 4, 5].map((n, i) => (
-                <div key={n} className="flex-1 flex items-center">
-                  <div className={`w-8 h-8 rounded-full flex items-center justify-center text-sm font-bold ${bkStep >= (n as any) ? "bg-pink-600 text-white" : "bg-slate-200 text-slate-600"}`}>{n}</div>
-                  {i < 4 && <div className={`h-1 flex-1 mx-2 rounded ${bkStep > (n as any) ? "bg-pink-500" : "bg-slate-200"}`} />}
+          {/* Fixed Stepper */}
+          <div className="px-4 sm:px-6 pt-4 sm:pt-5 pb-4 bg-slate-50 border-b border-slate-200 shrink-0">
+            <div className="flex items-center justify-between max-w-xl mx-auto">
+              {[
+                { num: 1, label: "Branch & Service" },
+                { num: 2, label: "Date, Time & Staff" },
+                { num: 3, label: "Confirm Details" }
+              ].map((step, i) => (
+                <div key={step.num} className="flex-1 flex items-center">
+                  <div className="flex flex-col items-center gap-1">
+                    <div className={`w-10 h-10 sm:w-12 sm:h-12 rounded-full flex items-center justify-center text-sm font-bold transition-all ${bkStep >= step.num ? "bg-gradient-to-br from-pink-600 to-purple-600 text-white shadow-lg" : "bg-white border-2 border-slate-300 text-slate-500"}`}>
+                      {bkStep > step.num ? <i className="fas fa-check" /> : step.num}
+                    </div>
+                    <span className="text-[10px] text-slate-600 font-semibold hidden sm:block text-center whitespace-nowrap">{step.label}</span>
+                  </div>
+                  {i < 2 && <div className={`h-1 flex-1 mx-1 sm:mx-2 rounded transition-all ${bkStep > step.num ? "bg-gradient-to-r from-pink-500 to-purple-500" : "bg-slate-300"}`} />}
                 </div>
               ))}
             </div>
           </div>
 
-          <div className="p-6 pt-2">
-            {/* Step 1 - Branch */}
+          {/* Scrollable Content */}
+          <div className="flex-1 overflow-y-auto p-4 sm:p-6 custom-scrollbar">
+            {/* Step 1 - Branch & Service (Combined) */}
             {bkStep === 1 && (
-              <div>
-                <div className="font-bold text-slate-700 mb-3">Select Location</div>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  {branches.map((b: any) => {
-                    const selected = bkBranchId === b.id;
-                    return (
-                      <button
-                        key={b.id}
-                        onClick={() => setBkBranchId(b.id)}
-                        className={`text-left border rounded-2xl p-4 hover:shadow transition ${selected ? "border-pink-400 bg-pink-50" : "border-slate-200 bg-white"}`}
-                      >
-                        <div className="flex items-center gap-3">
-                          <div className="w-9 h-9 rounded-lg bg-pink-100 text-pink-600 flex items-center justify-center">
-                            <i className="fas fa-location-dot" />
-                          </div>
-                          <div className="font-semibold text-slate-800">{b.name}</div>
-                        </div>
-                        {b.address && <div className="text-xs text-slate-500 mt-2">{b.address}</div>}
-                      </button>
-                    );
-                  })}
-                </div>
-                <div className="mt-5 flex justify-end">
-                  <button
-                    disabled={!bkBranchId}
-                    onClick={() => setBkStep(2)}
-                    className={`px-5 py-2 rounded-lg text-white font-semibold ${bkBranchId ? "bg-pink-600 hover:bg-pink-700" : "bg-slate-300 cursor-not-allowed"}`}
-                  >
-                    Continue to Services
-                  </button>
-                </div>
-              </div>
-            )}
-
-            {/* Step 2 - Services */}
-            {bkStep === 2 && (
-              <div>
-                <div className="font-bold text-slate-700 mb-3">Select Service</div>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  {servicesList
-                    .filter((s: any) => s && (!bkBranchId || !s.branches || s.branches.includes(bkBranchId)))
-                    .map((s: any) => {
-                      const selected = bkServiceId === s.id;
-                      return (
-                        <button
-                          key={s.id}
-                          onClick={() => setBkServiceId(s.id)}
-                          className={`text-left border rounded-2xl p-4 hover:shadow transition ${selected ? "border-pink-400 bg-pink-50" : "border-slate-200 bg-white"}`}
-                        >
-                          <div className="flex items-center justify-between gap-3">
-                            <div className="flex items-center gap-3">
-                              <div className="w-9 h-9 rounded-lg bg-pink-100 text-pink-600 flex items-center justify-center">
-                                <i className={s.icon || "fa-solid fa-star"} />
-                              </div>
-                              <div>
-                                <div className="font-semibold text-slate-800">{s.name}</div>
-                                <div className="text-xs text-slate-500">{s.duration} mins</div>
-                              </div>
-                            </div>
-                            <div className="text-pink-600 font-bold">${s.price}</div>
-                          </div>
-                        </button>
-                      );
-                    })}
-                </div>
-                <div className="mt-5 flex justify-between">
-                  <button onClick={() => setBkStep(1)} className="px-5 py-2 rounded-lg border border-slate-300 text-slate-700 hover:bg-slate-50">
-                    Back
-                  </button>
-                  <button
-                    disabled={!bkServiceId}
-                    onClick={() => setBkStep(3)}
-                    className={`px-5 py-2 rounded-lg text-white font-semibold ${bkServiceId ? "bg-pink-600 hover:bg-pink-700" : "bg-slate-300 cursor-not-allowed"}`}
-                  >
-                    Continue
-                  </button>
-                </div>
-              </div>
-            )}
-
-            {/* Step 3 - Staff */}
-            {bkStep === 3 && (
-              <div>
-                <div className="font-bold text-slate-700 mb-3">Choose Your Stylist (Optional)</div>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  {staffList
-                    .filter(
-                      (st: any) => {
-                        // Must be active
-                        if (st.status !== "Active") return false;
-                        
-                        // Must be at the selected branch
-                        if (bkBranchId && st.branchId !== bkBranchId && st.branch !== branches.find((b: any) => b.id === bkBranchId)?.name) {
-                          return false;
-                        }
-                        
-                        // Must be qualified for the selected service
-                        if (bkServiceId) {
-                          const selectedService = servicesList.find((s) => s.id === bkServiceId);
-                          if (selectedService?.staffIds && selectedService.staffIds.length > 0) {
-                            // Only show staff who are in the service's qualified staff list
-                            return selectedService.staffIds.includes(st.id);
-                          }
-                        }
-                        
-                        return true;
-                      }
-                    )
-                    .map((st: any) => {
-                      const selected = bkStaffId === st.id;
-                      return (
-                        <button
-                          key={st.id}
-                          onClick={() => setBkStaffId(st.id)}
-                          className={`text-left border rounded-2xl p-4 hover:shadow transition flex items-center gap-3 ${selected ? "border-pink-400 bg-pink-50" : "border-slate-200 bg-white"}`}
-                        >
-                          <img src={`https://api.dicebear.com/7.x/avataaars/svg?seed=${encodeURIComponent(st.avatar || st.name)}`} className="w-10 h-10 rounded-full bg-slate-100" alt="" />
-                          <div className="min-w-0">
-                            <div className="font-semibold text-slate-800 truncate">{st.name}</div>
-                            <div className="text-xs text-slate-500 truncate">{st.role}</div>
-                          </div>
-                          <span className="ml-auto text-xs px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-700">Available</span>
-                        </button>
-                      );
-                    })}
-                </div>
-                <div className="mt-5 flex justify-between">
-                  <button onClick={() => setBkStep(2)} className="px-5 py-2 rounded-lg border border-slate-300 text-slate-700 hover:bg-slate-50">
-                    Back
-                  </button>
-                  <button
-                    disabled={!bkStaffId}
-                    onClick={() => setBkStep(4)}
-                    className={`px-5 py-2 rounded-lg text-white font-semibold ${bkStaffId ? "bg-pink-600 hover:bg-pink-700" : "bg-slate-300 cursor-not-allowed"}`}
-                  >
-                    Continue
-                  </button>
-                </div>
-              </div>
-            )}
-
-            {/* Step 4 - Calendar & Time */}
-            {bkStep === 4 && (
-              <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+              <div className="space-y-6">
+                {/* Branch Selection */}
                 <div>
-                  <div className="flex items-center justify-between mb-3">
-                    <div className="font-bold text-slate-700">Pick a Date</div>
-                    <div className="flex items-center gap-2">
-                      <button onClick={goPrevMonth} className="w-8 h-8 rounded bg-slate-100 hover:bg-slate-200 text-slate-700">
-                        <i className="fas fa-chevron-left" />
-                      </button>
-                      <div className="text-sm font-semibold text-slate-800 px-2">{monthName}</div>
-                      <button onClick={goNextMonth} className="w-8 h-8 rounded bg-slate-100 hover:bg-slate-200 text-slate-700">
-                        <i className="fas fa-chevron-right" />
-                      </button>
-                    </div>
+                  <div className="font-bold text-slate-700 mb-3 flex items-center gap-2">
+                    <i className="fas fa-map-marker-alt text-pink-600" />
+                    Select Location
                   </div>
-                  <div className="rounded-lg border border-slate-200 overflow-hidden">
-                    <div className="grid grid-cols-7 text-xs font-semibold bg-slate-50 text-slate-600">
-                      {["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].map((d) => (
-                        <div key={d} className="px-2 py-2 text-center">
-                          {d}
-                        </div>
-                      ))}
-                    </div>
-                    <div className="grid grid-cols-7">
-                      {buildMonthCells().map((c, idx) => {
-                        const isSelected =
-                          c.date && bkDate && bkDate.getFullYear() === c.date.getFullYear() && bkDate.getMonth() === c.date.getMonth() && bkDate.getDate() === c.date.getDate();
-                        const today = new Date();
-                        today.setHours(0, 0, 0, 0);
-                        const isPast = !!(c.date && c.date.getTime() < today.getTime());
-                        const baseClickable = c.date && !isPast ? "cursor-pointer hover:bg-slate-50" : "bg-slate-50/40 cursor-not-allowed opacity-60";
-                        return (
-                          <div
-                            key={idx}
-                            className={`h-16 border border-slate-100 p-2 text-sm ${baseClickable} ${isSelected ? "bg-pink-50 ring-2 ring-pink-500" : ""}`}
-                            onClick={() => c.date && !isPast && (setBkDate(c.date), setBkTime(null))}
-                          >
-                            <div className="flex items-start justify-between">
-                              <span className={`text-slate-700 ${!c.date ? "opacity-0" : ""}`}>{c.label}</span>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    {branches.map((br: any) => {
+                      const selected = bkBranchId === br.id;
+                      return (
+                        <button
+                          key={br.id}
+                          onClick={() => (setBkBranchId(br.id), setBkServiceId(null), setBkStaffId(null), setBkDate(null), setBkTime(null))}
+                          className={`text-left border rounded-lg p-3 hover:shadow-md transition ${selected ? "border-pink-400 bg-pink-50 shadow-md" : "border-slate-200 bg-white"}`}
+                        >
+                          <div className="flex items-center gap-2.5">
+                            <div className={`w-10 h-10 rounded-lg ${selected ? "bg-pink-100" : "bg-slate-100"} flex items-center justify-center shrink-0`}>
+                              <i className={`fas fa-store ${selected ? "text-pink-600" : "text-slate-400"}`} />
                             </div>
+                            <div className="flex-1 min-w-0">
+                              <div className="font-semibold text-slate-800 truncate text-sm">{br.name}</div>
+                              <div className="text-xs text-slate-500 truncate">{br.address}</div>
+                            </div>
+                            {selected && <i className="fas fa-check-circle text-pink-600 shrink-0" />}
                           </div>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                {/* Service Selection */}
+                <div className={!bkBranchId ? "opacity-50 pointer-events-none" : ""}>
+                  <div className="font-bold text-slate-700 mb-3 flex items-center gap-2">
+                    <i className="fas fa-concierge-bell text-purple-600" />
+                    Select Service {!bkBranchId && <span className="text-xs font-normal text-slate-500">(Select branch first)</span>}
+                  </div>
+                  {!bkBranchId ? (
+                    <div className="bg-slate-50 border-2 border-dashed border-slate-300 rounded-lg p-8 text-center">
+                      <i className="fas fa-map-marker-alt text-4xl text-slate-300 mb-2 block" />
+                      <p className="text-slate-500 font-medium text-sm">Select a branch first</p>
+                    </div>
+                  ) : (
+                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                      {servicesList.map((srv: any) => {
+                        const selected = bkServiceId === srv.id;
+                        return (
+                          <button
+                            key={srv.id}
+                            onClick={() => (setBkServiceId(srv.id), setBkStaffId(null), setBkDate(null), setBkTime(null))}
+                            className={`text-left border rounded-lg p-3 hover:shadow-md transition ${selected ? "border-purple-400 bg-purple-50 shadow-md" : "border-slate-200 bg-white"}`}
+                          >
+                            <div className="flex items-center gap-2.5">
+                              <div className={`w-10 h-10 rounded-lg ${selected ? "bg-purple-100" : "bg-slate-100"} flex items-center justify-center shrink-0 overflow-hidden`}>
+                                {srv.imageUrl ? (
+                                  <img src={srv.imageUrl} alt={srv.name} className="w-full h-full object-cover" />
+                                ) : (
+                                  <i className={`fas fa-cut ${selected ? "text-purple-600" : "text-slate-400"}`} />
+                                )}
+                              </div>
+                              <div className="flex-1 min-w-0">
+                                <div className="font-semibold text-slate-800 truncate text-sm">{srv.name}</div>
+                                <div className="text-xs text-slate-500">{srv.duration} min • ${srv.price}</div>
+                              </div>
+                              {selected && <i className="fas fa-check-circle text-purple-600 shrink-0" />}
+                            </div>
+                          </button>
                         );
                       })}
                     </div>
-                  </div>
+                  )}
                 </div>
-                <div>
-                  <div className="font-bold text-slate-700 mb-2">Select a Time</div>
-                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 max-h-56 overflow-y-auto p-2 bg-slate-50 rounded-lg border border-slate-200">
-                    {computeSlots().length === 0 ? (
-                      <p className="col-span-3 text-center text-slate-400 text-xs py-2">Select date, service and staff to see available slots.</p>
-                    ) : (
-                      computeSlots().map((t) => (
-                        <button
-                          key={t}
-                          onClick={() => setBkTime(t)}
-                          className={`time-slot text-sm ${bkTime === t ? "selected" : ""}`}
-                          style={{ padding: "0.5rem" }}
-                        >
-                          {t}
-                        </button>
-                      ))
-                    )}
-                  </div>
-                  <div className="mt-5 flex justify-between">
-                    <button onClick={() => setBkStep(3)} className="px-5 py-2 rounded-lg border border-slate-300 text-slate-700 hover:bg-slate-50">
-                      Back
-                    </button>
-                    <button
-                      disabled={!bkDate || !bkTime}
-                      onClick={() => setBkStep(5)}
-                      className={`px-5 py-2 rounded-lg text-white font-semibold ${bkDate && bkTime ? "bg-pink-600 hover:bg-pink-700" : "bg-slate-300 cursor-not-allowed"}`}
-                    >
-                      Continue
-                    </button>
-                  </div>
+
+                {/* Navigation */}
+                <div className="flex justify-end pt-2 border-t border-slate-200">
+                  <button
+                    disabled={!bkBranchId || !bkServiceId}
+                    onClick={() => setBkStep(2)}
+                    className={`px-5 py-2 rounded-lg text-white font-semibold ${bkBranchId && bkServiceId ? "bg-gradient-to-r from-pink-600 to-purple-600 hover:shadow-lg" : "bg-slate-300 cursor-not-allowed"}`}
+                  >
+                    Continue to Date & Time
+                  </button>
                 </div>
               </div>
             )}
 
-            {/* Step 5 - Customer Details + Summary */}
-            {bkStep === 5 && (
+            {/* Step 2 - Date, Time & Staff */}
+            {bkStep === 2 && (
+              <div>
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                  {/* Left Column: Date & Time */}
+                  <div className="space-y-3">
+                    {/* Date Selection - Compact */}
+                    <div>
+                      <div className="flex items-center justify-between mb-2">
+                        <div className="font-bold text-slate-700 text-sm">Pick a Date</div>
+                        <div className="flex items-center gap-1">
+                          <button onClick={goPrevMonth} className="w-7 h-7 rounded bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs">
+                            <i className="fas fa-chevron-left" />
+                          </button>
+                          <div className="text-xs font-semibold text-slate-800 px-2">{monthName}</div>
+                          <button onClick={goNextMonth} className="w-7 h-7 rounded bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs">
+                            <i className="fas fa-chevron-right" />
+                          </button>
+                        </div>
+                      </div>
+                      <div className="rounded-lg border border-slate-200 overflow-hidden">
+                        <div className="grid grid-cols-7 text-[10px] font-semibold bg-slate-50 text-slate-600">
+                          {["S", "M", "T", "W", "T", "F", "S"].map((d, i) => (
+                            <div key={i} className="px-1 py-1.5 text-center">
+                              {d}
+                            </div>
+                          ))}
+                        </div>
+                        <div className="grid grid-cols-7">
+                          {buildMonthCells().map((c, idx) => {
+                            const isSelected =
+                              c.date && bkDate && bkDate.getFullYear() === c.date.getFullYear() && bkDate.getMonth() === c.date.getMonth() && bkDate.getDate() === c.date.getDate();
+                            const today = new Date();
+                            today.setHours(0, 0, 0, 0);
+                            const isPast = !!(c.date && c.date.getTime() < today.getTime());
+                            const baseClickable = c.date && !isPast ? "cursor-pointer hover:bg-slate-50" : "bg-slate-50/40 cursor-not-allowed opacity-60";
+                            return (
+                              <div
+                                key={idx}
+                                className={`h-10 border border-slate-100 p-1 text-xs flex items-center justify-center ${baseClickable} ${isSelected ? "bg-pink-50 ring-2 ring-pink-500 font-bold" : ""}`}
+                                onClick={() => c.date && !isPast && (setBkDate(c.date), setBkTime(null))}
+                              >
+                                <span className={`text-slate-700 ${!c.date ? "opacity-0" : ""}`}>{c.label}</span>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Time Selection - Compact */}
+                    <div>
+                      <div className="font-bold text-slate-700 mb-2 flex items-center gap-2 text-sm">
+                        <i className="fas fa-clock text-purple-600" />
+                        Select a Time
+                      </div>
+                      <div className="grid grid-cols-4 gap-1.5 max-h-40 overflow-y-auto p-2 bg-gradient-to-br from-purple-50 to-pink-50 rounded-lg border-2 border-purple-200 custom-scrollbar">
+                        {!bkDate ? (
+                          <div className="col-span-4 text-center text-slate-400 text-xs py-4">
+                            <i className="fas fa-calendar-day text-2xl mb-1 block text-slate-300" />
+                            Select date first
+                          </div>
+                        ) : computeSlots().length === 0 ? (
+                          <div className="col-span-4 text-center text-slate-400 text-xs py-4">
+                            <i className="fas fa-clock text-2xl mb-1 block text-slate-300" />
+                            No slots available
+                          </div>
+                        ) : (
+                          computeSlots().map((t) => (
+                            <button
+                              key={t}
+                              onClick={() => setBkTime(t)}
+                              className={`py-2 px-1 rounded-md font-semibold text-xs transition-all ${
+                                bkTime === t 
+                                  ? "bg-gradient-to-r from-pink-600 to-purple-600 text-white shadow-md" 
+                                  : "bg-white text-slate-700 border border-purple-200 hover:border-pink-400"
+                              }`}
+                            >
+                              {t}
+                            </button>
+                          ))
+                        )}
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Right Column: Staff Selection - Compact */}
+                  <div>
+                    <div className="font-bold text-slate-700 mb-2 flex items-center gap-2 text-sm">
+                      <i className="fas fa-user-tie text-pink-600" />
+                      Choose Stylist {!bkDate || !bkTime ? "" : "(Optional)"}
+                    </div>
+                    <div className={`space-y-2 max-h-[400px] overflow-y-auto custom-scrollbar pr-1 ${!bkDate || !bkTime ? "opacity-50 pointer-events-none" : ""}`}>
+                      {!bkDate || !bkTime ? (
+                        <div className="bg-slate-50 border-2 border-dashed border-slate-300 rounded-lg p-6 text-center">
+                          <i className="fas fa-calendar-clock text-4xl text-slate-300 mb-2 block" />
+                          <p className="text-slate-500 font-medium text-sm mb-1">Select Date & Time First</p>
+                          <p className="text-xs text-slate-400">Then choose your preferred stylist</p>
+                        </div>
+                      ) : (
+                        staffList
+                          .filter(
+                            (st: any) => {
+                              // Must be active
+                              if (st.status !== "Active") return false;
+                              
+                              // Must be at the selected branch
+                              if (bkBranchId && st.branchId !== bkBranchId && st.branch !== branches.find((b: any) => b.id === bkBranchId)?.name) {
+                                return false;
+                              }
+                              
+                              // Must be qualified for the selected service
+                              if (bkServiceId) {
+                                const selectedService = servicesList.find((s) => s.id === bkServiceId);
+                                if (selectedService?.staffIds && selectedService.staffIds.length > 0) {
+                                  // Only show staff who are in the service's qualified staff list
+                                  return selectedService.staffIds.includes(st.id);
+                                }
+                              }
+                              
+                              return true;
+                            }
+                          )
+                          .map((st: any) => {
+                            const selected = bkStaffId === st.id;
+                            return (
+                              <button
+                                key={st.id}
+                                onClick={() => setBkStaffId(st.id)}
+                                className={`w-full text-left border rounded-lg p-2.5 hover:shadow transition flex items-center gap-2.5 ${selected ? "border-pink-400 bg-pink-50 shadow-md" : "border-slate-200 bg-white"}`}
+                              >
+                                <img src={`https://api.dicebear.com/7.x/avataaars/svg?seed=${encodeURIComponent(st.avatar || st.name)}`} className="w-9 h-9 rounded-full bg-slate-100 shrink-0" alt="" />
+                                <div className="flex-1 min-w-0">
+                                  <div className="font-semibold text-slate-800 truncate text-sm">{st.name}</div>
+                                  <div className="text-xs text-slate-500 truncate">{st.role}</div>
+                                </div>
+                                {selected && <i className="fas fa-check-circle text-pink-600 text-sm shrink-0" />}
+                              </button>
+                            );
+                          })
+                      )}
+                    </div>
+                  </div>
+                </div>
+
+                {/* Navigation */}
+                <div className="flex justify-between pt-3 mt-2 border-t border-slate-200">
+                  <button onClick={() => setBkStep(1)} className="px-5 py-2 rounded-lg border border-slate-300 text-slate-700 hover:bg-slate-50 font-medium">
+                    Back
+                  </button>
+                  <button
+                    disabled={!bkDate || !bkTime || !bkStaffId}
+                    onClick={() => setBkStep(3)}
+                    className={`px-5 py-2 rounded-lg text-white font-semibold ${bkDate && bkTime && bkStaffId ? "bg-pink-600 hover:bg-pink-700" : "bg-slate-300 cursor-not-allowed"}`}
+                  >
+                    Continue to Details
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {/* Step 3 - Customer Details + Summary */}
+            {bkStep === 3 && (
               <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
                 {/* Customer Details Form */}
                 <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-6">
@@ -1125,7 +1171,7 @@ export default function BookingsPage() {
                 </div>
 
                 <div className="lg:col-span-2 mt-1 flex justify-between">
-                  <button disabled={submittingBooking} onClick={() => setBkStep(4)} className={`px-5 py-2 rounded-lg border border-slate-300 ${submittingBooking ? "text-slate-400 cursor-not-allowed" : "text-slate-700 hover:bg-slate-50"}`}>
+                  <button disabled={submittingBooking} onClick={() => setBkStep(2)} className={`px-5 py-2 rounded-lg border border-slate-300 ${submittingBooking ? "text-slate-400 cursor-not-allowed" : "text-slate-700 hover:bg-slate-50"} font-medium`}>
                     Back
                   </button>
                   <button
@@ -1152,9 +1198,6 @@ export default function BookingsPage() {
         .status-Pending { background-color: #fef9c3; color: #a16207; }
         .status-Canceled { background-color: #fee2e2; color: #b91c1c; }
         .status-Completed { background-color: #e0f2fe; color: #075985; }
-        .time-slot { background-color: #f1f5f9; border: 1px solid #e2e8f0; border-radius: 0.5rem; padding: 0.5rem; cursor: pointer; text-align: center; color: #0f172a; }
-        .time-slot:hover { background-color: #e2e8f0; }
-        .time-slot.selected { background-color: #ec4899; color: #fff; border-color: #db2777; }
       `}</style>
     </>
   );
