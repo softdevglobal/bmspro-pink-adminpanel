@@ -37,10 +37,16 @@ function useBookingsByStatus(status: BookingStatus) {
     const ensureAuth = async () => {
       const user = auth.currentUser;
       if (user?.uid) return user.uid;
-      return new Promise<string>((resolve) => {
-        const off = auth.onAuthStateChanged((u) => {
+      return new Promise<string>((resolve, reject) => {
+        let off: (() => void) | null = null;
+        const timeout = setTimeout(() => {
+          if (off) off();
+          reject(new Error("Authentication timeout"));
+        }, 10000); // 10 second timeout
+        off = auth.onAuthStateChanged((u) => {
           if (u?.uid) {
-            off();
+            clearTimeout(timeout);
+            if (off) off();
             resolve(u.uid);
           }
         });
@@ -48,11 +54,15 @@ function useBookingsByStatus(status: BookingStatus) {
     };
 
     (async () => {
-      const ownerUid = await ensureAuth();
-      if (cancelled) return;
-      // Avoid composite index requirement by not ordering in Firestore; we'll sort client-side
+      try {
+        const ownerUid = await ensureAuth();
+        if (cancelled) return;
+      
+      // Query only "bookings" collection (booking engine now saves directly to bookings)
       const q = query(collection(db, "bookings"), where("ownerUid", "==", ownerUid));
       unsub = onSnapshot(q, (snap) => {
+        if (cancelled) return;
+        
         let next: Row[] = [];
         snap.forEach((doc) => {
           const d = doc.data() as any;
@@ -84,6 +94,7 @@ function useBookingsByStatus(status: BookingStatus) {
         setRows(next);
         setLoading(false);
       }, (e) => {
+        if (cancelled) return;
         if (e?.code === "permission-denied") {
           console.warn("Permission denied for bookings query. User may not be authenticated.");
           setError("Permission denied. Please check your authentication.");
@@ -93,6 +104,13 @@ function useBookingsByStatus(status: BookingStatus) {
         }
         setLoading(false);
       });
+      } catch (authError: any) {
+        if (cancelled) return;
+        console.error("Authentication error:", authError);
+        setError("Authentication failed. Please log in again.");
+        setLoading(false);
+        setRows([]);
+      }
     })();
 
     return () => {
