@@ -114,9 +114,22 @@ export function subscribeBookingsForOwner(
   onChange: (rows: Array<{ id: string } & DocumentData>) => void
 ) {
   const q = query(collection(db, "bookings"), where("ownerUid", "==", ownerUid));
-  return onSnapshot(q, (snap) => {
-    onChange(snap.docs.map((d) => ({ id: d.id, ...(d.data() as DocumentData) })));
-  });
+  return onSnapshot(
+    q,
+    (snap) => {
+      onChange(snap.docs.map((d) => ({ id: d.id, ...(d.data() as DocumentData) })));
+    },
+    (error) => {
+      // Handle permission errors gracefully
+      if (error.code === "permission-denied") {
+        console.warn("Permission denied for bookings query. User may not be authenticated.");
+        onChange([]); // Return empty array instead of crashing
+      } else {
+        console.error("Error in bookings snapshot:", error);
+        onChange([]);
+      }
+    }
+  );
 }
 
 

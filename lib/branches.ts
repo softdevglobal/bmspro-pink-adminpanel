@@ -90,7 +90,19 @@ export function subscribeBranchesForOwner(
   onChange: (rows: Array<{ id: string } & DocumentData>) => void
 ) {
   const q = query(collection(db, "branches"), where("ownerUid", "==", ownerUid));
-  return onSnapshot(q, (snap) => {
-    onChange(snap.docs.map((d) => ({ id: d.id, ...(d.data() as DocumentData) })));
-  });
+  return onSnapshot(
+    q,
+    (snap) => {
+      onChange(snap.docs.map((d) => ({ id: d.id, ...(d.data() as DocumentData) })));
+    },
+    (error) => {
+      if (error.code === "permission-denied") {
+        console.warn("Permission denied for branches query. User may not be authenticated.");
+        onChange([]);
+      } else {
+        console.error("Error in branches snapshot:", error);
+        onChange([]);
+      }
+    }
+  );
 }

@@ -73,35 +73,47 @@ export default function CustomersPage() {
   useEffect(() => {
     if (!ownerUid) return;
     const q = query(collection(db, "bookings"), where("ownerUid", "==", ownerUid));
-    const unsub = onSnapshot(q, (snap) => {
-      const map = new Map<string, Customer>();
-      snap.forEach((doc) => {
-        const d = doc.data() as any;
-        const name = String(d.client || "").trim();
-        const email = (d.clientEmail || undefined) as string | undefined;
-        const phone = (d.clientPhone || undefined) as string | undefined;
-        if (!name && !email && !phone) return;
-        const key = (email || phone || name).toString().toLowerCase();
-        const date = String(d.date || "");
-        const existing = map.get(key);
-        if (!existing) {
-          map.set(key, {
-            id: key,
-            name: name || email || phone || "Customer",
-            email,
-            phone,
-            visits: 1,
-            lastVisit: date || undefined,
-            status: "Active",
-          });
+    const unsub = onSnapshot(
+      q,
+      (snap) => {
+        const map = new Map<string, Customer>();
+        snap.forEach((doc) => {
+          const d = doc.data() as any;
+          const name = String(d.client || "").trim();
+          const email = (d.clientEmail || undefined) as string | undefined;
+          const phone = (d.clientPhone || undefined) as string | undefined;
+          if (!name && !email && !phone) return;
+          const key = (email || phone || name).toString().toLowerCase();
+          const date = String(d.date || "");
+          const existing = map.get(key);
+          if (!existing) {
+            map.set(key, {
+              id: key,
+              name: name || email || phone || "Customer",
+              email,
+              phone,
+              visits: 1,
+              lastVisit: date || undefined,
+              status: "Active",
+            });
+          } else {
+            existing.visits = (existing.visits || 0) + 1;
+            if ((existing.lastVisit || "") < date) existing.lastVisit = date;
+          }
+        });
+        // Save aggregate from bookings
+        setBookingsAgg(Array.from(map.values()));
+      },
+      (error) => {
+        if (error.code === "permission-denied") {
+          console.warn("Permission denied for customers bookings query.");
+          setBookingsAgg([]);
         } else {
-          existing.visits = (existing.visits || 0) + 1;
-          if ((existing.lastVisit || "") < date) existing.lastVisit = date;
+          console.error("Error in customers bookings snapshot:", error);
+          setBookingsAgg([]);
         }
-      });
-      // Save aggregate from bookings
-      setBookingsAgg(Array.from(map.values()));
-    });
+      }
+    );
     return () => unsub();
   }, [ownerUid]);
 
@@ -109,14 +121,16 @@ export default function CustomersPage() {
   useEffect(() => {
     if (!ownerUid) return;
     const q = query(collection(db, "customers"), where("ownerUid", "==", ownerUid));
-    const unsub = onSnapshot(q, (snap) => {
-      const list: Customer[] = [];
-      snap.forEach((doc) => {
-        const d = doc.data() as any;
-        list.push({
-          id: String(doc.id),
-          name: String(d.name || d.fullName || d.client || "Customer"),
-          phone: d.phone || d.clientPhone || undefined,
+    const unsub = onSnapshot(
+      q,
+      (snap) => {
+        const list: Customer[] = [];
+        snap.forEach((doc) => {
+          const d = doc.data() as any;
+          list.push({
+            id: String(doc.id),
+            name: String(d.name || d.fullName || d.client || "Customer"),
+            phone: d.phone || d.clientPhone || undefined,
           email: d.email || d.clientEmail || undefined,
           notes: d.notes || undefined,
           visits: typeof d.visits === "number" ? d.visits : undefined,
@@ -125,7 +139,17 @@ export default function CustomersPage() {
         });
       });
       setSavedCustomers(list);
-    });
+    },
+    (error) => {
+      if (error.code === "permission-denied") {
+        console.warn("Permission denied for customers query.");
+        setSavedCustomers([]);
+      } else {
+        console.error("Error in customers snapshot:", error);
+        setSavedCustomers([]);
+      }
+    }
+    );
     return () => unsub();
   }, [ownerUid]);
 

@@ -84,7 +84,13 @@ function useBookingsByStatus(status: BookingStatus) {
         setRows(next);
         setLoading(false);
       }, (e) => {
-        setError(e?.message || "Failed to load bookings");
+        if (e?.code === "permission-denied") {
+          console.warn("Permission denied for bookings query. User may not be authenticated.");
+          setError("Permission denied. Please check your authentication.");
+          setRows([]);
+        } else {
+          setError(e?.message || "Failed to load bookings");
+        }
         setLoading(false);
       });
     })();

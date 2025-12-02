@@ -169,7 +169,19 @@ export function subscribeSalonStaffForOwner(
     where("role", "==", "salon_staff"),
     where("ownerUid", "==", ownerUid)
   );
-  return onSnapshot(q, (snap) => {
-    onChange(snap.docs.map((d) => ({ id: d.id, ...(d.data() as DocumentData) })));
-  });
+  return onSnapshot(
+    q,
+    (snap) => {
+      onChange(snap.docs.map((d) => ({ id: d.id, ...(d.data() as DocumentData) })));
+    },
+    (error) => {
+      if (error.code === "permission-denied") {
+        console.warn("Permission denied for salon staff query. User may not be authenticated.");
+        onChange([]);
+      } else {
+        console.error("Error in salon staff snapshot:", error);
+        onChange([]);
+      }
+    }
+  );
 }

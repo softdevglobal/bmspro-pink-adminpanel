@@ -305,7 +305,15 @@ export default function TenantsPage() {
         setTenants(rows);
         setLoadingTenants(false);
       },
-      () => setLoadingTenants(false)
+      (error) => {
+        if (error.code === "permission-denied") {
+          console.warn("Permission denied for tenants query.");
+          setTenants([]);
+        } else {
+          console.error("Error in tenants snapshot:", error);
+        }
+        setLoadingTenants(false);
+      }
     );
     return () => unsub();
   }, []);

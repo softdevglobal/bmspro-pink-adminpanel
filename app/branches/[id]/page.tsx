@@ -89,41 +89,53 @@ export default function BranchDetailsPage() {
   useEffect(() => {
     if (!ownerUid || !branchId) return;
     setLoading(true);
-    const unsub = onSnapshot(doc(db, "branches", branchId), (d) => {
-      if (!d.exists()) {
-        setBranch(null);
-        setLoading(false);
-        return;
-      }
-      const data = d.data() as any;
-      
-      // Check if branch admin is trying to access a branch they don't manage
-      if (userRole === "salon_branch_admin" && currentUserUid) {
-        const branchAdminId = data.adminStaffId;
-        if (branchAdminId !== currentUserUid) {
-          // Redirect to branches page if they try to access unauthorized branch
-          router.push("/branches");
+    const unsub = onSnapshot(
+      doc(db, "branches", branchId),
+      (d) => {
+        if (!d.exists()) {
+          setBranch(null);
+          setLoading(false);
           return;
         }
+        const data = d.data() as any;
+        
+        // Check if branch admin is trying to access a branch they don't manage
+        if (userRole === "salon_branch_admin" && currentUserUid) {
+          const branchAdminId = data.adminStaffId;
+          if (branchAdminId !== currentUserUid) {
+            // Redirect to branches page if they try to access unauthorized branch
+            router.push("/branches");
+            return;
+          }
+        }
+        
+        const b: Branch = {
+          id: d.id,
+          name: String(data.name || ""),
+          address: String(data.address || ""),
+          revenue: Number(data.revenue || 0),
+          phone: data.phone,
+          email: data.email,
+          hours: data.hours as any,
+          capacity: data.capacity,
+          manager: data.manager,
+          status: (data.status as any) || "Active",
+          staffIds: Array.isArray(data.staffIds) ? data.staffIds.map(String) : [],
+          serviceIds: Array.isArray(data.serviceIds) ? data.serviceIds.map(String) : [],
+        };
+        setBranch(b);
+        setLoading(false);
+      },
+      (error) => {
+        if (error.code === "permission-denied") {
+          console.warn("Permission denied for branch query.");
+          router.replace("/login");
+        } else {
+          console.error("Error in branch snapshot:", error);
+          setLoading(false);
+        }
       }
-      
-      const b: Branch = {
-        id: d.id,
-        name: String(data.name || ""),
-        address: String(data.address || ""),
-        revenue: Number(data.revenue || 0),
-        phone: data.phone,
-        email: data.email,
-        hours: data.hours as any,
-        capacity: data.capacity,
-        manager: data.manager,
-        status: (data.status as any) || "Active",
-        staffIds: Array.isArray(data.staffIds) ? data.staffIds.map(String) : [],
-        serviceIds: Array.isArray(data.serviceIds) ? data.serviceIds.map(String) : [],
-      };
-      setBranch(b);
-      setLoading(false);
-    });
+    );
     return () => unsub();
   }, [ownerUid, branchId, userRole, currentUserUid, router]);
 
@@ -147,7 +159,15 @@ export default function BranchDetailsPage() {
         });
         setBranchBookings(rows);
       },
-      () => setBranchBookings([])
+      (error) => {
+        if (error.code === "permission-denied") {
+          console.warn("Permission denied for branch bookings query.");
+          setBranchBookings([]);
+        } else {
+          console.error("Error in branch bookings snapshot:", error);
+          setBranchBookings([]);
+        }
+      }
     );
     return () => unsub();
   }, [ownerUid, branchId]);

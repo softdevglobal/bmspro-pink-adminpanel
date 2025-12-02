@@ -495,8 +495,19 @@ export default function BookingsPage() {
           if (typeof wapp.renderBookings === "function") wapp.renderBookings();
         } catch {}
       },
-      () => {
-        // ignore errors here; table will just show local defaults
+      (error) => {
+        // Handle permission errors properly instead of silently ignoring
+        if (error.code === "permission-denied") {
+          console.warn("Permission denied for bookings query. User may not be authenticated.");
+          // Optionally redirect to login if not authenticated
+          const { auth } = require("@/lib/firebase");
+          if (!auth.currentUser) {
+            router.replace("/login");
+          }
+        } else {
+          console.error("Error in bookings snapshot:", error);
+        }
+        // Don't crash the app, just log the error
       }
     );
     return () => unsub();

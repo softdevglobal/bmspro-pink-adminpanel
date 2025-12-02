@@ -73,7 +73,9 @@ export default function DashboardPage() {
 
       // Subscribe to bookings
       const bookingsQuery = query(collection(db, "bookings"), where("ownerUid", "==", ownerUid));
-      unsubBookings = onSnapshot(bookingsQuery, (snapshot) => {
+      unsubBookings = onSnapshot(
+        bookingsQuery,
+        (snapshot) => {
         const bookings = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
         
         // Total bookings
@@ -164,21 +166,58 @@ export default function DashboardPage() {
         });
         
         setStatusData(statusCount);
-      });
+      },
+      (error) => {
+        if (error.code === "permission-denied") {
+          console.warn("Permission denied for bookings query.");
+          setTotalBookings(0);
+          setMonthlyRevenue(0);
+          setRevenueGrowth(0);
+          setWeeklyBookings(0);
+          setRevenueData([]);
+          setRevenueLabels([]);
+          setStatusData({ confirmed: 0, pending: 0, completed: 0, canceled: 0 });
+        } else {
+          console.error("Error in bookings snapshot:", error);
+        }
+      }
+      );
 
       // Subscribe to salon staff
       const staffQuery = query(collection(db, "salon_staff"), where("ownerUid", "==", ownerUid));
-      unsubStaff = onSnapshot(staffQuery, (snapshot) => {
-        const staff = snapshot.docs.map(doc => doc.data());
-        const activeCount = staff.filter((s: any) => s.status === "Active").length;
-        setActiveStaff(activeCount);
-      });
+      unsubStaff = onSnapshot(
+        staffQuery,
+        (snapshot) => {
+          const staff = snapshot.docs.map(doc => doc.data());
+          const activeCount = staff.filter((s: any) => s.status === "Active").length;
+          setActiveStaff(activeCount);
+        },
+        (error) => {
+          if (error.code === "permission-denied") {
+            console.warn("Permission denied for staff query.");
+            setActiveStaff(0);
+          } else {
+            console.error("Error in staff snapshot:", error);
+          }
+        }
+      );
 
       // Subscribe to services
       const servicesQuery = query(collection(db, "services"), where("ownerUid", "==", ownerUid));
-      unsubServices = onSnapshot(servicesQuery, (snapshot) => {
-        setActiveServices(snapshot.docs.length);
-      });
+      unsubServices = onSnapshot(
+        servicesQuery,
+        (snapshot) => {
+          setActiveServices(snapshot.docs.length);
+        },
+        (error) => {
+          if (error.code === "permission-denied") {
+            console.warn("Permission denied for services query.");
+            setActiveServices(0);
+          } else {
+            console.error("Error in services snapshot:", error);
+          }
+        }
+      );
     })();
 
     return () => {
@@ -203,23 +242,34 @@ export default function DashboardPage() {
           collection(db, "users"),
           where("role", "==", "salon_owner")
         );
-        unsubTenants = onSnapshot(tenantsQuery, (snapshot) => {
-          const tenants = snapshot.docs
-            .map(doc => ({
-              id: doc.id,
-              ...doc.data(),
-              createdAt: doc.data().createdAt
-            }))
-            .sort((a: any, b: any) => {
-              // Sort by createdAt descending (newest first)
-              const aTime = a.createdAt?.toMillis?.() || 0;
-              const bTime = b.createdAt?.toMillis?.() || 0;
-              return bTime - aTime;
-            })
-            .slice(0, 5); // Get 5 most recent
+        unsubTenants = onSnapshot(
+          tenantsQuery,
+          (snapshot) => {
+            const tenants = snapshot.docs
+              .map(doc => ({
+                id: doc.id,
+                ...doc.data(),
+                createdAt: doc.data().createdAt
+              }))
+              .sort((a: any, b: any) => {
+                // Sort by createdAt descending (newest first)
+                const aTime = a.createdAt?.toMillis?.() || 0;
+                const bTime = b.createdAt?.toMillis?.() || 0;
+                return bTime - aTime;
+              })
+              .slice(0, 5); // Get 5 most recent
           
           setRecentTenants(tenants);
-        });
+        },
+        (error) => {
+          if (error.code === "permission-denied") {
+            console.warn("Permission denied for tenants query.");
+            setRecentTenants([]);
+          } else {
+            console.error("Error in tenants snapshot:", error);
+          }
+        }
+        );
       }
     })();
 

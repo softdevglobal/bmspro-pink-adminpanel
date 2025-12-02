@@ -76,22 +76,24 @@ export default function StaffPreviewPage() {
   useEffect(() => {
     if (!ownerUid || !staffId) return;
     setLoading(true);
-    const unsub = onSnapshot(doc(db, "users", staffId), async (d) => {
-      if (!d.exists()) {
-        setStaff(null);
-        setLoading(false);
-        return;
-      }
-      const s = d.data() as any;
-      const row: Staff = {
-        id: d.id,
-        name: String(s.displayName || s.name || ""),
-        role: String(s.staffRole || s.role || ""),
-        email: s.email || null,
-        status: (s.status as StaffStatus) || "Active",
-        avatar: String(s.avatar || s.name || s.displayName || ""),
-        branchId: s.branchId || undefined,
-        branchName: s.branchName || undefined,
+    const unsub = onSnapshot(
+      doc(db, "users", staffId),
+      async (d) => {
+        if (!d.exists()) {
+          setStaff(null);
+          setLoading(false);
+          return;
+        }
+        const s = d.data() as any;
+        const row: Staff = {
+          id: d.id,
+          name: String(s.displayName || s.name || ""),
+          role: String(s.staffRole || s.role || ""),
+          email: s.email || null,
+          status: (s.status as StaffStatus) || "Active",
+          avatar: String(s.avatar || s.name || s.displayName || ""),
+          branchId: s.branchId || undefined,
+          branchName: s.branchName || undefined,
         training: (s.training as StaffTraining) || {},
         weeklySchedule: (s.weeklySchedule as WeeklySchedule) || {},
       };
@@ -108,7 +110,18 @@ export default function StaffPreviewPage() {
         setBranchHours(null);
       }
       setLoading(false);
-    });
+    },
+    (error) => {
+      if (error.code === "permission-denied") {
+        console.warn("Permission denied for staff query.");
+        setStaff(null);
+        setLoading(false);
+      } else {
+        console.error("Error in staff snapshot:", error);
+        setLoading(false);
+      }
+    }
+    );
     return () => unsub();
   }, [ownerUid, staffId]);
 

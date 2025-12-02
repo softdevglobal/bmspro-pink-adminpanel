@@ -49,9 +49,21 @@ export function subscribeServicesForOwner(
   onChange: (rows: Array<{ id: string } & DocumentData>) => void
 ) {
   const q = query(collection(db, "services"), where("ownerUid", "==", ownerUid));
-  return onSnapshot(q, (snap) => {
-    onChange(snap.docs.map((d) => ({ id: d.id, ...(d.data() as DocumentData) })));
-  });
+  return onSnapshot(
+    q,
+    (snap) => {
+      onChange(snap.docs.map((d) => ({ id: d.id, ...(d.data() as DocumentData) })));
+    },
+    (error) => {
+      if (error.code === "permission-denied") {
+        console.warn("Permission denied for services query. User may not be authenticated.");
+        onChange([]);
+      } else {
+        console.error("Error in services snapshot:", error);
+        onChange([]);
+      }
+    }
+  );
 }
 
 

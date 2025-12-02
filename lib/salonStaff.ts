@@ -106,26 +106,38 @@ export function subscribeSalonStaffForOwner(
   // We filter for roles that are NOT 'salon_owner' just in case, though ownerUid check usually suffices for staff
   const q = query(collection(db, "users"), where("ownerUid", "==", ownerUid));
   
-  return onSnapshot(q, (snap) => {
-    const staffList = snap.docs
-      .map((d) => {
-        const data = d.data();
-        return { 
-          id: d.id, 
-          ...data,
-          // Ensure compatibility with UI which expects 'name' and 'role' (job title)
-          name: data.displayName || data.name || "Unknown",
-          role: data.staffRole || data.role || "Staff", // prioritize job title, fallback to system role
-          systemRole: data.role // 'role' field in users is the system role
-        }; 
-      })
-      // Filter out non-staff if necessary (e.g. customers if they have ownerUid?)
-      // Assuming customers don't have ownerUid or are in a different collection/structure.
-      // We only want staff-like roles.
-      .filter(u => ["salon_staff", "salon_branch_admin"].includes(u.systemRole as string));
+  return onSnapshot(
+    q,
+    (snap) => {
+      const staffList = snap.docs
+        .map((d) => {
+          const data = d.data();
+          return { 
+            id: d.id, 
+            ...data,
+            // Ensure compatibility with UI which expects 'name' and 'role' (job title)
+            name: data.displayName || data.name || "Unknown",
+            role: data.staffRole || data.role || "Staff", // prioritize job title, fallback to system role
+            systemRole: data.role // 'role' field in users is the system role
+          }; 
+        })
+        // Filter out non-staff if necessary (e.g. customers if they have ownerUid?)
+        // Assuming customers don't have ownerUid or are in a different collection/structure.
+        // We only want staff-like roles.
+        .filter(u => ["salon_staff", "salon_branch_admin"].includes(u.systemRole as string));
       
-    onChange(staffList);
-  });
+      onChange(staffList);
+    },
+    (error) => {
+      if (error.code === "permission-denied") {
+        console.warn("Permission denied for staff query. User may not be authenticated.");
+        onChange([]);
+      } else {
+        console.error("Error in staff snapshot:", error);
+        onChange([]);
+      }
+    }
+  );
 }
 
 export async function promoteStaffToBranchAdmin(staffId: string) {
