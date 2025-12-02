@@ -248,25 +248,6 @@ export default function BookingsListByStatus({ status, title }: { status: Bookin
                         </div>
                       </div>
                       
-                      <div className="rounded-xl border border-slate-200 p-3 bg-slate-50/50">
-                        <div className="flex items-center justify-between mb-2">
-                          <span className="text-slate-500 text-xs uppercase tracking-wide">Booking Code</span>
-                          <span className="font-mono font-bold text-slate-800">{previewRow.bookingCode || previewRow.id.substring(0, 8)}</span>
-                        </div>
-                        {previewRow.bookingSource && (
-                          <div className="flex items-center justify-between pt-2 border-t border-slate-200">
-                            <span className="text-slate-500 text-xs uppercase tracking-wide">Source</span>
-                            <span className={`text-xs font-semibold px-2 py-1 rounded-full ${
-                              previewRow.bookingSource === "booking_engine" 
-                                ? "bg-blue-100 text-blue-700" 
-                                : "bg-purple-100 text-purple-700"
-                            }`}>
-                              {previewRow.bookingSource === "booking_engine" ? "Booking Engine" : "Admin Panel"}
-                            </span>
-                          </div>
-                        )}
-                      </div>
-                      
                       <div className="grid grid-cols-2 gap-3">
                         <div>
                           <p className="text-slate-400">Date & Time</p>
