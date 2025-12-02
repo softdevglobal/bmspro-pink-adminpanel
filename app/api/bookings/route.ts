@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { adminAuth, adminDb } from "@/lib/firebaseAdmin";
 import { FieldValue } from "firebase-admin/firestore";
 import { normalizeBookingStatus } from "@/lib/bookingTypes";
+import { generateBookingCode } from "@/lib/bookings";
 
 export const runtime = "nodejs";
 
@@ -84,6 +85,8 @@ export async function POST(req: NextRequest) {
       }
     } catch {}
 
+    const bookingCode = generateBookingCode();
+    
     const payload: any = {
       ownerUid,
       client: String(body.client),
@@ -101,6 +104,8 @@ export async function POST(req: NextRequest) {
       duration: Number(body.duration) || 0,
       status: normalizeBookingStatus(body.status || "Pending"),
       price: Number(body.price) || 0,
+      bookingSource: "AdminBooking",
+      bookingCode: bookingCode,
       createdAt: FieldValue.serverTimestamp(),
       updatedAt: FieldValue.serverTimestamp(),
     };

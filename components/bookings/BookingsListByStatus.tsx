@@ -21,6 +21,8 @@ type Row = {
   clientPhone?: string | null;
   notes?: string | null;
   status?: string | null;
+  bookingCode?: string | null;
+  bookingSource?: string | null;
 };
 
 function useBookingsByStatus(status: BookingStatus) {
@@ -81,6 +83,8 @@ function useBookingsByStatus(status: BookingStatus) {
               clientPhone: d.clientPhone || null,
               notes: d.notes || null,
               status: d.status || null,
+              bookingCode: d.bookingCode || null,
+              bookingSource: d.bookingSource || null,
             });
           }
         });
@@ -209,13 +213,32 @@ export default function BookingsListByStatus({ status, title }: { status: Bookin
                         <div className="w-12 h-12 rounded-full bg-gradient-to-br from-pink-500 to-fuchsia-600 text-white flex items-center justify-center text-sm font-bold shadow-md">
                           {(previewRow.client || "?").split(" ").map(s => s[0]).slice(0,2).join("")}
                         </div>
-                        <div>
+                        <div className="flex-1">
                           <p className="font-semibold text-slate-900">{previewRow.client}</p>
                           <div className="flex flex-wrap gap-2 mt-1">
                             {previewRow.clientEmail && <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-slate-100 text-slate-700"><i className="fas fa-envelope" />{previewRow.clientEmail}</span>}
                             {previewRow.clientPhone && <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-slate-100 text-slate-700"><i className="fas fa-phone" />{previewRow.clientPhone}</span>}
                           </div>
                         </div>
+                      </div>
+                      
+                      <div className="rounded-xl border border-slate-200 p-3 bg-slate-50/50">
+                        <div className="flex items-center justify-between">
+                          <span className="text-slate-500 text-xs uppercase tracking-wide">Booking Code</span>
+                          <span className="font-mono font-bold text-slate-800">{previewRow.bookingCode || previewRow.id.substring(0, 8)}</span>
+                        </div>
+                        {previewRow.bookingSource && (
+                          <div className="flex items-center justify-between mt-2 pt-2 border-t border-slate-200">
+                            <span className="text-slate-500 text-xs uppercase tracking-wide">Source</span>
+                            <span className={`text-xs font-semibold px-2 py-1 rounded-full ${
+                              previewRow.bookingSource === "booking_engine" 
+                                ? "bg-blue-100 text-blue-700" 
+                                : "bg-purple-100 text-purple-700"
+                            }`}>
+                              {previewRow.bookingSource === "booking_engine" ? "Booking Engine" : "Admin Panel"}
+                            </span>
+                          </div>
+                        )}
                       </div>
 
                       <div className="rounded-xl border border-slate-200 p-4 bg-slate-50/50">
@@ -224,6 +247,26 @@ export default function BookingsListByStatus({ status, title }: { status: Bookin
                           {previewRow.serviceName || "-"}
                         </div>
                       </div>
+                      
+                      <div className="rounded-xl border border-slate-200 p-3 bg-slate-50/50">
+                        <div className="flex items-center justify-between mb-2">
+                          <span className="text-slate-500 text-xs uppercase tracking-wide">Booking Code</span>
+                          <span className="font-mono font-bold text-slate-800">{previewRow.bookingCode || previewRow.id.substring(0, 8)}</span>
+                        </div>
+                        {previewRow.bookingSource && (
+                          <div className="flex items-center justify-between pt-2 border-t border-slate-200">
+                            <span className="text-slate-500 text-xs uppercase tracking-wide">Source</span>
+                            <span className={`text-xs font-semibold px-2 py-1 rounded-full ${
+                              previewRow.bookingSource === "booking_engine" 
+                                ? "bg-blue-100 text-blue-700" 
+                                : "bg-purple-100 text-purple-700"
+                            }`}>
+                              {previewRow.bookingSource === "booking_engine" ? "Booking Engine" : "Admin Panel"}
+                            </span>
+                          </div>
+                        )}
+                      </div>
+                      
                       <div className="grid grid-cols-2 gap-3">
                         <div>
                           <p className="text-slate-400">Date & Time</p>
@@ -365,7 +408,12 @@ export default function BookingsListByStatus({ status, title }: { status: Bookin
                               {initials || <i className="fas fa-user" />}
                             </div>
                             <div className="flex items-center gap-2">
-                              <div className="font-semibold text-slate-800">{r.client}</div>
+                              <div>
+                                <div className="font-semibold text-slate-800">{r.client}</div>
+                                {r.bookingCode && (
+                                  <div className="text-xs text-slate-500 font-mono mt-0.5">{r.bookingCode}</div>
+                                )}
+                              </div>
                               {/* Mobile-first preview trigger (visible before horizontal scroll) */}
                               <button
                                 aria-label="Preview"

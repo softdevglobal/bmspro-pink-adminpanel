@@ -2,6 +2,23 @@ import { auth, db } from "@/lib/firebase";
 import { addDoc, collection, serverTimestamp, doc, updateDoc } from "firebase/firestore";
 import type { BookingStatus } from "./bookingTypes";
 
+/**
+ * Generate a readable booking code
+ * Format: BK-YYYY-MMDDHH-NNNN (e.g., BK-2024-120215-1234)
+ * Includes date/time components for better uniqueness
+ */
+export function generateBookingCode(): string {
+  const now = new Date();
+  const year = now.getFullYear();
+  const month = (now.getMonth() + 1).toString().padStart(2, '0');
+  const day = now.getDate().toString().padStart(2, '0');
+  const hour = now.getHours().toString().padStart(2, '0');
+  const dateTime = `${month}${day}${hour}`;
+  // Generate a 4-digit random number
+  const randomNum = Math.floor(Math.random() * 10000).toString().padStart(4, '0');
+  return `BK-${year}-${dateTime}-${randomNum}`;
+}
+
 export type BookingInput = {
   client: string;
   clientEmail?: string;
