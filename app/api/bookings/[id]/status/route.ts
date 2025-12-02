@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { adminAuth, adminDb } from "@/lib/firebaseAdmin";
 import { FieldValue } from "firebase-admin/firestore";
 import { canTransitionStatus, normalizeBookingStatus } from "@/lib/bookingTypes";
+import { createNotification, getNotificationContent } from "@/lib/notifications";
 
 export const runtime = "nodejs";
 
@@ -79,6 +80,32 @@ export async function PATCH(req: NextRequest, context: { params: Promise<{ id: s
         status: requestedStatus,
         updatedAt: FieldValue.serverTimestamp(),
       });
+    }
+
+    // Create notification for customer
+    try {
+      const notificationContent = getNotificationContent(requestedStatus, data.bookingCode);
+      
+      // Build notification data with only defined values
+      const notificationData: any = {
+        bookingId: id,
+        type: notificationContent.type,
+        title: notificationContent.title,
+        message: notificationContent.message,
+        status: requestedStatus,
+        ownerUid: ownerUid,
+      };
+      
+      // Only add optional fields if they exist
+      if (data.customerUid) notificationData.customerUid = data.customerUid;
+      if (data.clientEmail) notificationData.customerEmail = data.clientEmail;
+      if (data.clientPhone) notificationData.customerPhone = data.clientPhone;
+      if (data.bookingCode) notificationData.bookingCode = data.bookingCode;
+      
+      await createNotification(notificationData);
+    } catch (notifError) {
+      console.error("Failed to create notification:", notifError);
+      // Don't fail the request if notification creation fails
     }
 
     return NextResponse.json({ ok: true });
