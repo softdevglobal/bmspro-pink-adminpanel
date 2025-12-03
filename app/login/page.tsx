@@ -81,15 +81,27 @@ export default function LoginPage() {
       await signInWithEmailAndPassword(auth, email, password);
       await ensureUserDocument(auth.currentUser);
 
-      // Check suspension BEFORE persisting any tokens/role locally
+      // Check suspension and role BEFORE persisting any tokens/role locally
       const uid = auth.currentUser?.uid;
       if (uid) {
         const snap = await getDoc(doc(db, "users", uid));
-        const suspended = Boolean(snap.data()?.suspended);
-        const statusText = (snap.data()?.status || "").toString().toLowerCase();
+        const userData = snap.data();
+        const suspended = Boolean(userData?.suspended);
+        const statusText = (userData?.status || "").toString().toLowerCase();
+        const userRole = (userData?.role || "").toString().toLowerCase();
+        
+        // Check if account is suspended
         if (suspended || statusText.includes("suspend")) {
           await (await import("firebase/auth")).signOut(auth);
           setError("Your account is suspended. Please contact support.");
+          return;
+        }
+        
+        // Check if user has admin role - only allow admin roles, not customers
+        const allowedRoles = ["salon_owner", "salon_branch_admin", "super_admin"];
+        if (!allowedRoles.includes(userRole)) {
+          await (await import("firebase/auth")).signOut(auth);
+          setError("Access denied. This portal is for admin users only.");
           return;
         }
       }
