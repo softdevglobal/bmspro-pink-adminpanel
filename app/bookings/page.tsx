@@ -21,7 +21,7 @@ export default function BookingsPage() {
   const [bkBranchId, setBkBranchId] = useState<string | null>(null);
   const [bkSelectedServices, setBkSelectedServices] = useState<Array<number | string>>([]);
   const [bkServiceTimes, setBkServiceTimes] = useState<Record<string, string>>({});
-  const [bkStaffId, setBkStaffId] = useState<string | null>(null);
+  const [bkServiceStaff, setBkServiceStaff] = useState<Record<string, string>>({});
   const [bkMonthYear, setBkMonthYear] = useState<{ month: number; year: number }>(() => {
     const t = new Date();
     return { month: t.getMonth(), year: t.getFullYear() };
@@ -560,7 +560,7 @@ export default function BookingsPage() {
     setBkBranchId(null);
     setBkSelectedServices([]);
     setBkServiceTimes({});
-    setBkStaffId(null);
+    setBkServiceStaff({});
     const t = new Date();
     setBkMonthYear({ month: t.getMonth(), year: t.getFullYear() });
     setBkDate(null);
@@ -627,10 +627,12 @@ export default function BookingsPage() {
       serviceDuration = Number((service as any)?.duration) || 60;
     }
     
-    // If staff is selected, filter out occupied slots for that staff
-    const occupied = app && bkStaffId
+    // If staff is selected for this service, filter out occupied slots for that staff
+    const staffIdForService = forServiceId ? bkServiceStaff[String(forServiceId)] : null;
+    
+    const occupied = app && staffIdForService
       ? app.data.bookings
-          .filter((b: any) => b.staffId === bkStaffId && b.date === formatLocalYmd(bkDate) && b.status !== "Canceled")
+          .filter((b: any) => b.staffId === staffIdForService && b.date === formatLocalYmd(bkDate) && b.status !== "Canceled")
           .map((b: any) => ({ start: b.time, end: calculateEndTime(b.time, b.duration) }))
       : [];
     
@@ -681,7 +683,20 @@ export default function BookingsPage() {
     const mainTime = bkServiceTimes[String(firstServiceId)];
     
     const branchName = branches.find((b: any) => String(b.id) === String(bkBranchId))?.name || "";
-    const staffName = bkStaffId ? staffList.find((s: any) => String(s.id) === String(bkStaffId))?.name || "" : "";
+    
+    // Determine main staff info
+    const uniqueStaffIds = new Set(Object.values(bkServiceStaff).filter(Boolean));
+    let mainStaffId: string | null = null;
+    let mainStaffName = "Any Available";
+    
+    if (uniqueStaffIds.size === 1) {
+      const sid = Array.from(uniqueStaffIds)[0];
+      mainStaffId = sid;
+      mainStaffName = staffList.find(st => st.id === sid)?.name || "Any Available";
+    } else if (uniqueStaffIds.size > 1) {
+      mainStaffName = "Multiple Staff";
+    }
+
     const client = bkClientName?.trim() || "Walk-in";
     
     const newBooking = {
@@ -689,8 +704,8 @@ export default function BookingsPage() {
       client,
       serviceId: serviceIds, // Comma separated IDs
       serviceName,
-      staffId: bkStaffId || null,
-      staffName: staffName || "Any Available",
+      staffId: mainStaffId,
+      staffName: mainStaffName,
       branchId: bkBranchId,
       branchName,
       date: formatLocalYmd(bkDate),
@@ -701,13 +716,20 @@ export default function BookingsPage() {
       clientEmail: bkClientEmail?.trim() || undefined,
       clientPhone: bkClientPhone?.trim() || undefined,
       notes: bkNotes?.trim() || undefined,
-      services: selectedServiceObjects.map(s => ({
-        id: s?.id,
-        name: s?.name,
-        price: s?.price,
-        duration: s?.duration,
-        time: bkServiceTimes[String(s?.id)]
-      }))
+      services: selectedServiceObjects.map(s => {
+        const sId = String(s?.id);
+        const stId = bkServiceStaff[sId];
+        const stName = stId ? staffList.find(st => st.id === stId)?.name : "Any Available";
+        return {
+          id: s?.id,
+          name: s?.name,
+          price: s?.price,
+          duration: s?.duration,
+          time: bkServiceTimes[sId],
+          staffId: stId || null,
+          staffName: stName
+        };
+      })
     };
     
     // Persist to backend; fallback to local store on error for smooth UX
@@ -912,7 +934,7 @@ export default function BookingsPage() {
                       return (
                         <button
                           key={br.id}
-                          onClick={() => (setBkBranchId(br.id), setBkSelectedServices([]), setBkStaffId(null), setBkDate(null), setBkServiceTimes({}))}
+                          onClick={() => (setBkBranchId(br.id), setBkSelectedServices([]), setBkServiceStaff({}), setBkDate(null), setBkServiceTimes({}))}
                           className={`text-left border rounded-lg p-3 hover:shadow-md transition ${selected ? "border-pink-400 bg-pink-50 shadow-md" : "border-slate-200 bg-white"}`}
                         >
                           <div className="flex items-center gap-2.5">
@@ -998,189 +1020,189 @@ export default function BookingsPage() {
 
             {/* Step 2 - Date, Time & Staff */}
             {bkStep === 2 && (
-              <div>
-                <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-                  {/* Left Column: Date & Time */}
-                  <div className="space-y-3">
-                    {/* Date Selection - Compact */}
-                    <div>
-                      <div className="flex items-center justify-between mb-2">
-                        <div className="font-bold text-slate-700 text-sm">Pick a Date</div>
-                        <div className="flex items-center gap-1">
-                          <button onClick={goPrevMonth} className="w-7 h-7 rounded bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs">
-                            <i className="fas fa-chevron-left" />
-                          </button>
-                          <div className="text-xs font-semibold text-slate-800 px-2">{monthName}</div>
-                          <button onClick={goNextMonth} className="w-7 h-7 rounded bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs">
-                            <i className="fas fa-chevron-right" />
-                          </button>
-                        </div>
-                      </div>
-                      <div className="rounded-lg border border-slate-200 overflow-hidden">
-                        <div className="grid grid-cols-7 text-[10px] font-semibold bg-slate-50 text-slate-600">
-                          {["S", "M", "T", "W", "T", "F", "S"].map((d, i) => (
-                            <div key={i} className="px-1 py-1.5 text-center">
-                              {d}
-                            </div>
-                          ))}
-                        </div>
-                        <div className="grid grid-cols-7">
-                          {buildMonthCells().map((c, idx) => {
-                            const isSelected =
-                              c.date && bkDate && bkDate.getFullYear() === c.date.getFullYear() && bkDate.getMonth() === c.date.getMonth() && bkDate.getDate() === c.date.getDate();
-                            const today = new Date();
-                            today.setHours(0, 0, 0, 0);
-                            const isPast = !!(c.date && c.date.getTime() < today.getTime());
-                            const baseClickable = c.date && !isPast ? "cursor-pointer hover:bg-slate-50" : "bg-slate-50/40 cursor-not-allowed opacity-60";
-                            return (
-                              <div
-                                key={idx}
-                                className={`h-10 border border-slate-100 p-1 text-xs flex items-center justify-center ${baseClickable} ${isSelected ? "bg-pink-50 ring-2 ring-pink-500 font-bold" : ""}`}
-                                onClick={() => c.date && !isPast && (setBkDate(c.date), setBkServiceTimes({}))}
-                              >
-                                <span className={`text-slate-700 ${!c.date ? "opacity-0" : ""}`}>{c.label}</span>
-                              </div>
-                            );
-                          })}
-                        </div>
-                      </div>
+              <div className="space-y-6">
+                {/* Date Selection */}
+                <div className="bg-white p-4 rounded-xl border border-slate-200">
+                  <div className="flex items-center justify-between mb-4">
+                    <div className="font-bold text-slate-700 text-sm flex items-center gap-2">
+                      <i className="fas fa-calendar text-pink-600"></i>
+                      Select Date
                     </div>
-
-                    {/* Time Selection - Compact */}
-                    <div>
-                      <div className="font-bold text-slate-700 mb-2 flex items-center gap-2 text-sm">
-                        <i className="fas fa-clock text-purple-600" />
-                        Select Time for Each Service
-                      </div>
-                      <div className="space-y-3 max-h-[300px] overflow-y-auto custom-scrollbar pr-1">
-                        {!bkDate ? (
-                          <div className="text-center text-slate-400 text-xs py-4 bg-slate-50 rounded-lg border border-slate-200">
-                            <i className="fas fa-calendar-day text-2xl mb-1 block text-slate-300" />
-                            Select date first
-                          </div>
-                        ) : bkSelectedServices.length === 0 ? (
-                          <div className="text-center text-slate-400 text-xs py-4 bg-slate-50 rounded-lg border border-slate-200">
-                            <i className="fas fa-concierge-bell text-2xl mb-1 block text-slate-300" />
-                            Select services first
-                          </div>
-                        ) : (
-                          bkSelectedServices.map((serviceId) => {
-                            const service = servicesList.find((s) => String(s.id) === String(serviceId));
-                            if (!service) return null;
-                            
-                            const slots = computeSlots(serviceId);
-                            const selectedTime = bkServiceTimes[String(serviceId)];
-                            
-                            return (
-                              <div key={String(serviceId)} className="bg-gradient-to-br from-purple-50 to-pink-50 rounded-lg border-2 border-purple-200 p-2">
-                                <div className="flex items-center justify-between mb-2">
-                                  <div className="font-semibold text-slate-800 text-xs truncate flex-1 mr-2">{service.name}</div>
-                                  <span className="text-[10px] bg-white px-1.5 py-0.5 rounded border border-purple-300 text-purple-700 whitespace-nowrap">
-                                    {service.duration}min
-                                  </span>
-                                </div>
-                                <div className="grid grid-cols-4 gap-1.5">
-                                  {slots.length === 0 ? (
-                                    <div className="col-span-4 text-center text-slate-400 text-[10px] py-2">
-                                      No slots
-                                    </div>
-                                  ) : (
-                                    slots.map((t) => (
-                                      <button
-                                        key={t}
-                                        onClick={() => setBkServiceTimes({ ...bkServiceTimes, [String(serviceId)]: t })}
-                                        className={`py-1.5 px-1 rounded text-[10px] font-bold transition-all ${
-                                          selectedTime === t 
-                                            ? "bg-gradient-to-r from-pink-600 to-purple-600 text-white shadow-sm" 
-                                            : "bg-white text-slate-700 border border-purple-200 hover:border-pink-400"
-                                        }`}
-                                      >
-                                        {t}
-                                      </button>
-                                    ))
-                                  )}
-                                </div>
-                              </div>
-                            );
-                          })
-                        )}
-                      </div>
+                    <div className="flex items-center gap-1">
+                      <button onClick={goPrevMonth} className="w-7 h-7 rounded bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs">
+                        <i className="fas fa-chevron-left" />
+                      </button>
+                      <div className="text-xs font-semibold text-slate-800 px-2">{monthName}</div>
+                      <button onClick={goNextMonth} className="w-7 h-7 rounded bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs">
+                        <i className="fas fa-chevron-right" />
+                      </button>
                     </div>
                   </div>
-
-                  {/* Right Column: Staff Selection - Compact */}
-                  <div>
-                    <div className="font-bold text-slate-700 mb-2 flex items-center gap-2 text-sm">
-                      <i className="fas fa-user-tie text-pink-600" />
-                      Choose Stylist {!bkDate ? "" : "(Optional)"}
-                    </div>
-                    <div className={`space-y-2 max-h-[400px] overflow-y-auto custom-scrollbar pr-1 ${!bkDate ? "opacity-50 pointer-events-none" : ""}`}>
-                      {!bkDate ? (
-                        <div className="bg-slate-50 border-2 border-dashed border-slate-300 rounded-lg p-6 text-center">
-                          <i className="fas fa-calendar-clock text-4xl text-slate-300 mb-2 block" />
-                          <p className="text-slate-500 font-medium text-sm mb-1">Select Date First</p>
-                          <p className="text-xs text-slate-400">Then choose your preferred stylist</p>
+                  <div className="rounded-lg border border-slate-200 overflow-hidden">
+                    <div className="grid grid-cols-7 text-[10px] font-semibold bg-slate-50 text-slate-600">
+                      {["S", "M", "T", "W", "T", "F", "S"].map((d, i) => (
+                        <div key={i} className="px-1 py-1.5 text-center">
+                          {d}
                         </div>
-                      ) : (
-                        staffList
-                          .filter(
-                            (st: any) => {
-                              // Must be active
-                              if (st.status !== "Active") return false;
-                              
-                              // Must be at the selected branch
-                              if (bkBranchId && st.branchId !== bkBranchId && st.branch !== branches.find((b: any) => b.id === bkBranchId)?.name) {
-                                return false;
-                              }
-                              
-                              // Must be qualified for at least one of the selected services
-                              if (bkSelectedServices.length > 0) {
-                                const selectedServiceObjects = bkSelectedServices
-                                  .map((id) => servicesList.find((s) => s.id === id))
-                                  .filter(Boolean);
-                                  
-                                const servicesWithRestrictions = selectedServiceObjects.filter(s => s?.staffIds && s.staffIds.length > 0);
-                                
-                                if (servicesWithRestrictions.length > 0) {
-                                  // Check if staff is in ANY of the restricted lists
-                                  // Or simpler: check if staff is qualified for ALL selected services?
-                                  // Usually bookings with multiple services might be with same staff or different. 
-                                  // For simplicity here, let's show staff who can do ANY of the services or match constraints.
-                                  // Better: show staff qualified for ALL selected services if possible, or just show all branch staff.
-                                  
-                                  // Let's stick to branch filter + Active status as primary. 
-                                  // If strict service-staff binding is needed, we'd filter more.
-                                  // For now, let's just ensure they are in the branch.
-                                }
-                              }
-                              
-                              return true;
-                            }
-                          )
-                          .map((st: any) => {
-                            const selected = bkStaffId === st.id;
-                            return (
-                              <button
-                                key={st.id}
-                                onClick={() => setBkStaffId(st.id)}
-                                className={`w-full text-left border rounded-lg p-2.5 hover:shadow transition flex items-center gap-2.5 ${selected ? "border-pink-400 bg-pink-50 shadow-md" : "border-slate-200 bg-white"}`}
-                              >
-                                <img src={`https://api.dicebear.com/7.x/avataaars/svg?seed=${encodeURIComponent(st.avatar || st.name)}`} className="w-9 h-9 rounded-full bg-slate-100 shrink-0" alt="" />
-                                <div className="flex-1 min-w-0">
-                                  <div className="font-semibold text-slate-800 truncate text-sm">{st.name}</div>
-                                  <div className="text-xs text-slate-500 truncate">{st.role}</div>
-                                </div>
-                                {selected && <i className="fas fa-check-circle text-pink-600 text-sm shrink-0" />}
-                              </button>
-                            );
-                          })
-                      )}
+                      ))}
+                    </div>
+                    <div className="grid grid-cols-7">
+                      {buildMonthCells().map((c, idx) => {
+                        const isSelected =
+                          c.date && bkDate && bkDate.getFullYear() === c.date.getFullYear() && bkDate.getMonth() === c.date.getMonth() && bkDate.getDate() === c.date.getDate();
+                        const today = new Date();
+                        today.setHours(0, 0, 0, 0);
+                        const isPast = !!(c.date && c.date.getTime() < today.getTime());
+                        const baseClickable = c.date && !isPast ? "cursor-pointer hover:bg-slate-50" : "bg-slate-50/40 cursor-not-allowed opacity-60";
+                        return (
+                          <div
+                            key={idx}
+                            className={`h-10 border border-slate-100 p-1 text-xs flex items-center justify-center ${baseClickable} ${isSelected ? "bg-pink-50 ring-2 ring-pink-500 font-bold" : ""}`}
+                            onClick={() => c.date && !isPast && (setBkDate(c.date), setBkServiceTimes({}))}
+                          >
+                            <span className={`text-slate-700 ${!c.date ? "opacity-0" : ""}`}>{c.label}</span>
+                          </div>
+                        );
+                      })}
                     </div>
                   </div>
                 </div>
 
+                {/* Services Configuration */}
+                <div className={!bkDate ? "opacity-50 pointer-events-none" : ""}>
+                  <div className="font-bold text-slate-700 mb-3 flex items-center gap-2 text-sm">
+                    <i className="fas fa-clock text-purple-600" />
+                    Select Staff & Time for Each Service
+                  </div>
+                  
+                  {!bkDate ? (
+                    <div className="text-center text-slate-400 text-xs py-8 bg-slate-50 rounded-lg border border-slate-200 border-dashed">
+                      <i className="fas fa-calendar-day text-2xl mb-2 block text-slate-300" />
+                      Select a date above to continue
+                    </div>
+                  ) : bkSelectedServices.length === 0 ? (
+                    <div className="text-center text-slate-400 text-xs py-8 bg-slate-50 rounded-lg border border-slate-200 border-dashed">
+                      Select services in previous step
+                    </div>
+                  ) : (
+                    <div className="grid grid-cols-1 gap-4">
+                      {bkSelectedServices.map((serviceId) => {
+                        const service = servicesList.find((s) => String(s.id) === String(serviceId));
+                        if (!service) return null;
+                        
+                        const slots = computeSlots(serviceId);
+                        const selectedTime = bkServiceTimes[String(serviceId)];
+                        const selectedStaffId = bkServiceStaff[String(serviceId)];
+                        
+                        // Inline staff filtering
+                        const availableStaffForService = staffList.filter(st => {
+                           if (st.status !== "Active") return false;
+                           // Basic branch check - staff must be in selected branch
+                           if (bkBranchId && st.branchId !== bkBranchId && st.branch !== branches.find((b: any) => b.id === bkBranchId)?.name) return false;
+                           // Service check
+                           if (service?.staffIds && service.staffIds.length > 0) {
+                              const sIds = service.staffIds.map(String);
+                              if (!sIds.includes(String(st.id))) return false;
+                           }
+                           return true;
+                        });
+                        
+                        return (
+                          <div key={String(serviceId)} className="bg-white rounded-xl border border-purple-100 shadow-sm p-4">
+                            <div className="flex items-center justify-between mb-3">
+                              <div className="font-bold text-slate-800 text-sm flex items-center gap-2">
+                                <div className="w-6 h-6 rounded-full bg-purple-100 flex items-center justify-center text-purple-600 text-xs">
+                                  <i className="fas fa-cut"></i>
+                                </div>
+                                {service.name}
+                              </div>
+                              <span className="text-[10px] bg-purple-50 px-2 py-1 rounded text-purple-700 font-medium">
+                                {service.duration} min
+                              </span>
+                            </div>
+
+                            {/* Staff Selector */}
+                            <div className="mb-3">
+                              <label className="text-[10px] font-bold text-slate-400 uppercase mb-1 block">Stylist</label>
+                              <div className="flex flex-wrap gap-2">
+                                <button
+                                  onClick={() => {
+                                    const newStaff = { ...bkServiceStaff };
+                                    delete newStaff[String(serviceId)];
+                                    setBkServiceStaff(newStaff);
+                                    // Reset time
+                                    const newTimes = { ...bkServiceTimes };
+                                    delete newTimes[String(serviceId)];
+                                    setBkServiceTimes(newTimes);
+                                  }}
+                                  className={`px-3 py-1.5 rounded-lg border text-xs font-medium flex items-center gap-1.5 ${
+                                    !selectedStaffId 
+                                      ? "bg-indigo-50 border-indigo-200 text-indigo-700" 
+                                      : "bg-white border-slate-200 text-slate-600 hover:border-indigo-200"
+                                  }`}
+                                >
+                                  <i className="fas fa-random flex-shrink-0"></i> <span>Any</span>
+                                </button>
+                                {availableStaffForService.map(st => (
+                                  <button
+                                    key={st.id}
+                                    onClick={() => {
+                                      setBkServiceStaff({ ...bkServiceStaff, [String(serviceId)]: st.id });
+                                      // Reset time
+                                      const newTimes = { ...bkServiceTimes };
+                                      delete newTimes[String(serviceId)];
+                                      setBkServiceTimes(newTimes);
+                                    }}
+                                    className={`px-3 py-1.5 rounded-lg border text-xs font-medium flex items-center gap-1.5 ${
+                                      selectedStaffId === st.id
+                                        ? "bg-indigo-50 border-indigo-200 text-indigo-700" 
+                                        : "bg-white border-slate-200 text-slate-600 hover:border-indigo-200"
+                                    }`}
+                                  >
+                                    {/* Avatar */}
+                                    <div className="w-4 h-4 rounded-full bg-slate-200 overflow-hidden flex-shrink-0">
+                                       {st.avatar ? <img src={`https://api.dicebear.com/7.x/avataaars/svg?seed=${encodeURIComponent(st.avatar)}`} className="w-full h-full object-cover" alt="" /> : null}
+                                    </div>
+                                    <span>{st.name}</span>
+                                  </button>
+                                ))}
+                              </div>
+                            </div>
+
+                            {/* Time Selector */}
+                            <div>
+                              <label className="text-[10px] font-bold text-slate-400 uppercase mb-1 block">Time Slot</label>
+                              <div className="grid grid-cols-4 sm:grid-cols-6 gap-1.5">
+                                {slots.length === 0 ? (
+                                  <div className="col-span-full text-center text-slate-400 text-[10px] py-2 italic">
+                                    No slots available
+                                  </div>
+                                ) : (
+                                  slots.map((t) => (
+                                    <button
+                                      key={t}
+                                      onClick={() => setBkServiceTimes({ ...bkServiceTimes, [String(serviceId)]: t })}
+                                      className={`py-1.5 rounded text-[10px] font-bold transition-all ${
+                                        selectedTime === t 
+                                          ? "bg-gradient-to-r from-pink-600 to-purple-600 text-white shadow-sm" 
+                                          : "bg-white text-slate-700 border border-purple-100 hover:border-pink-300"
+                                      }`}
+                                    >
+                                      {t}
+                                    </button>
+                                  ))
+                                )}
+                              </div>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+
                 {/* Navigation */}
-                <div className="flex justify-between pt-3 mt-2 border-t border-slate-200">
+                <div className="flex justify-between pt-3 border-t border-slate-200">
                   <button onClick={() => setBkStep(1)} className="px-5 py-2 rounded-lg border border-slate-300 text-slate-700 hover:bg-slate-50 font-medium">
                     Back
                   </button>
@@ -1256,6 +1278,8 @@ export default function BookingsPage() {
                       <div className="space-y-2">
                         {bkSelectedServices.map(id => {
                           const s = servicesList.find((srv: any) => String(srv.id) === String(id));
+                          const stId = bkServiceStaff[String(id)];
+                          const stName = stId ? staffList.find(st => st.id === stId)?.name : "Any Staff";
                           return (
                             <div key={id} className="bg-white/60 p-2 rounded border border-pink-100">
                               <div className="flex justify-between">
@@ -1263,7 +1287,11 @@ export default function BookingsPage() {
                                 <span className="font-bold text-pink-600">${s?.price || 0}</span>
                               </div>
                               <div className="flex justify-between text-xs text-slate-500 mt-1">
-                                <span>{bkServiceTimes[String(id)]}</span>
+                                <span className="flex items-center gap-2">
+                                   <span>{bkServiceTimes[String(id)]}</span>
+                                   <span className="text-slate-400">•</span>
+                                   <span><i className="fas fa-user mr-1"></i> {stName}</span>
+                                </span>
                                 <span>{s?.duration} min</span>
                               </div>
                             </div>
@@ -1272,7 +1300,6 @@ export default function BookingsPage() {
                       </div>
                     </div>
 
-                    <div className="flex justify-between border-t border-pink-100 pt-2"><span className="text-slate-500">Staff</span><span className="font-semibold text-slate-800">{bkStaffId ? staffList.find((s: any) => s.id === bkStaffId)?.name : <span className="text-slate-500 italic">Any Available</span>}</span></div>
                     <div className="flex justify-between"><span className="text-slate-500">Date</span><span className="font-semibold text-slate-800">{bkDate ? bkDate.toLocaleDateString() : "-"}</span></div>
                     
                     <div className="flex justify-between border-t-2 border-pink-200 pt-2 mt-2">

@@ -49,7 +49,7 @@ export async function POST(req: NextRequest) {
     const required: Array<keyof CreateBookingInput> = [
       "client",
       "serviceId",
-      "staffId",
+      // "staffId", // Optional for multi-service bookings
       "branchId",
       "date",
       "time",
@@ -101,7 +101,7 @@ export async function POST(req: NextRequest) {
       notes: body.notes || null,
       serviceId: typeof body.serviceId === "number" ? body.serviceId : String(body.serviceId),
       serviceName: serviceName,
-      staffId: String(body.staffId),
+      staffId: body.staffId ? String(body.staffId) : null,
       staffName: staffName,
       branchId: String(body.branchId),
       branchName: branchName,
