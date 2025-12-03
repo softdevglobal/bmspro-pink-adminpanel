@@ -36,7 +36,7 @@ export default function BookingsPage() {
   // Real data from Firestore
   const [ownerUid, setOwnerUid] = useState<string | null>(null);
   const [branches, setBranches] = useState<Array<{ id: string; name: string; address?: string }>>([]);
-  const [servicesList, setServicesList] = useState<Array<{ id: string | number; name: string; price?: number; duration?: number; icon?: string; branches?: string[]; staffIds?: string[] }>>([]);
+  const [servicesList, setServicesList] = useState<Array<{ id: string | number; name: string; price?: number; duration?: number; icon?: string; branches?: string[]; staffIds?: string[]; imageUrl?: string }>>([]);
   const [staffList, setStaffList] = useState<Array<{ id: string; name: string; role?: string; status?: string; avatar?: string; branchId?: string; branch?: string }>>([]);
 
   useEffect(() => {
@@ -528,7 +528,7 @@ export default function BookingsPage() {
           name: String((s as any).name || "Service"),
           price: typeof (s as any).price === "number" ? (s as any).price : undefined,
           duration: typeof (s as any).duration === "number" ? (s as any).duration : undefined,
-          imageUrl: (s as any).imageUrl || undefined,
+          imageUrl: (s as any).imageUrl || (s as any).image || undefined,
           icon: String((s as any).icon || "fa-solid fa-star"),
           branches: Array.isArray((s as any).branches) ? (s as any).branches.map(String) : undefined,
           staffIds: Array.isArray((s as any).staffIds) ? (s as any).staffIds.map(String) : undefined,
