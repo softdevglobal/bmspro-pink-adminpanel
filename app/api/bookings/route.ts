@@ -22,6 +22,7 @@ type CreateBookingInput = {
   duration: number;
   status?: string;
   price: number;
+  services?: any[];
 };
 
 export async function POST(req: NextRequest) {
@@ -68,8 +69,13 @@ export async function POST(req: NextRequest) {
 
     try {
       if (!serviceName && body.serviceId) {
-        const s = await adminDb().doc(`services/${String(body.serviceId)}`).get();
-        serviceName = (s.data() as any)?.name || null;
+        // If multiple services (string with comma), skip lookup or fetch first
+        if (String(body.serviceId).includes(",")) {
+          // already provided or will be null
+        } else {
+          const s = await adminDb().doc(`services/${String(body.serviceId)}`).get();
+          serviceName = (s.data() as any)?.name || null;
+        }
       }
     } catch {}
     try {
@@ -104,6 +110,7 @@ export async function POST(req: NextRequest) {
       duration: Number(body.duration) || 0,
       status: normalizeBookingStatus(body.status || "Pending"),
       price: Number(body.price) || 0,
+      services: body.services || null,
       bookingSource: "AdminBooking",
       bookingCode: bookingCode,
       createdAt: FieldValue.serverTimestamp(),

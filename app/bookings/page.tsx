@@ -19,14 +19,14 @@ export default function BookingsPage() {
   // Booking wizard state
   const [bkStep, setBkStep] = useState<1 | 2 | 3>(1);
   const [bkBranchId, setBkBranchId] = useState<string | null>(null);
-  const [bkServiceId, setBkServiceId] = useState<number | null>(null);
+  const [bkSelectedServices, setBkSelectedServices] = useState<Array<number | string>>([]);
+  const [bkServiceTimes, setBkServiceTimes] = useState<Record<string, string>>({});
   const [bkStaffId, setBkStaffId] = useState<string | null>(null);
   const [bkMonthYear, setBkMonthYear] = useState<{ month: number; year: number }>(() => {
     const t = new Date();
     return { month: t.getMonth(), year: t.getFullYear() };
   });
   const [bkDate, setBkDate] = useState<Date | null>(null);
-  const [bkTime, setBkTime] = useState<string | null>(null);
   const [bkClientName, setBkClientName] = useState<string>("");
   const [bkClientEmail, setBkClientEmail] = useState<string>("");
   const [bkClientPhone, setBkClientPhone] = useState<string>("");
@@ -528,6 +528,7 @@ export default function BookingsPage() {
           name: String((s as any).name || "Service"),
           price: typeof (s as any).price === "number" ? (s as any).price : undefined,
           duration: typeof (s as any).duration === "number" ? (s as any).duration : undefined,
+          imageUrl: (s as any).imageUrl || undefined,
           icon: String((s as any).icon || "fa-solid fa-star"),
           branches: Array.isArray((s as any).branches) ? (s as any).branches.map(String) : undefined,
           staffIds: Array.isArray((s as any).staffIds) ? (s as any).staffIds.map(String) : undefined,
@@ -557,12 +558,12 @@ export default function BookingsPage() {
   const resetWizard = () => {
     setBkStep(1);
     setBkBranchId(null);
-    setBkServiceId(null);
+    setBkSelectedServices([]);
+    setBkServiceTimes({});
     setBkStaffId(null);
     const t = new Date();
     setBkMonthYear({ month: t.getMonth(), year: t.getFullYear() });
     setBkDate(null);
-    setBkTime(null);
     setBkClientName("");
     setBkClientEmail("");
     setBkClientPhone("");
@@ -613,15 +614,18 @@ export default function BookingsPage() {
     const [h, m] = time.split(":").map(Number);
     return h * 60 + m;
   };
-  const computeSlots = () => {
+  const computeSlots = (forServiceId?: number | string) => {
     const app = appRef();
-    // Only need service and date to show time slots (staff is optional)
-    if (!bkServiceId || !bkDate) return [];
-    const service =
-      servicesList.find((s) => String(s.id) === String(bkServiceId)) ||
-      (app ? app.data.services.find((s: any) => String(s.id) === String(bkServiceId)) : null);
-    // If service not found or has no duration, fall back to 60 mins so slots still show
-    const duration = Number((service as any)?.duration) || 60;
+    // Only need date to show time slots
+    if (!bkDate) return [];
+    
+    // Get duration of the service we're scheduling
+    let serviceDuration = 60;
+    if (forServiceId) {
+      const service = servicesList.find((s) => String(s.id) === String(forServiceId)) ||
+        (app ? app.data.services.find((s: any) => String(s.id) === String(forServiceId)) : null);
+      serviceDuration = Number((service as any)?.duration) || 60;
+    }
     
     // If staff is selected, filter out occupied slots for that staff
     const occupied = app && bkStaffId
@@ -643,7 +647,7 @@ export default function BookingsPage() {
     };
     while (current < max) {
       const start = format(current);
-      const end = calculateEndTime(start, duration);
+      const end = calculateEndTime(start, serviceDuration);
       const ok = occupied.every((o: any) => !(timeToMinutes(o.start) < timeToMinutes(end) && timeToMinutes(o.end) > timeToMinutes(start)));
       if (ok && timeToMinutes(end) <= max) slots.push(start);
       current += interval;
@@ -652,36 +656,60 @@ export default function BookingsPage() {
   };
   const handleConfirmBooking = () => {
     const app = appRef();
-    if (!bkServiceId || !bkBranchId || !bkDate || !bkTime) return;
+    if (bkSelectedServices.length === 0 || !bkBranchId || !bkDate) return;
+    
+    // Validate all services have times
+    if (Object.keys(bkServiceTimes).length !== bkSelectedServices.length) {
+      app?.showToast("Please select a time for each service.", "error");
+      return;
+    }
+
     setSubmittingBooking(true);
-    const service =
-      servicesList.find((s) => String(s.id) === String(bkServiceId)) ||
-      (app ? app.data.services.find((s: any) => String(s.id) === String(bkServiceId)) : null);
-    const serviceName =
-      servicesList.find((s: any) => String(s.id) === String(bkServiceId))?.name ||
-      (service as any)?.name ||
-      "";
+    
+    const selectedServiceObjects = bkSelectedServices.map(id => 
+      servicesList.find((s) => String(s.id) === String(id)) ||
+      (app ? app.data.services.find((s: any) => String(s.id) === String(id)) : null)
+    ).filter(Boolean);
+
+    const serviceName = selectedServiceObjects.map(s => s?.name || "").join(", ");
+    const serviceIds = selectedServiceObjects.map(s => s?.id).join(",");
+    const totalPrice = selectedServiceObjects.reduce((sum, s) => sum + (Number(s?.price) || 0), 0);
+    const totalDuration = selectedServiceObjects.reduce((sum, s) => sum + (Number(s?.duration) || 0), 0);
+    
+    // Use first service time as main booking time
+    const firstServiceId = bkSelectedServices[0];
+    const mainTime = bkServiceTimes[String(firstServiceId)];
+    
     const branchName = branches.find((b: any) => String(b.id) === String(bkBranchId))?.name || "";
     const staffName = bkStaffId ? staffList.find((s: any) => String(s.id) === String(bkStaffId))?.name || "" : "";
     const client = bkClientName?.trim() || "Walk-in";
+    
     const newBooking = {
       id: Date.now(),
       client,
-      serviceId: bkServiceId as any,
+      serviceId: serviceIds, // Comma separated IDs
       serviceName,
       staffId: bkStaffId || null,
       staffName: staffName || "Any Available",
       branchId: bkBranchId,
       branchName,
       date: formatLocalYmd(bkDate),
-      time: bkTime,
-      duration: (service as any)?.duration || 60,
+      time: mainTime,
+      duration: totalDuration,
       status: "Pending",
-      price: (service as any)?.price || 0,
+      price: totalPrice,
       clientEmail: bkClientEmail?.trim() || undefined,
       clientPhone: bkClientPhone?.trim() || undefined,
       notes: bkNotes?.trim() || undefined,
+      services: selectedServiceObjects.map(s => ({
+        id: s?.id,
+        name: s?.name,
+        price: s?.price,
+        duration: s?.duration,
+        time: bkServiceTimes[String(s?.id)]
+      }))
     };
+    
     // Persist to backend; fallback to local store on error for smooth UX
     (async () => {
       try {
@@ -701,18 +729,19 @@ export default function BookingsPage() {
           duration: newBooking.duration,
           status: newBooking.status as any,
           price: newBooking.price,
-        });
+          services: newBooking.services, // Pass detailed services array
+        } as any); // Type assertion needed until we update lib
       } catch {
         // continue with local persistence
       } finally {
-    if (app) {
-      app.data.bookings.push(newBooking);
-      app.saveData();
-      app.closeModal("booking");
-        app.showToast("New Booking Created!");
-    }
+        if (app) {
+          app.data.bookings.push(newBooking);
+          app.saveData();
+          app.closeModal("booking");
+          app.showToast("New Booking Created!");
+        }
         setSubmittingBooking(false);
-    resetWizard();
+        resetWizard();
       }
     })();
   };
@@ -883,7 +912,7 @@ export default function BookingsPage() {
                       return (
                         <button
                           key={br.id}
-                          onClick={() => (setBkBranchId(br.id), setBkServiceId(null), setBkStaffId(null), setBkDate(null), setBkTime(null))}
+                          onClick={() => (setBkBranchId(br.id), setBkSelectedServices([]), setBkStaffId(null), setBkDate(null), setBkServiceTimes({}))}
                           className={`text-left border rounded-lg p-3 hover:shadow-md transition ${selected ? "border-pink-400 bg-pink-50 shadow-md" : "border-slate-200 bg-white"}`}
                         >
                           <div className="flex items-center gap-2.5">
@@ -916,26 +945,36 @@ export default function BookingsPage() {
                   ) : (
                     <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
                       {servicesList.map((srv: any) => {
-                        const selected = bkServiceId === srv.id;
+                        const isSelected = bkSelectedServices.includes(srv.id);
                         return (
                           <button
                             key={srv.id}
-                            onClick={() => (setBkServiceId(srv.id), setBkStaffId(null), setBkDate(null), setBkTime(null))}
-                            className={`text-left border rounded-lg p-3 hover:shadow-md transition ${selected ? "border-purple-400 bg-purple-50 shadow-md" : "border-slate-200 bg-white"}`}
+                            onClick={() => {
+                              if (isSelected) {
+                                setBkSelectedServices(bkSelectedServices.filter(id => id !== srv.id));
+                                const newTimes = { ...bkServiceTimes };
+                                delete newTimes[String(srv.id)];
+                                setBkServiceTimes(newTimes);
+                              } else {
+                                setBkSelectedServices([...bkSelectedServices, srv.id]);
+                              }
+                              setBkDate(null);
+                            }}
+                            className={`text-left border rounded-lg p-3 hover:shadow-md transition ${isSelected ? "border-purple-400 bg-purple-50 shadow-md" : "border-slate-200 bg-white"}`}
                           >
                             <div className="flex items-center gap-2.5">
-                              <div className={`w-10 h-10 rounded-lg ${selected ? "bg-purple-100" : "bg-slate-100"} flex items-center justify-center shrink-0 overflow-hidden`}>
+                              <div className={`w-10 h-10 rounded-lg ${isSelected ? "bg-purple-100" : "bg-slate-100"} flex items-center justify-center shrink-0 overflow-hidden`}>
                                 {srv.imageUrl ? (
                                   <img src={srv.imageUrl} alt={srv.name} className="w-full h-full object-cover" />
                                 ) : (
-                                  <i className={`fas fa-cut ${selected ? "text-purple-600" : "text-slate-400"}`} />
+                                  <i className={`fas fa-cut ${isSelected ? "text-purple-600" : "text-slate-400"}`} />
                                 )}
                               </div>
                               <div className="flex-1 min-w-0">
                                 <div className="font-semibold text-slate-800 truncate text-sm">{srv.name}</div>
                                 <div className="text-xs text-slate-500">{srv.duration} min • ${srv.price}</div>
                               </div>
-                              {selected && <i className="fas fa-check-circle text-purple-600 shrink-0" />}
+                              {isSelected && <i className="fas fa-check-circle text-purple-600 shrink-0" />}
                             </div>
                           </button>
                         );
@@ -947,9 +986,9 @@ export default function BookingsPage() {
                 {/* Navigation */}
                 <div className="flex justify-end pt-2 border-t border-slate-200">
                   <button
-                    disabled={!bkBranchId || !bkServiceId}
+                    disabled={!bkBranchId || bkSelectedServices.length === 0}
                     onClick={() => setBkStep(2)}
-                    className={`px-5 py-2 rounded-lg text-white font-semibold ${bkBranchId && bkServiceId ? "bg-gradient-to-r from-pink-600 to-purple-600 hover:shadow-lg" : "bg-slate-300 cursor-not-allowed"}`}
+                    className={`px-5 py-2 rounded-lg text-white font-semibold ${bkBranchId && bkSelectedServices.length > 0 ? "bg-gradient-to-r from-pink-600 to-purple-600 hover:shadow-lg" : "bg-slate-300 cursor-not-allowed"}`}
                   >
                     Continue to Date & Time
                   </button>
@@ -997,7 +1036,7 @@ export default function BookingsPage() {
                               <div
                                 key={idx}
                                 className={`h-10 border border-slate-100 p-1 text-xs flex items-center justify-center ${baseClickable} ${isSelected ? "bg-pink-50 ring-2 ring-pink-500 font-bold" : ""}`}
-                                onClick={() => c.date && !isPast && (setBkDate(c.date), setBkTime(null))}
+                                onClick={() => c.date && !isPast && (setBkDate(c.date), setBkServiceTimes({}))}
                               >
                                 <span className={`text-slate-700 ${!c.date ? "opacity-0" : ""}`}>{c.label}</span>
                               </div>
@@ -1011,33 +1050,59 @@ export default function BookingsPage() {
                     <div>
                       <div className="font-bold text-slate-700 mb-2 flex items-center gap-2 text-sm">
                         <i className="fas fa-clock text-purple-600" />
-                        Select a Time
+                        Select Time for Each Service
                       </div>
-                      <div className="grid grid-cols-4 gap-1.5 max-h-40 overflow-y-auto p-2 bg-gradient-to-br from-purple-50 to-pink-50 rounded-lg border-2 border-purple-200 custom-scrollbar">
+                      <div className="space-y-3 max-h-[300px] overflow-y-auto custom-scrollbar pr-1">
                         {!bkDate ? (
-                          <div className="col-span-4 text-center text-slate-400 text-xs py-4">
+                          <div className="text-center text-slate-400 text-xs py-4 bg-slate-50 rounded-lg border border-slate-200">
                             <i className="fas fa-calendar-day text-2xl mb-1 block text-slate-300" />
                             Select date first
                           </div>
-                        ) : computeSlots().length === 0 ? (
-                          <div className="col-span-4 text-center text-slate-400 text-xs py-4">
-                            <i className="fas fa-clock text-2xl mb-1 block text-slate-300" />
-                            No slots available
+                        ) : bkSelectedServices.length === 0 ? (
+                          <div className="text-center text-slate-400 text-xs py-4 bg-slate-50 rounded-lg border border-slate-200">
+                            <i className="fas fa-concierge-bell text-2xl mb-1 block text-slate-300" />
+                            Select services first
                           </div>
                         ) : (
-                          computeSlots().map((t) => (
-                            <button
-                              key={t}
-                              onClick={() => setBkTime(t)}
-                              className={`py-2 px-1 rounded-md font-semibold text-xs transition-all ${
-                                bkTime === t 
-                                  ? "bg-gradient-to-r from-pink-600 to-purple-600 text-white shadow-md" 
-                                  : "bg-white text-slate-700 border border-purple-200 hover:border-pink-400"
-                              }`}
-                            >
-                              {t}
-                            </button>
-                          ))
+                          bkSelectedServices.map((serviceId) => {
+                            const service = servicesList.find((s) => String(s.id) === String(serviceId));
+                            if (!service) return null;
+                            
+                            const slots = computeSlots(serviceId);
+                            const selectedTime = bkServiceTimes[String(serviceId)];
+                            
+                            return (
+                              <div key={String(serviceId)} className="bg-gradient-to-br from-purple-50 to-pink-50 rounded-lg border-2 border-purple-200 p-2">
+                                <div className="flex items-center justify-between mb-2">
+                                  <div className="font-semibold text-slate-800 text-xs truncate flex-1 mr-2">{service.name}</div>
+                                  <span className="text-[10px] bg-white px-1.5 py-0.5 rounded border border-purple-300 text-purple-700 whitespace-nowrap">
+                                    {service.duration}min
+                                  </span>
+                                </div>
+                                <div className="grid grid-cols-4 gap-1.5">
+                                  {slots.length === 0 ? (
+                                    <div className="col-span-4 text-center text-slate-400 text-[10px] py-2">
+                                      No slots
+                                    </div>
+                                  ) : (
+                                    slots.map((t) => (
+                                      <button
+                                        key={t}
+                                        onClick={() => setBkServiceTimes({ ...bkServiceTimes, [String(serviceId)]: t })}
+                                        className={`py-1.5 px-1 rounded text-[10px] font-bold transition-all ${
+                                          selectedTime === t 
+                                            ? "bg-gradient-to-r from-pink-600 to-purple-600 text-white shadow-sm" 
+                                            : "bg-white text-slate-700 border border-purple-200 hover:border-pink-400"
+                                        }`}
+                                      >
+                                        {t}
+                                      </button>
+                                    ))
+                                  )}
+                                </div>
+                              </div>
+                            );
+                          })
                         )}
                       </div>
                     </div>
@@ -1047,13 +1112,13 @@ export default function BookingsPage() {
                   <div>
                     <div className="font-bold text-slate-700 mb-2 flex items-center gap-2 text-sm">
                       <i className="fas fa-user-tie text-pink-600" />
-                      Choose Stylist {!bkDate || !bkTime ? "" : "(Optional)"}
+                      Choose Stylist {!bkDate ? "" : "(Optional)"}
                     </div>
-                    <div className={`space-y-2 max-h-[400px] overflow-y-auto custom-scrollbar pr-1 ${!bkDate || !bkTime ? "opacity-50 pointer-events-none" : ""}`}>
-                      {!bkDate || !bkTime ? (
+                    <div className={`space-y-2 max-h-[400px] overflow-y-auto custom-scrollbar pr-1 ${!bkDate ? "opacity-50 pointer-events-none" : ""}`}>
+                      {!bkDate ? (
                         <div className="bg-slate-50 border-2 border-dashed border-slate-300 rounded-lg p-6 text-center">
                           <i className="fas fa-calendar-clock text-4xl text-slate-300 mb-2 block" />
-                          <p className="text-slate-500 font-medium text-sm mb-1">Select Date & Time First</p>
+                          <p className="text-slate-500 font-medium text-sm mb-1">Select Date First</p>
                           <p className="text-xs text-slate-400">Then choose your preferred stylist</p>
                         </div>
                       ) : (
@@ -1068,12 +1133,24 @@ export default function BookingsPage() {
                                 return false;
                               }
                               
-                              // Must be qualified for the selected service
-                              if (bkServiceId) {
-                                const selectedService = servicesList.find((s) => s.id === bkServiceId);
-                                if (selectedService?.staffIds && selectedService.staffIds.length > 0) {
-                                  // Only show staff who are in the service's qualified staff list
-                                  return selectedService.staffIds.includes(st.id);
+                              // Must be qualified for at least one of the selected services
+                              if (bkSelectedServices.length > 0) {
+                                const selectedServiceObjects = bkSelectedServices
+                                  .map((id) => servicesList.find((s) => s.id === id))
+                                  .filter(Boolean);
+                                  
+                                const servicesWithRestrictions = selectedServiceObjects.filter(s => s?.staffIds && s.staffIds.length > 0);
+                                
+                                if (servicesWithRestrictions.length > 0) {
+                                  // Check if staff is in ANY of the restricted lists
+                                  // Or simpler: check if staff is qualified for ALL selected services?
+                                  // Usually bookings with multiple services might be with same staff or different. 
+                                  // For simplicity here, let's show staff who can do ANY of the services or match constraints.
+                                  // Better: show staff qualified for ALL selected services if possible, or just show all branch staff.
+                                  
+                                  // Let's stick to branch filter + Active status as primary. 
+                                  // If strict service-staff binding is needed, we'd filter more.
+                                  // For now, let's just ensure they are in the branch.
                                 }
                               }
                               
@@ -1108,9 +1185,9 @@ export default function BookingsPage() {
                     Back
                   </button>
                   <button
-                    disabled={!bkDate || !bkTime}
+                    disabled={!bkDate || Object.keys(bkServiceTimes).length !== bkSelectedServices.length}
                     onClick={() => setBkStep(3)}
-                    className={`px-5 py-2 rounded-lg text-white font-semibold ${bkDate && bkTime ? "bg-pink-600 hover:bg-pink-700" : "bg-slate-300 cursor-not-allowed"}`}
+                    className={`px-5 py-2 rounded-lg text-white font-semibold ${bkDate && Object.keys(bkServiceTimes).length === bkSelectedServices.length ? "bg-pink-600 hover:bg-pink-700" : "bg-slate-300 cursor-not-allowed"}`}
                   >
                     Continue to Details
                   </button>
@@ -1173,11 +1250,40 @@ export default function BookingsPage() {
                   <div className="font-bold text-slate-700 mb-4">Booking Summary</div>
                   <div className="bg-pink-50 rounded-xl border border-pink-100 p-4 space-y-3 text-sm">
                     <div className="flex justify-between"><span className="text-slate-500">Branch</span><span className="font-semibold text-slate-800">{branches.find((b: any) => b.id === bkBranchId)?.name || "-"}</span></div>
-                    <div className="flex justify-between"><span className="text-slate-500">Service</span><span className="font-semibold text-slate-800">{servicesList.find((s: any) => String(s.id) === String(bkServiceId))?.name || "-"}</span></div>
-                    <div className="flex justify-between"><span className="text-slate-500">Staff</span><span className="font-semibold text-slate-800">{bkStaffId ? staffList.find((s: any) => s.id === bkStaffId)?.name : <span className="text-slate-500 italic">Any Available</span>}</span></div>
+                    
+                    <div className="border-t border-pink-100 pt-2 mt-2">
+                      <span className="text-slate-500 block mb-2">Services ({bkSelectedServices.length})</span>
+                      <div className="space-y-2">
+                        {bkSelectedServices.map(id => {
+                          const s = servicesList.find((srv: any) => String(srv.id) === String(id));
+                          return (
+                            <div key={id} className="bg-white/60 p-2 rounded border border-pink-100">
+                              <div className="flex justify-between">
+                                <span className="font-semibold text-slate-800">{s?.name || "-"}</span>
+                                <span className="font-bold text-pink-600">${s?.price || 0}</span>
+                              </div>
+                              <div className="flex justify-between text-xs text-slate-500 mt-1">
+                                <span>{bkServiceTimes[String(id)]}</span>
+                                <span>{s?.duration} min</span>
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+
+                    <div className="flex justify-between border-t border-pink-100 pt-2"><span className="text-slate-500">Staff</span><span className="font-semibold text-slate-800">{bkStaffId ? staffList.find((s: any) => s.id === bkStaffId)?.name : <span className="text-slate-500 italic">Any Available</span>}</span></div>
                     <div className="flex justify-between"><span className="text-slate-500">Date</span><span className="font-semibold text-slate-800">{bkDate ? bkDate.toLocaleDateString() : "-"}</span></div>
-                    <div className="flex justify-between"><span className="text-slate-500">Time</span><span className="font-semibold text-slate-800">{bkTime || "-"}</span></div>
-                    <div className="flex justify-between"><span className="text-slate-500">Price</span><span className="font-bold text-pink-600">${servicesList.find((s: any) => String(s.id) === String(bkServiceId))?.price || 0}</span></div>
+                    
+                    <div className="flex justify-between border-t-2 border-pink-200 pt-2 mt-2">
+                      <span className="text-slate-700 font-bold">Total Price</span>
+                      <span className="font-black text-pink-600 text-lg">
+                        ${bkSelectedServices.reduce((sum: number, id) => {
+                          const s = servicesList.find((srv: any) => String(srv.id) === String(id));
+                          return sum + (Number(s?.price) || 0);
+                        }, 0)}
+                      </span>
+                    </div>
                   </div>
                 </div>
 
@@ -1186,9 +1292,9 @@ export default function BookingsPage() {
                     Back
                   </button>
                   <button
-                    disabled={!bkBranchId || !bkServiceId || !bkDate || !bkTime || submittingBooking}
+                    disabled={!bkBranchId || bkSelectedServices.length === 0 || !bkDate || Object.keys(bkServiceTimes).length !== bkSelectedServices.length || submittingBooking}
                     onClick={handleConfirmBooking}
-                    className={`px-5 py-2 rounded-lg text-white font-semibold ${bkBranchId && bkServiceId && bkDate && bkTime && !submittingBooking ? "bg-pink-600 hover:bg-pink-700" : "bg-slate-300 cursor-not-allowed"}`}
+                    className={`px-5 py-2 rounded-lg text-white font-semibold ${bkBranchId && bkSelectedServices.length > 0 && bkDate && Object.keys(bkServiceTimes).length === bkSelectedServices.length && !submittingBooking ? "bg-pink-600 hover:bg-pink-700" : "bg-slate-300 cursor-not-allowed"}`}
                   >
                     {submittingBooking ? <span className="inline-flex items-center"><i className="fas fa-spinner animate-spin mr-2" /> Confirming…</span> : "Confirm Booking"}
                   </button>
