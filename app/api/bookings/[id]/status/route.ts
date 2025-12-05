@@ -50,6 +50,7 @@ export async function PATCH(req: NextRequest, context: { params: Promise<{ id: s
       status?: string; 
       staffId?: string;
       staffName?: string;
+      services?: any[];
     };
     const requestedStatus = normalizeBookingStatus(body?.status || "");
 
@@ -93,6 +94,11 @@ export async function PATCH(req: NextRequest, context: { params: Promise<{ id: s
       updateData.staffName = body.staffName || "Staff";
     }
 
+    // Add services update if provided (for multi-service staff assignment)
+    if (body.services) {
+      updateData.services = body.services;
+    }
+
     // If confirming a booking request, move it to bookings collection
     if (isBookingRequest && requestedStatus === "Confirmed") {
       // Create in bookings collection
@@ -112,11 +118,11 @@ export async function PATCH(req: NextRequest, context: { params: Promise<{ id: s
 
     // Create notification for customer
     try {
-      // Use the updated staff info if provided, otherwise use existing
       const finalStaffName = body.staffName || data.staffName || null;
       const finalServiceName = data.serviceName || null;
       const finalBookingDate = data.date || null;
       const finalBookingTime = data.time || null;
+      const finalServices = body.services || data.services || null;
       
       const notificationContent = getNotificationContent(
         requestedStatus, 
@@ -151,8 +157,8 @@ export async function PATCH(req: NextRequest, context: { params: Promise<{ id: s
       if (finalBookingTime) notificationData.bookingTime = finalBookingTime;
       
       // Add services list if available
-      if (data.services && Array.isArray(data.services) && data.services.length > 0) {
-        notificationData.services = data.services.map((s: any) => ({
+      if (finalServices && Array.isArray(finalServices) && finalServices.length > 0) {
+        notificationData.services = finalServices.map((s: any) => ({
           name: s.name || "Service",
           staffName: s.staffName || "Any Available"
         }));

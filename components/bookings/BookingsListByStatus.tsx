@@ -437,15 +437,37 @@ export default function BookingsListByStatus({ status, title }: { status: Bookin
         const uniqueStaffIds = new Set(updatedServices.map(s => s.staffId).filter(Boolean));
         const mainStaffName = uniqueStaffIds.size === 1 ? firstStaff.staffName : "Multiple Staff";
 
-        // Update via Firestore directly
-        const { updateDoc, doc: firestoreDoc, serverTimestamp } = await import("firebase/firestore");
-        await updateDoc(firestoreDoc(db, "bookings", bookingToConfirm.id), {
-          services: updatedServices,
-          staffId: firstStaff.staffId,
-          staffName: mainStaffName,
-          status: "Confirmed",
-          updatedAt: serverTimestamp(),
-        } as any);
+        // CALL API instead of direct update to trigger notifications
+        const res = await fetch(`/api/bookings/${encodeURIComponent(bookingToConfirm.id)}/status`, {
+          method: "PATCH",
+          headers: {
+            "Content-Type": "application/json",
+            ...(token ? { Authorization: `Bearer ${token}` } : {}),
+          },
+          body: JSON.stringify({ 
+            status: "Confirmed",
+            services: updatedServices,
+            staffId: firstStaff.staffId,
+            staffName: mainStaffName
+          }),
+        });
+
+        const json = await res.json().catch(() => ({})) as any;
+        if (!res.ok && !json?.devNoop) {
+          throw new Error(json?.error || "Failed to confirm booking");
+        }
+
+        // If dev no-op or unauthorized in dev, perform client-side update
+        if (json?.devNoop) {
+          const { updateDoc, doc: firestoreDoc, serverTimestamp } = await import("firebase/firestore");
+          await updateDoc(firestoreDoc(db, "bookings", bookingToConfirm.id), {
+            services: updatedServices,
+            staffId: firstStaff.staffId,
+            staffName: mainStaffName,
+            status: "Confirmed",
+            updatedAt: serverTimestamp(),
+          } as any);
+        }
       } else {
         // Single service - use API endpoint
         const selectedStaff = availableStaff.find(s => s.id === selectedStaffId);
