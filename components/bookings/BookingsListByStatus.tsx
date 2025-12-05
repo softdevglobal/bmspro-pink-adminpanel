@@ -26,6 +26,15 @@ type Row = {
   status?: string | null;
   bookingCode?: string | null;
   bookingSource?: string | null;
+  services?: Array<{
+    id: string | number;
+    name?: string;
+    price?: number;
+    duration?: number;
+    time?: string;
+    staffId?: string | null;
+    staffName?: string | null;
+  }> | null;
 };
 
 function useBookingsByStatus(status: BookingStatus) {
@@ -107,6 +116,7 @@ function useBookingsByStatus(status: BookingStatus) {
               status: d.status || null,
               bookingCode: d.bookingCode || null,
               bookingSource: d.bookingSource || null,
+              services: d.services || null,
             });
           }
         });
@@ -163,55 +173,23 @@ export default function BookingsListByStatus({ status, title }: { status: Bookin
   const [staffAssignModalOpen, setStaffAssignModalOpen] = useState(false);
   const [bookingToConfirm, setBookingToConfirm] = useState<Row | null>(null);
   const [selectedStaffId, setSelectedStaffId] = useState<string>("");
+  const [selectedStaffPerService, setSelectedStaffPerService] = useState<Record<string, string>>({});
   const [availableStaff, setAvailableStaff] = useState<Array<{ id: string; name: string; branchId?: string; avatar?: string }>>([]);
+  const [availableStaffPerService, setAvailableStaffPerService] = useState<Record<string, Array<{ id: string; name: string; branchId?: string; avatar?: string }>>>({});
   const [loadingStaff, setLoadingStaff] = useState(false);
   const [serviceQualifiedStaffIds, setServiceQualifiedStaffIds] = useState<string[]>([]);
+  const [currentServiceQualifiedStaffIds, setCurrentServiceQualifiedStaffIds] = useState<Record<string, string[]>>({});
 
-  // Fetch service qualified staff IDs when modal opens
-  useEffect(() => {
-    if (!staffAssignModalOpen || !bookingToConfirm || !bookingToConfirm.serviceId) return;
-
-    const fetchServiceQualifiedStaff = async () => {
-      try {
-        const userId = auth.currentUser?.uid;
-        if (!userId) return;
-
-        const { getDoc, doc: firestoreDoc } = await import("firebase/firestore");
-        const userSnap = await getDoc(firestoreDoc(db, "users", userId));
-        const userData = userSnap.data();
-        const userRole = (userData?.role || "").toString();
-        const ownerUid = userRole === "salon_owner" ? userId : (userData?.ownerUid || userId);
-
-        // Fetch service details to get qualified staff IDs
-        const { subscribeServicesForOwner } = await import("@/lib/services");
-        const unsubService = subscribeServicesForOwner(ownerUid, (services) => {
-          const service = services.find((s: any) => String(s.id) === String(bookingToConfirm.serviceId));
-          if (service && Array.isArray((service as any).staffIds)) {
-            setServiceQualifiedStaffIds((service as any).staffIds.map(String));
-          } else {
-            // If no staffIds specified, all staff are qualified
-            setServiceQualifiedStaffIds([]);
-          }
-        });
-
-        return () => unsubService();
-      } catch (err) {
-        console.error("Error fetching service details:", err);
-        setServiceQualifiedStaffIds([]);
-      }
-    };
-
-    fetchServiceQualifiedStaff();
-  }, [staffAssignModalOpen, bookingToConfirm]);
-
-  // Fetch available staff when modal opens
+  // Combined effect: Fetch services and staff together to ensure proper filtering
   useEffect(() => {
     if (!staffAssignModalOpen || !bookingToConfirm) return;
 
-    const fetchStaff = async () => {
+    let unsubServices: (() => void) | null = null;
+    let unsubStaff: (() => void) | null = null;
+    
+    const fetchData = async () => {
       setLoadingStaff(true);
       try {
-        const { subscribeSalonStaffForOwner } = await import("@/lib/salonStaff");
         const userId = auth.currentUser?.uid;
         if (!userId) return;
 
@@ -221,127 +199,268 @@ export default function BookingsListByStatus({ status, title }: { status: Bookin
         const userRole = (userData?.role || "").toString();
         const ownerUid = userRole === "salon_owner" ? userId : (userData?.ownerUid || userId);
 
-        const unsub = subscribeSalonStaffForOwner(ownerUid, (staffRows) => {
-          // Filter by: 1) Active status, 2) Service qualification, 3) Branch & day
-          let filtered = staffRows.filter((s: any) => s.status === "Active");
+        const { subscribeServicesForOwner } = await import("@/lib/services");
+        const { subscribeSalonStaffForOwner } = await import("@/lib/salonStaff");
 
-          // Filter by service qualification
-          if (serviceQualifiedStaffIds.length > 0) {
-            filtered = filtered.filter((s: any) => 
-              serviceQualifiedStaffIds.includes(String(s.id))
-            );
-          }
+        // Track loaded data
+        let servicesData: any[] = [];
+        let staffData: any[] = [];
 
-          // Filter by branch and day of week if booking has branchId and date
-          if (bookingToConfirm.branchId && bookingToConfirm.date) {
-            // Get day of week from booking date
-            const bookingDate = new Date(bookingToConfirm.date);
-            const daysOfWeek = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
-            const dayName = daysOfWeek[bookingDate.getDay()];
+        const processData = () => {
+          if (servicesData.length === 0 || staffData.length === 0) return;
 
-            filtered = filtered.filter((s: any) => {
-              // Check if staff has a weekly schedule
-              if (s.weeklySchedule && typeof s.weeklySchedule === 'object') {
-                const daySchedule = s.weeklySchedule[dayName];
-                
-                // If day schedule exists and has branchId, check if it matches
-                if (daySchedule && daySchedule.branchId) {
-                  return daySchedule.branchId === bookingToConfirm.branchId;
-                }
-                
-                // If no schedule for this day (null or undefined), staff is not available
-                if (daySchedule === null || daySchedule === undefined) {
-                  return false;
-                }
+          const hasMultipleServices = Array.isArray(bookingToConfirm.services) && bookingToConfirm.services.length > 0;
+          
+          if (hasMultipleServices) {
+            // Filter staff for each service
+            const staffPerService: Record<string, Array<{ id: string; name: string; branchId?: string; avatar?: string }>> = {};
+            
+            bookingToConfirm.services!.forEach(bookingService => {
+              // Find service details
+              const service = servicesData.find((s: any) => String(s.id) === String(bookingService.id));
+              const qualifiedStaffIds = (service && Array.isArray(service.staffIds)) ? service.staffIds.map(String) : [];
+              
+              // Start with active staff
+              let filtered = staffData.filter((s: any) => s.status === "Active");
+              
+              // CRITICAL: Filter by service qualification
+              if (qualifiedStaffIds.length > 0) {
+                filtered = filtered.filter((s: any) => qualifiedStaffIds.includes(String(s.id)));
               }
               
-              // Fallback: check static branchId (for staff without weekly schedule)
-              return s.branchId === bookingToConfirm.branchId;
+              // Filter by branch and day
+              if (bookingToConfirm.branchId && bookingToConfirm.date) {
+                const bookingDate = new Date(bookingToConfirm.date);
+                const daysOfWeek = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+                const dayName = daysOfWeek[bookingDate.getDay()];
+                
+                filtered = filtered.filter((s: any) => {
+                  if (s.weeklySchedule && typeof s.weeklySchedule === 'object') {
+                    const daySchedule = s.weeklySchedule[dayName];
+                    if (daySchedule && daySchedule.branchId) {
+                      return daySchedule.branchId === bookingToConfirm.branchId;
+                    }
+                    if (daySchedule === null || daySchedule === undefined) {
+                      return false;
+                    }
+                  }
+                  return s.branchId === bookingToConfirm.branchId;
+                });
+              }
+              
+              staffPerService[String(bookingService.id)] = filtered.map((s: any) => ({
+                id: String(s.id),
+                name: String(s.name || s.displayName || "Staff"),
+                branchId: s.branchId,
+                avatar: s.avatar || s.name || s.displayName || "Staff",
+              }));
             });
-          }
+            
+            setAvailableStaffPerService(staffPerService);
+          } else {
+            // Single service
+            const service = servicesData.find((s: any) => String(s.id) === String(bookingToConfirm.serviceId));
+            const qualifiedStaffIds = (service && Array.isArray(service.staffIds)) ? service.staffIds.map(String) : [];
+            
+            let filtered = staffData.filter((s: any) => s.status === "Active");
 
-          setAvailableStaff(
-            filtered.map((s: any) => ({
-              id: String(s.id),
-              name: String(s.name || s.displayName || "Staff"),
-              branchId: s.branchId,
-              avatar: s.avatar || s.name || s.displayName || "Staff",
-            }))
-          );
+            // CRITICAL: Filter by service qualification
+            if (qualifiedStaffIds.length > 0) {
+              filtered = filtered.filter((s: any) => qualifiedStaffIds.includes(String(s.id)));
+            }
+
+            if (bookingToConfirm.branchId && bookingToConfirm.date) {
+              const bookingDate = new Date(bookingToConfirm.date);
+              const daysOfWeek = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+              const dayName = daysOfWeek[bookingDate.getDay()];
+
+              filtered = filtered.filter((s: any) => {
+                if (s.weeklySchedule && typeof s.weeklySchedule === 'object') {
+                  const daySchedule = s.weeklySchedule[dayName];
+                  if (daySchedule && daySchedule.branchId) {
+                    return daySchedule.branchId === bookingToConfirm.branchId;
+                  }
+                  if (daySchedule === null || daySchedule === undefined) {
+                    return false;
+                  }
+                }
+                return s.branchId === bookingToConfirm.branchId;
+              });
+            }
+
+            setAvailableStaff(
+              filtered.map((s: any) => ({
+                id: String(s.id),
+                name: String(s.name || s.displayName || "Staff"),
+                branchId: s.branchId,
+                avatar: s.avatar || s.name || s.displayName || "Staff",
+              }))
+            );
+          }
+          
           setLoadingStaff(false);
+        };
+
+        // Subscribe to services
+        unsubServices = subscribeServicesForOwner(ownerUid, (services) => {
+          servicesData = services;
+          processData();
         });
 
-        return () => unsub();
+        // Subscribe to staff
+        unsubStaff = subscribeSalonStaffForOwner(ownerUid, (staff) => {
+          staffData = staff;
+          processData();
+        });
+
       } catch (err) {
-        console.error("Error fetching staff:", err);
+        console.error("Error fetching data:", err);
         setLoadingStaff(false);
       }
     };
 
-    fetchStaff();
-  }, [staffAssignModalOpen, bookingToConfirm, serviceQualifiedStaffIds]);
+    fetchData();
+
+    return () => {
+      if (unsubServices) unsubServices();
+      if (unsubStaff) unsubStaff();
+    };
+  }, [staffAssignModalOpen, bookingToConfirm]);
 
   const handleConfirmClick = (row: Row) => {
-    // Check if booking needs staff assignment (staffId is null or empty)
-    if (!row.staffId || row.staffId === "null" || row.staffName === "Any Available" || row.staffName === "Any Staff") {
-      // Open staff assignment modal
-      setBookingToConfirm(row);
-      setSelectedStaffId("");
-      setStaffAssignModalOpen(true);
+    // Check if booking has multiple services array
+    const hasMultipleServices = Array.isArray(row.services) && row.services.length > 0;
+    
+    if (hasMultipleServices) {
+      // Check if any service needs staff assignment
+      const needsStaffAssignment = row.services!.some(s => 
+        !s.staffId || s.staffId === "null" || s.staffName === "Any Available" || s.staffName === "Any Staff"
+      );
+      
+      if (needsStaffAssignment) {
+        // Open multi-service staff assignment modal
+        setBookingToConfirm(row);
+        setSelectedStaffPerService({});
+        setStaffAssignModalOpen(true);
+      } else {
+        // All services have staff assigned
+        onAction(row.id, "Confirm");
+      }
     } else {
-      // Directly confirm without staff assignment
-      onAction(row.id, "Confirm");
+      // Single service booking - check if needs staff assignment
+      if (!row.staffId || row.staffId === "null" || row.staffName === "Any Available" || row.staffName === "Any Staff") {
+        // Open staff assignment modal
+        setBookingToConfirm(row);
+        setSelectedStaffId("");
+        setSelectedStaffPerService({});
+        setStaffAssignModalOpen(true);
+      } else {
+        // Directly confirm without staff assignment
+        onAction(row.id, "Confirm");
+      }
     }
   };
 
   const confirmWithStaffAssignment = async () => {
-    if (!bookingToConfirm || !selectedStaffId) return;
+    if (!bookingToConfirm) return;
+
+    // Check if this is a multi-service booking
+    const hasMultipleServices = Array.isArray(bookingToConfirm.services) && bookingToConfirm.services.length > 0;
+
+    if (hasMultipleServices) {
+      // Validate all services have staff assigned
+      const servicesNeedingStaff = bookingToConfirm.services!.filter(s => 
+        !s.staffId || s.staffName === "Any Available" || s.staffName === "Any Staff"
+      );
+      
+      if (servicesNeedingStaff.length > 0) {
+        const allAssigned = servicesNeedingStaff.every(s => selectedStaffPerService[String(s.id)]);
+        if (!allAssigned) {
+          alert("Please assign staff to all services");
+          return;
+        }
+      }
+    } else {
+      // Single service - must have staff selected
+      if (!selectedStaffId) return;
+    }
 
     try {
       setUpdatingMap((m) => ({ ...m, [bookingToConfirm.id]: true }));
       
-      // Get selected staff details
-      const selectedStaff = availableStaff.find(s => s.id === selectedStaffId);
-      
-      // Use API endpoint to update booking with staff assignment and confirm status
-      // This ensures notifications are sent and all backend processes are triggered
       const user = auth.currentUser;
       const token = await user?.getIdToken().catch(() => null) ||
         (typeof window !== "undefined" ? localStorage.getItem("idToken") : null);
 
-      const res = await fetch(`/api/bookings/${encodeURIComponent(bookingToConfirm.id)}/status`, {
-        method: "PATCH",
-        headers: {
-          "Content-Type": "application/json",
-          ...(token ? { Authorization: `Bearer ${token}` } : {}),
-        },
-        body: JSON.stringify({ 
-          status: "Confirmed",
-          staffId: selectedStaffId,
-          staffName: selectedStaff?.name || "Staff"
-        }),
-      });
+      if (hasMultipleServices) {
+        // Update services array with selected staff
+        const updatedServices = bookingToConfirm.services!.map(service => {
+          const needsStaff = !service.staffId || service.staffName === "Any Available" || service.staffName === "Any Staff";
+          if (needsStaff && selectedStaffPerService[String(service.id)]) {
+            const staffId = selectedStaffPerService[String(service.id)];
+            const staff = availableStaffPerService[String(service.id)]?.find(s => s.id === staffId);
+            return {
+              ...service,
+              staffId: staffId,
+              staffName: staff?.name || "Staff"
+            };
+          }
+          return service;
+        });
 
-      const json = await res.json().catch(() => ({})) as any;
-      if (!res.ok && !json?.devNoop) {
-        throw new Error(json?.error || "Failed to confirm booking");
-      }
+        // Update main staffId and staffName (use first service's staff as primary)
+        const firstStaff = updatedServices[0];
+        const uniqueStaffIds = new Set(updatedServices.map(s => s.staffId).filter(Boolean));
+        const mainStaffName = uniqueStaffIds.size === 1 ? firstStaff.staffName : "Multiple Staff";
 
-      // If dev no-op, perform client-side update
-      if (json?.devNoop) {
+        // Update via Firestore directly
         const { updateDoc, doc: firestoreDoc, serverTimestamp } = await import("firebase/firestore");
         await updateDoc(firestoreDoc(db, "bookings", bookingToConfirm.id), {
-          staffId: selectedStaffId,
-          staffName: selectedStaff?.name || "Staff",
+          services: updatedServices,
+          staffId: firstStaff.staffId,
+          staffName: mainStaffName,
           status: "Confirmed",
           updatedAt: serverTimestamp(),
         } as any);
+      } else {
+        // Single service - use API endpoint
+        const selectedStaff = availableStaff.find(s => s.id === selectedStaffId);
+        
+        const res = await fetch(`/api/bookings/${encodeURIComponent(bookingToConfirm.id)}/status`, {
+          method: "PATCH",
+          headers: {
+            "Content-Type": "application/json",
+            ...(token ? { Authorization: `Bearer ${token}` } : {}),
+          },
+          body: JSON.stringify({ 
+            status: "Confirmed",
+            staffId: selectedStaffId,
+            staffName: selectedStaff?.name || "Staff"
+          }),
+        });
+
+        const json = await res.json().catch(() => ({})) as any;
+        if (!res.ok && !json?.devNoop) {
+          throw new Error(json?.error || "Failed to confirm booking");
+        }
+
+        // If dev no-op, perform client-side update
+        if (json?.devNoop) {
+          const { updateDoc, doc: firestoreDoc, serverTimestamp } = await import("firebase/firestore");
+          await updateDoc(firestoreDoc(db, "bookings", bookingToConfirm.id), {
+            staffId: selectedStaffId,
+            staffName: selectedStaff?.name || "Staff",
+            status: "Confirmed",
+            updatedAt: serverTimestamp(),
+          } as any);
+        }
       }
 
       // Close modal
       setStaffAssignModalOpen(false);
       setBookingToConfirm(null);
       setSelectedStaffId("");
+      setSelectedStaffPerService({});
     } catch (e: any) {
       console.error("Error confirming booking:", e);
       alert(e?.message || "Failed to confirm booking");
@@ -749,60 +868,133 @@ export default function BookingsListByStatus({ status, title }: { status: Bookin
 
               {/* Staff Selection */}
               <div>
-                <label className="block text-sm font-semibold text-slate-700 mb-3">
-                  <i className="fas fa-user-tie text-emerald-600 mr-2"></i>
-                  Select Staff Member
-                </label>
-
                 {loadingStaff ? (
                   <div className="flex items-center justify-center py-8">
                     <div className="w-8 h-8 border-3 border-emerald-200 border-t-emerald-600 rounded-full animate-spin"></div>
                     <span className="ml-3 text-slate-600">Loading staff...</span>
                   </div>
-                ) : availableStaff.length === 0 ? (
-                  <div className="p-4 bg-amber-50 border border-amber-200 rounded-lg text-amber-800 text-sm">
-                    <i className="fas fa-exclamation-triangle mr-2"></i>
-                    No available staff members found for this branch.
-                  </div>
                 ) : (
-                  <div className="space-y-2 max-h-64 overflow-y-auto">
-                    {availableStaff.map((staff) => (
-                      <button
-                        key={staff.id}
-                        onClick={() => setSelectedStaffId(staff.id)}
-                        className={`w-full text-left p-3 rounded-lg border-2 transition-all ${
-                          selectedStaffId === staff.id
-                            ? "border-emerald-500 bg-emerald-50 shadow-sm"
-                            : "border-slate-200 hover:border-emerald-300 hover:bg-slate-50"
-                        }`}
-                      >
-                        <div className="flex items-center gap-3">
-                          {/* Staff Avatar */}
-                          <div className={`w-10 h-10 rounded-full overflow-hidden flex-shrink-0 border-2 ${
-                            selectedStaffId === staff.id
-                              ? "border-emerald-500"
-                              : "border-slate-200"
-                          }`}>
-                            <img
-                              src={`https://api.dicebear.com/7.x/avataaars/svg?seed=${encodeURIComponent(staff.avatar || staff.name)}`}
-                              alt={staff.name}
-                              className="w-full h-full object-cover"
-                            />
+                  <>
+                    {/* Multiple Services - Show staff selection for each */}
+                    {Array.isArray(bookingToConfirm.services) && bookingToConfirm.services.length > 0 ? (
+                      <div className="space-y-4 max-h-96 overflow-y-auto">
+                        {bookingToConfirm.services
+                          .filter(service => !service.staffId || service.staffName === "Any Available" || service.staffName === "Any Staff")
+                          .map((service) => {
+                            const serviceStaff = availableStaffPerService[String(service.id)] || [];
+                            const selectedStaff = selectedStaffPerService[String(service.id)];
+                            
+                            return (
+                              <div key={String(service.id)} className="border-2 border-purple-200 rounded-xl p-4 bg-purple-50/50">
+                                <div className="mb-3 flex items-center gap-2">
+                                  <i className="fas fa-spa text-purple-600"></i>
+                                  <h4 className="font-bold text-slate-800">{service.name}</h4>
+                                  <span className="text-xs text-slate-500 ml-auto">{service.duration} min</span>
+                                </div>
+                                
+                                {serviceStaff.length === 0 ? (
+                                  <div className="p-3 bg-amber-50 border border-amber-200 rounded-lg text-amber-800 text-xs">
+                                    <i className="fas fa-exclamation-triangle mr-2"></i>
+                                    No qualified staff available for this service
+                                  </div>
+                                ) : (
+                                  <div className="space-y-2">
+                                    {serviceStaff.map((staff) => (
+                                      <button
+                                        key={staff.id}
+                                        onClick={() => setSelectedStaffPerService(prev => ({
+                                          ...prev,
+                                          [String(service.id)]: staff.id
+                                        }))}
+                                        className={`w-full text-left p-2 rounded-lg border-2 transition-all ${
+                                          selectedStaff === staff.id
+                                            ? "border-emerald-500 bg-emerald-50 shadow-sm"
+                                            : "border-slate-200 hover:border-emerald-300 hover:bg-white"
+                                        }`}
+                                      >
+                                        <div className="flex items-center gap-2">
+                                          <div className={`w-8 h-8 rounded-full overflow-hidden flex-shrink-0 border-2 ${
+                                            selectedStaff === staff.id ? "border-emerald-500" : "border-slate-200"
+                                          }`}>
+                                            <img
+                                              src={`https://api.dicebear.com/7.x/avataaars/svg?seed=${encodeURIComponent(staff.avatar || staff.name)}`}
+                                              alt={staff.name}
+                                              className="w-full h-full object-cover"
+                                            />
+                                          </div>
+                                          <div className="flex-1">
+                                            <p className={`font-semibold text-sm ${
+                                              selectedStaff === staff.id ? "text-emerald-900" : "text-slate-800"
+                                            }`}>
+                                              {staff.name}
+                                            </p>
+                                          </div>
+                                          {selectedStaff === staff.id && (
+                                            <i className="fas fa-check-circle text-emerald-500"></i>
+                                          )}
+                                        </div>
+                                      </button>
+                                    ))}
+                                  </div>
+                                )}
+                              </div>
+                            );
+                          })}
+                      </div>
+                    ) : (
+                      /* Single Service - Original UI */
+                      <>
+                        <label className="block text-sm font-semibold text-slate-700 mb-3">
+                          <i className="fas fa-user-tie text-emerald-600 mr-2"></i>
+                          Select Staff Member
+                        </label>
+                        {availableStaff.length === 0 ? (
+                          <div className="p-4 bg-amber-50 border border-amber-200 rounded-lg text-amber-800 text-sm">
+                            <i className="fas fa-exclamation-triangle mr-2"></i>
+                            No available staff members found for this branch.
                           </div>
-                          <div className="flex-1">
-                            <p className={`font-semibold ${
-                              selectedStaffId === staff.id ? "text-emerald-900" : "text-slate-800"
-                            }`}>
-                              {staff.name}
-                            </p>
+                        ) : (
+                          <div className="space-y-2 max-h-64 overflow-y-auto">
+                            {availableStaff.map((staff) => (
+                              <button
+                                key={staff.id}
+                                onClick={() => setSelectedStaffId(staff.id)}
+                                className={`w-full text-left p-3 rounded-lg border-2 transition-all ${
+                                  selectedStaffId === staff.id
+                                    ? "border-emerald-500 bg-emerald-50 shadow-sm"
+                                    : "border-slate-200 hover:border-emerald-300 hover:bg-slate-50"
+                                }`}
+                              >
+                                <div className="flex items-center gap-3">
+                                  <div className={`w-10 h-10 rounded-full overflow-hidden flex-shrink-0 border-2 ${
+                                    selectedStaffId === staff.id
+                                      ? "border-emerald-500"
+                                      : "border-slate-200"
+                                  }`}>
+                                    <img
+                                      src={`https://api.dicebear.com/7.x/avataaars/svg?seed=${encodeURIComponent(staff.avatar || staff.name)}`}
+                                      alt={staff.name}
+                                      className="w-full h-full object-cover"
+                                    />
+                                  </div>
+                                  <div className="flex-1">
+                                    <p className={`font-semibold ${
+                                      selectedStaffId === staff.id ? "text-emerald-900" : "text-slate-800"
+                                    }`}>
+                                      {staff.name}
+                                    </p>
+                                  </div>
+                                  {selectedStaffId === staff.id && (
+                                    <i className="fas fa-check-circle text-emerald-500 text-lg"></i>
+                                  )}
+                                </div>
+                              </button>
+                            ))}
                           </div>
-                          {selectedStaffId === staff.id && (
-                            <i className="fas fa-check-circle text-emerald-500 text-lg"></i>
-                          )}
-                        </div>
-                      </button>
-                    ))}
-                  </div>
+                        )}
+                      </>
+                    )}
+                  </>
                 )}
               </div>
             </div>
@@ -818,7 +1010,23 @@ export default function BookingsListByStatus({ status, title }: { status: Bookin
               </button>
               <button
                 onClick={confirmWithStaffAssignment}
-                disabled={!selectedStaffId || updatingMap[bookingToConfirm.id]}
+                disabled={(() => {
+                  if (updatingMap[bookingToConfirm.id]) return true;
+                  
+                  // Check if multi-service booking
+                  const hasMultipleServices = Array.isArray(bookingToConfirm.services) && bookingToConfirm.services.length > 0;
+                  
+                  if (hasMultipleServices) {
+                    // Check if all services needing staff have staff assigned
+                    const servicesNeedingStaff = bookingToConfirm.services!.filter(s => 
+                      !s.staffId || s.staffName === "Any Available" || s.staffName === "Any Staff"
+                    );
+                    return !servicesNeedingStaff.every(s => selectedStaffPerService[String(s.id)]);
+                  } else {
+                    // Single service
+                    return !selectedStaffId;
+                  }
+                })()}
                 className="px-5 py-2.5 rounded-lg bg-gradient-to-r from-emerald-500 to-green-600 hover:from-emerald-600 hover:to-green-700 text-white font-semibold transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2 text-sm shadow-lg shadow-emerald-200"
               >
                 {updatingMap[bookingToConfirm.id] ? (
