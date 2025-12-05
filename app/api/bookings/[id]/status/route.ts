@@ -23,13 +23,27 @@ export async function PATCH(req: NextRequest, context: { params: Promise<{ id: s
     try {
       const decoded = await adminAuth().verifyIdToken(token);
       ownerUid = decoded.uid;
-    } catch (verifyError) {
+    } catch (verifyError: any) {
       console.error("Token verification failed:", verifyError);
+      
+      // Detailed error info for debugging Vercel issues
+      const errorDetails = {
+        code: verifyError?.code,
+        message: verifyError?.message,
+        stack: process.env.NODE_ENV !== "production" ? verifyError?.stack : undefined,
+        // Do not log full token
+      };
+
       if (process.env.NODE_ENV !== "production") {
         console.log("Falling back to devNoop due to verification failure in dev");
         return NextResponse.json({ ok: true, devNoop: true });
       }
-      return NextResponse.json({ error: "Unauthorized: Token verification failed" }, { status: 401 });
+      
+      return NextResponse.json({ 
+        error: "Unauthorized: Token verification failed", 
+        details: errorDetails,
+        hint: "Check server logs for Firebase Admin initialization status." 
+      }, { status: 401 });
     }
 
     const body = (await req.json().catch(() => ({}))) as { 
