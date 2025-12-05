@@ -388,9 +388,29 @@ export default function BookingsListByStatus({ status, title }: { status: Bookin
     try {
       setUpdatingMap((m) => ({ ...m, [bookingToConfirm.id]: true }));
       
-      const user = auth.currentUser;
-      const token = await user?.getIdToken().catch(() => null) ||
-        (typeof window !== "undefined" ? localStorage.getItem("idToken") : null);
+      // Get fresh token with robust fallback
+      let token: string | null = null;
+      try {
+        if (auth.currentUser) {
+          token = await auth.currentUser.getIdToken(true);
+        } else {
+          // Wait for auth state to settle
+          const user = await new Promise<any>((resolve) => {
+            const unsubscribe = auth.onAuthStateChanged((u) => {
+              unsubscribe();
+              resolve(u);
+            });
+          });
+          if (user) {
+            token = await user.getIdToken(true);
+          } else {
+             // Fallback to stored token if available (less reliable but better than nothing)
+             token = typeof window !== "undefined" ? localStorage.getItem("idToken") : null;
+          }
+        }
+      } catch (err) {
+        console.error("Error getting token:", err);
+      }
 
       if (hasMultipleServices) {
         // Update services array with selected staff
@@ -743,11 +763,31 @@ export default function BookingsListByStatus({ status, title }: { status: Bookin
                                 <i className="fas fa-eye text-[13px]" />
                               </button>
                             </div>
-                              <div className="text-xs mt-0.5">
-                                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-slate-100 text-slate-600">
-                                  <i className="fas fa-sparkles text-[10px]" />
-                                  {r.serviceName || "Unknown Service"}
-                                </span>
+                            {/* Service List Display */}
+                            <div className="mt-1">
+                              {r.services && r.services.length > 0 ? (
+                                <div className="flex flex-col gap-1">
+                                  {r.services.map((svc, idx) => (
+                                    <div key={idx} className="flex items-center gap-2">
+                                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-slate-100 text-slate-700 border border-slate-200">
+                                        <i className="fas fa-sparkles text-[10px] text-pink-500" />
+                                        <span className="text-xs font-medium">{svc.name || "Service"}</span>
+                                      </span>
+                                      <span className="text-[10px] text-slate-500 flex items-center gap-1">
+                                        <i className="fas fa-user-tie text-[9px]" />
+                                        {svc.staffName || "Any Staff"}
+                                      </span>
+                                    </div>
+                                  ))}
+                                </div>
+                              ) : (
+                                <div className="text-xs mt-0.5">
+                                  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-slate-100 text-slate-600">
+                                    <i className="fas fa-sparkles text-[10px]" />
+                                    {r.serviceName || "Unknown Service"}
+                                  </span>
+                                </div>
+                              )}
                             </div>
                           </div>
                         </td>
@@ -755,7 +795,16 @@ export default function BookingsListByStatus({ status, title }: { status: Bookin
                           <div className="font-medium text-slate-700">{r.date}</div>
                           <div className="text-xs text-slate-500">{r.time}</div>
                         </td>
-                        <td className="p-4">{r.staffName || "-"}</td>
+                        {/* Staff Column - show consolidated or main staff */}
+                        <td className="p-4">
+                          {r.services && r.services.length > 0 ? (
+                             <div className="flex flex-col gap-1">
+                               <span className="text-xs font-medium text-slate-700">{r.staffName || "Multiple Staff"}</span>
+                             </div>
+                          ) : (
+                             <span>{r.staffName || "-"}</span>
+                          )}
+                        </td>
                         <td className="p-4">{r.branchName || "-"}</td>
                         <td className="p-4 text-right pr-6">
                           <span className="inline-flex items-center gap-1 font-bold text-slate-800">

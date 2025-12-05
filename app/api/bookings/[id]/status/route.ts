@@ -23,11 +23,13 @@ export async function PATCH(req: NextRequest, context: { params: Promise<{ id: s
     try {
       const decoded = await adminAuth().verifyIdToken(token);
       ownerUid = decoded.uid;
-    } catch {
+    } catch (verifyError) {
+      console.error("Token verification failed:", verifyError);
       if (process.env.NODE_ENV !== "production") {
+        console.log("Falling back to devNoop due to verification failure in dev");
         return NextResponse.json({ ok: true, devNoop: true });
       }
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+      return NextResponse.json({ error: "Unauthorized: Token verification failed" }, { status: 401 });
     }
 
     const body = (await req.json().catch(() => ({}))) as { 
@@ -133,6 +135,14 @@ export async function PATCH(req: NextRequest, context: { params: Promise<{ id: s
       if (data.branchName) notificationData.branchName = data.branchName;
       if (finalBookingDate) notificationData.bookingDate = finalBookingDate;
       if (finalBookingTime) notificationData.bookingTime = finalBookingTime;
+      
+      // Add services list if available
+      if (data.services && Array.isArray(data.services) && data.services.length > 0) {
+        notificationData.services = data.services.map((s: any) => ({
+          name: s.name || "Service",
+          staffName: s.staffName || "Any Available"
+        }));
+      }
       
       await createNotification(notificationData);
     } catch (notifError) {
