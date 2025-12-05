@@ -161,7 +161,7 @@ function useBookingsByStatus(status: BookingStatus) {
 export default function BookingsListByStatus({ status, title }: { status: BookingStatus; title: string }) {
   const { rows, loading, error } = useBookingsByStatus(status);
   const [sidebarOpen, setSidebarOpen] = useState(false);
-  const [updatingMap, setUpdatingMap] = useState<Record<string, boolean>>({});
+  const [updatingState, setUpdatingState] = useState<Record<string, string | null>>({});
   const allowedActions = useMemo<ReadonlyArray<"Confirm" | "Cancel" | "Complete">>(() => {
     if (status === "Pending") return ["Confirm", "Cancel"];
     if (status === "Confirmed") return ["Complete"];
@@ -391,7 +391,7 @@ export default function BookingsListByStatus({ status, title }: { status: Bookin
     }
 
     try {
-      setUpdatingMap((m) => ({ ...m, [bookingToConfirm.id]: true }));
+      setUpdatingState((prev) => ({ ...prev, [bookingToConfirm.id]: "Confirm" }));
       
       // Get fresh token with robust fallback
       let token: string | null = null;
@@ -511,16 +511,17 @@ export default function BookingsListByStatus({ status, title }: { status: Bookin
       console.error("Error confirming booking:", e);
       alert(e?.message || "Failed to confirm booking");
     } finally {
-      setUpdatingMap((m) => {
-        const { [bookingToConfirm!.id]: _, ...rest } = m;
-        return rest;
+      setUpdatingState((prev) => {
+        const next = { ...prev };
+        delete next[bookingToConfirm!.id];
+        return next;
       });
     }
   };
 
   const onAction = async (rowId: string, action: "Confirm" | "Cancel" | "Complete") => {
     try {
-      setUpdatingMap((m) => ({ ...m, [rowId]: true }));
+      setUpdatingState((prev) => ({ ...prev, [rowId]: action }));
       const next: BookingStatus =
         action === "Confirm" ? "Confirmed" :
         action === "Cancel" ? "Canceled" :
@@ -530,9 +531,10 @@ export default function BookingsListByStatus({ status, title }: { status: Bookin
       // eslint-disable-next-line no-alert
       alert(e?.message || "Failed to update status");
     } finally {
-      setUpdatingMap((m) => {
-        const { [rowId]: _, ...rest } = m;
-        return rest;
+      setUpdatingState((prev) => {
+        const next = { ...prev };
+        delete next[rowId];
+        return next;
       });
     }
   };
@@ -708,38 +710,38 @@ export default function BookingsListByStatus({ status, title }: { status: Bookin
                     </button>
                     {previewRow && allowedActions.includes("Confirm") && (
                       <button
-                        disabled={!!updatingMap[previewRow.id]}
+                        disabled={!!updatingState[previewRow.id]}
                         onClick={() => {
                           closePreview();
                           handleConfirmClick(previewRow);
                         }}
-                        className={`px-4 py-2 rounded-full text-sm font-semibold inline-flex items-center gap-2 ${updatingMap[previewRow.id] ? "bg-emerald-300 text-white" : "bg-gradient-to-r from-emerald-500 to-green-600 hover:from-emerald-600 hover:to-green-700 text-white shadow-sm"}`}
-                        aria-busy={!!updatingMap[previewRow.id]}
+                        className={`px-4 py-2 rounded-full text-sm font-semibold inline-flex items-center gap-2 ${updatingState[previewRow.id] === "Confirm" ? "bg-emerald-300 text-white" : "bg-gradient-to-r from-emerald-500 to-green-600 hover:from-emerald-600 hover:to-green-700 text-white shadow-sm"}`}
+                        aria-busy={!!updatingState[previewRow.id]}
                       >
-                        {updatingMap[previewRow.id] ? <i className="fas fa-spinner fa-spin" /> : <i className="fas fa-check-circle" />}
-                        {updatingMap[previewRow.id] ? "Confirming..." : "Confirm"}
+                        {updatingState[previewRow.id] === "Confirm" ? <i className="fas fa-spinner fa-spin" /> : <i className="fas fa-check-circle" />}
+                        {updatingState[previewRow.id] === "Confirm" ? "Confirming..." : "Confirm"}
                       </button>
                     )}
                     {previewRow && allowedActions.includes("Complete") && (
                       <button
-                        disabled={!!updatingMap[previewRow.id]}
+                        disabled={!!updatingState[previewRow.id]}
                         onClick={() => onAction(previewRow.id, "Complete")}
-                        className={`px-4 py-2 rounded-full text-sm font-semibold inline-flex items-center gap-2 ${updatingMap[previewRow.id] ? "bg-indigo-300 text-white" : "bg-gradient-to-r from-indigo-500 to-violet-600 hover:from-indigo-600 hover:to-violet-700 text-white shadow-sm"}`}
-                        aria-busy={!!updatingMap[previewRow.id]}
+                        className={`px-4 py-2 rounded-full text-sm font-semibold inline-flex items-center gap-2 ${updatingState[previewRow.id] === "Complete" ? "bg-indigo-300 text-white" : "bg-gradient-to-r from-indigo-500 to-violet-600 hover:from-indigo-600 hover:to-violet-700 text-white shadow-sm"}`}
+                        aria-busy={!!updatingState[previewRow.id]}
                       >
-                        {updatingMap[previewRow.id] ? <i className="fas fa-spinner fa-spin" /> : <i className="fas fa-flag-checkered" />}
-                        {updatingMap[previewRow.id] ? "Completing..." : "Complete"}
+                        {updatingState[previewRow.id] === "Complete" ? <i className="fas fa-spinner fa-spin" /> : <i className="fas fa-flag-checkered" />}
+                        {updatingState[previewRow.id] === "Complete" ? "Completing..." : "Complete"}
                       </button>
                     )}
                     {previewRow && allowedActions.includes("Cancel") && (
                       <button
-                        disabled={!!updatingMap[previewRow.id]}
+                        disabled={!!updatingState[previewRow.id]}
                         onClick={() => onAction(previewRow.id, "Cancel")}
-                        className={`px-4 py-2 rounded-full text-sm font-semibold inline-flex items-center gap-2 ${updatingMap[previewRow.id] ? "bg-rose-300 text-white" : "bg-gradient-to-r from-rose-500 to-red-600 hover:from-rose-600 hover:to-red-700 text-white shadow-sm"}`}
-                        aria-busy={!!updatingMap[previewRow.id]}
+                        className={`px-4 py-2 rounded-full text-sm font-semibold inline-flex items-center gap-2 ${updatingState[previewRow.id] === "Cancel" ? "bg-rose-300 text-white" : "bg-gradient-to-r from-rose-500 to-red-600 hover:from-rose-600 hover:to-red-700 text-white shadow-sm"}`}
+                        aria-busy={!!updatingState[previewRow.id]}
                       >
-                        {updatingMap[previewRow.id] ? <i className="fas fa-spinner fa-spin" /> : <i className="fas fa-ban" />}
-                        {updatingMap[previewRow.id] ? "Cancelling..." : "Cancel"}
+                        {updatingState[previewRow.id] === "Cancel" ? <i className="fas fa-spinner fa-spin" /> : <i className="fas fa-ban" />}
+                        {updatingState[previewRow.id] === "Cancel" ? "Cancelling..." : "Cancel"}
                       </button>
                     )}
                   </div>
@@ -873,35 +875,35 @@ export default function BookingsListByStatus({ status, title }: { status: Bookin
                               <>
                               {allowedActions.includes("Confirm" as any) && (
                                 <button
-                                  disabled={!!updatingMap[r.id]}
+                                  disabled={!!updatingState[r.id]}
                                   onClick={() => handleConfirmClick(r)}
-                                  className={`px-3 py-1.5 rounded-full text-xs font-semibold transition inline-flex items-center gap-1 ${updatingMap[r.id] ? "bg-emerald-300 text-white" : "bg-gradient-to-r from-emerald-500 to-green-600 hover:from-emerald-600 hover:to-green-700 text-white shadow-sm"}`}
-                                  aria-busy={!!updatingMap[r.id]}
+                                  className={`px-3 py-1.5 rounded-full text-xs font-semibold transition inline-flex items-center gap-1 ${updatingState[r.id] === "Confirm" ? "bg-emerald-300 text-white" : "bg-gradient-to-r from-emerald-500 to-green-600 hover:from-emerald-600 hover:to-green-700 text-white shadow-sm"}`}
+                                  aria-busy={!!updatingState[r.id]}
                                 >
-                                  {updatingMap[r.id] ? <i className="fas fa-spinner fa-spin" /> : <i className="fas fa-check-circle" />}
-                                  {updatingMap[r.id] ? "Confirming..." : "Confirm"}
+                                  {updatingState[r.id] === "Confirm" ? <i className="fas fa-spinner fa-spin" /> : <i className="fas fa-check-circle" />}
+                                  {updatingState[r.id] === "Confirm" ? "Confirming..." : "Confirm"}
                                 </button>
                               )}
                               {allowedActions.includes("Complete" as any) && (
                                 <button
-                                  disabled={!!updatingMap[r.id]}
+                                  disabled={!!updatingState[r.id]}
                                   onClick={() => onAction(r.id, "Complete")}
-                                  className={`px-3 py-1.5 rounded-full text-xs font-semibold transition inline-flex items-center gap-1 ${updatingMap[r.id] ? "bg-indigo-300 text-white" : "bg-gradient-to-r from-indigo-500 to-violet-600 hover:from-indigo-600 hover:to-violet-700 text-white shadow-sm"}`}
-                                  aria-busy={!!updatingMap[r.id]}
+                                  className={`px-3 py-1.5 rounded-full text-xs font-semibold transition inline-flex items-center gap-1 ${updatingState[r.id] === "Complete" ? "bg-indigo-300 text-white" : "bg-gradient-to-r from-indigo-500 to-violet-600 hover:from-indigo-600 hover:to-violet-700 text-white shadow-sm"}`}
+                                  aria-busy={!!updatingState[r.id]}
                                 >
-                                  {updatingMap[r.id] ? <i className="fas fa-spinner fa-spin" /> : <i className="fas fa-flag-checkered" />}
-                                  {updatingMap[r.id] ? "Completing..." : "Complete"}
+                                  {updatingState[r.id] === "Complete" ? <i className="fas fa-spinner fa-spin" /> : <i className="fas fa-flag-checkered" />}
+                                  {updatingState[r.id] === "Complete" ? "Completing..." : "Complete"}
                                 </button>
                               )}
                               {allowedActions.includes("Cancel" as any) && (
                                 <button
-                                  disabled={!!updatingMap[r.id]}
+                                  disabled={!!updatingState[r.id]}
                                   onClick={() => onAction(r.id, "Cancel")}
-                                  className={`px-3 py-1.5 rounded-full text-xs font-semibold transition inline-flex items-center gap-1 ${updatingMap[r.id] ? "bg-rose-300 text-white" : "bg-gradient-to-r from-rose-500 to-red-600 hover:from-rose-600 hover:to-red-700 text-white shadow-sm"}`}
-                                  aria-busy={!!updatingMap[r.id]}
+                                  className={`px-3 py-1.5 rounded-full text-xs font-semibold transition inline-flex items-center gap-1 ${updatingState[r.id] === "Cancel" ? "bg-rose-300 text-white" : "bg-gradient-to-r from-rose-500 to-red-600 hover:from-rose-600 hover:to-red-700 text-white shadow-sm"}`}
+                                  aria-busy={!!updatingState[r.id]}
                                 >
-                                  {updatingMap[r.id] ? <i className="fas fa-spinner fa-spin" /> : <i className="fas fa-ban" />}
-                                  {updatingMap[r.id] ? "Cancelling..." : "Cancel"}
+                                  {updatingState[r.id] === "Cancel" ? <i className="fas fa-spinner fa-spin" /> : <i className="fas fa-ban" />}
+                                  {updatingState[r.id] === "Cancel" ? "Cancelling..." : "Cancel"}
                                 </button>
                               )}
                               </>
@@ -924,7 +926,7 @@ export default function BookingsListByStatus({ status, title }: { status: Bookin
           {/* Backdrop */}
           <div
             className="absolute inset-0 bg-black/60 backdrop-blur-sm animate-fade-in"
-            onClick={() => !updatingMap[bookingToConfirm.id] && setStaffAssignModalOpen(false)}
+            onClick={() => !updatingState[bookingToConfirm.id] && setStaffAssignModalOpen(false)}
           />
 
           {/* Modal */}
@@ -1098,7 +1100,7 @@ export default function BookingsListByStatus({ status, title }: { status: Bookin
             <div className="bg-slate-50 px-6 py-4 flex gap-3 justify-end border-t border-slate-200">
               <button
                 onClick={() => setStaffAssignModalOpen(false)}
-                disabled={updatingMap[bookingToConfirm.id]}
+                disabled={!!updatingState[bookingToConfirm.id]}
                 className="px-4 py-2.5 rounded-lg text-slate-700 hover:bg-slate-200 font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed text-sm"
               >
                 Cancel
@@ -1106,7 +1108,7 @@ export default function BookingsListByStatus({ status, title }: { status: Bookin
               <button
                 onClick={confirmWithStaffAssignment}
                 disabled={(() => {
-                  if (updatingMap[bookingToConfirm.id]) return true;
+                  if (!!updatingState[bookingToConfirm.id]) return true;
                   
                   // Check if multi-service booking
                   const hasMultipleServices = Array.isArray(bookingToConfirm.services) && bookingToConfirm.services.length > 0;
@@ -1121,7 +1123,7 @@ export default function BookingsListByStatus({ status, title }: { status: Bookin
                 })()}
                 className="px-5 py-2.5 rounded-lg bg-gradient-to-r from-emerald-500 to-green-600 hover:from-emerald-600 hover:to-green-700 text-white font-semibold transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2 text-sm shadow-lg shadow-emerald-200"
               >
-                {updatingMap[bookingToConfirm.id] ? (
+                {updatingState[bookingToConfirm.id] === "Confirm" ? (
                   <>
                     <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin"></div>
                     <span>Confirming...</span>
@@ -1167,5 +1169,3 @@ export default function BookingsListByStatus({ status, title }: { status: Bookin
     </div>
   );
 }
-
-
