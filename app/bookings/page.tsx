@@ -92,23 +92,10 @@ export default function BookingsPage() {
     const app = {
       __initialized: false,
       defaults: {
-        bookings: [
-          { id: 101, client: "Alice Johnson", serviceId: 1, staffId: "st1", branchId: "br1", date: "2025-11-21", time: "10:00", duration: 60, status: "Confirmed", price: 120 },
-          { id: 102, client: "Bob Smith", serviceId: 2, staffId: "st2", branchId: "br2", date: "2025-11-21", time: "11:30", duration: 30, status: "Pending", price: 60 },
-          { id: 103, client: "Charlie Brown", serviceId: 1, staffId: "st1", branchId: "br1", date: "2025-11-22", time: "14:00", duration: 60, status: "Confirmed", price: 120 }
-        ],
-        services: [
-          { id: 1, name: "Full Body Massage", price: 120, cost: 40, duration: 60, icon: "fa-solid fa-spa", reviews: 124, qualifiedStaff: ["st1", "st2"], branches: ["br1", "br2"] },
-          { id: 2, name: "Express Facial", price: 60, cost: 15, duration: 30, icon: "fa-solid fa-spray-can-sparkles", reviews: 85, qualifiedStaff: ["st1"], branches: ["br1"] }
-        ],
-        staff: [
-          { id: "st1", name: "Sarah Jenkins", role: "Senior Therapist", branch: "Downtown HQ", status: "Active", avatar: "Sarah", training: {} },
-          { id: "st2", name: "Mike Ross", role: "Junior Associate", branch: "North Branch", status: "Active", avatar: "Mike", training: {} }
-        ],
-        branches: [
-          { id: "br1", name: "Downtown HQ", address: "123 Main St, Melbourne", revenue: 45200 },
-          { id: "br2", name: "North Branch", address: "88 North Rd, Brunswick", revenue: 12800 }
-        ]
+        bookings: [], // Initialize with empty array - real data comes from Firestore
+        services: [],
+        staff: [],
+        branches: []
       },
       data: {} as any,
       charts: {} as any,
@@ -116,8 +103,6 @@ export default function BookingsPage() {
         if (this.__initialized) return;
         this.__initialized = true;
         const today = new Date().toISOString().split("T")[0];
-        this.defaults.bookings[0].date = today;
-        this.defaults.bookings[1].date = today;
         this.loadData();
         // If realtime cache exists (from Firestore listener), seed with it so we show real data immediately
         try {
@@ -140,25 +125,24 @@ export default function BookingsPage() {
         dateSel?.addEventListener("change", () => this.generateTimeSlots());
       },
       loadData: function () {
-        const stored = localStorage.getItem("bms_bookings_data");
-        if (stored) {
-          this.data = JSON.parse(stored);
-        } else {
-          this.data = JSON.parse(JSON.stringify(this.defaults));
-          this.saveData();
-        }
+        // Initialize with empty data structure
+        // Real data will come from Firestore listener
+        this.data = {
+          bookings: [],
+          services: [],
+          staff: [],
+          branches: []
+        };
       },
       saveData: function () {
-        localStorage.setItem("bms_bookings_data", JSON.stringify(this.data));
+        // No longer saving to localStorage - data comes from Firestore
         this.renderBookings();
         this.updateAnalytics();
         this.updateCharts();
       },
       resetData: function () {
-        if (confirm("Are you sure you want to reset all bookings and base data to default? This cannot be undone.")) {
-          localStorage.removeItem("bms_bookings_data");
-          location.reload();
-        }
+        // No longer needed - data comes from Firestore
+        location.reload();
       },
       router: function (_viewId: string) {},
       updateAnalytics: function () {
