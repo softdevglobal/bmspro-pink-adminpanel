@@ -278,22 +278,25 @@ export default function BranchDetailsPage() {
             </div>
           )}
 
-          <div className="mb-3">
-            <button
-              onClick={() => {
-                try {
-                  if (typeof window !== "undefined" && window.history.length > 1) router.back();
-                  else router.push("/branches");
-                } catch {
-                  router.push("/branches");
-                }
-              }}
-              className="inline-flex items-center gap-2 rounded-lg border border-slate-200 px-3 py-2 text-slate-700 hover:bg-slate-50 shadow-sm"
-            >
-              <i className="fas fa-arrow-left" />
-              Back to Branches
-            </button>
-          </div>
+          {/* Only show back button for salon owners */}
+          {userRole === "salon_owner" && (
+            <div className="mb-3">
+              <button
+                onClick={() => {
+                  try {
+                    if (typeof window !== "undefined" && window.history.length > 1) router.back();
+                    else router.push("/branches");
+                  } catch {
+                    router.push("/branches");
+                  }
+                }}
+                className="inline-flex items-center gap-2 rounded-lg border border-slate-200 px-3 py-2 text-slate-700 hover:bg-slate-50 shadow-sm"
+              >
+                <i className="fas fa-arrow-left" />
+                Back to Branches
+              </button>
+            </div>
+          )}
 
           <div className="mb-8">
             <div className="rounded-2xl bg-gradient-to-r from-pink-500 via-fuchsia-600 to-indigo-600 text-white p-6 shadow-sm">

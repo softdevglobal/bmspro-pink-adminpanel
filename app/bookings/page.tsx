@@ -35,6 +35,8 @@ export default function BookingsPage() {
 
   // Real data from Firestore
   const [ownerUid, setOwnerUid] = useState<string | null>(null);
+  const [userBranchId, setUserBranchId] = useState<string | null>(null);
+  const [userRole, setUserRole] = useState<string | null>(null);
   const [branches, setBranches] = useState<Array<{ id: string; name: string; address?: string }>>([]);
   const [servicesList, setServicesList] = useState<Array<{ id: string | number; name: string; price?: number; duration?: number; icon?: string; branches?: string[]; staffIds?: string[]; imageUrl?: string }>>([]);
   const [staffList, setStaffList] = useState<Array<{ id: string; name: string; role?: string; status?: string; avatar?: string; branchId?: string; branch?: string }>>([]);
@@ -59,12 +61,15 @@ export default function BookingsPage() {
 
           if (role === "salon_owner") {
             setOwnerUid(user.uid);
+            setUserRole(role);
           } else if (role === "salon_branch_admin") {
-            // Redirect branch admin to their management page
-            router.replace("/branches");
-            return;
+            // Allow branch admin to access bookings - but only for their branch
+            setOwnerUid(userData?.ownerUid || user.uid);
+            setUserBranchId(userData?.branchId || null);
+            setUserRole(role);
           } else {
             setOwnerUid(user.uid);
+            setUserRole(role);
           }
 
         } catch {
@@ -456,11 +461,18 @@ export default function BookingsPage() {
   useEffect(() => {
     if (!ownerUid) return;
     const todayStr = new Date().toISOString().split("T")[0];
-    const q = query(
-      collection(db, "bookings"),
+    
+    // Branch admin should only see bookings for their branch
+    const constraints = [
       where("ownerUid", "==", ownerUid),
       where("date", "==", todayStr)
-    );
+    ];
+    
+    if (userRole === "salon_branch_admin" && userBranchId) {
+      constraints.push(where("branchId", "==", userBranchId));
+    }
+    
+    const q = query(collection(db, "bookings"), ...constraints);
     const unsub = onSnapshot(
       q,
       (snap) => {
@@ -511,13 +523,18 @@ export default function BookingsPage() {
       }
     );
     return () => unsub();
-  }, [ownerUid]);
+  }, [ownerUid, userRole, userBranchId, router]);
 
   // Subscribe to Firestore data for wizard choices
   useEffect(() => {
     if (!ownerUid) return;
     const unsubBranches = subscribeBranchesForOwner(ownerUid, (rows) => {
-      setBranches(rows.map((r) => ({ id: String(r.id), name: String(r.name || ""), address: (r as any).address })));
+      // Branch admin should only see their own branch
+      let filteredBranches = rows;
+      if (userRole === "salon_branch_admin" && userBranchId) {
+        filteredBranches = rows.filter((r) => String(r.id) === String(userBranchId));
+      }
+      setBranches(filteredBranches.map((r) => ({ id: String(r.id), name: String(r.name || ""), address: (r as any).address })));
     });
     const unsubServices = subscribeServicesForOwner(ownerUid, (rows) => {
       setServicesList(
@@ -536,8 +553,13 @@ export default function BookingsPage() {
       );
     });
     const unsubStaff = subscribeSalonStaffForOwner(ownerUid, (rows) => {
+      // Branch admin should only see staff from their branch
+      let filteredStaff = rows;
+      if (userRole === "salon_branch_admin" && userBranchId) {
+        filteredStaff = rows.filter((r: any) => String(r.branchId) === String(userBranchId));
+      }
       setStaffList(
-        rows.map((r: any) => ({
+        filteredStaff.map((r: any) => ({
           id: String(r.id),
           name: String(r.name || ""),
           role: r.role,
@@ -553,7 +575,7 @@ export default function BookingsPage() {
       unsubServices();
       unsubStaff();
     };
-  }, [ownerUid]);
+  }, [ownerUid, userRole, userBranchId]);
 
   const resetWizard = () => {
     setBkStep(1);
@@ -571,6 +593,10 @@ export default function BookingsPage() {
   };
   const openBookingWizard = () => {
     resetWizard();
+    // Auto-select branch for branch admins
+    if (userRole === "salon_branch_admin" && userBranchId) {
+      setBkBranchId(userBranchId);
+    }
     appRef()?.openModal("booking");
   };
   const monthName = new Date(bkMonthYear.year, bkMonthYear.month, 1).toLocaleString(undefined, {
@@ -927,15 +953,18 @@ export default function BookingsPage() {
                   <div className="font-bold text-slate-700 mb-3 flex items-center gap-2">
                     <i className="fas fa-map-marker-alt text-pink-600" />
                     Select Location
+                    {userRole === "salon_branch_admin" && <span className="text-xs font-normal text-slate-500">(Your assigned branch)</span>}
                   </div>
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                     {branches.map((br: any) => {
                       const selected = bkBranchId === br.id;
+                      const isBranchAdmin = userRole === "salon_branch_admin";
                       return (
                         <button
                           key={br.id}
-                          onClick={() => (setBkBranchId(br.id), setBkSelectedServices([]), setBkServiceStaff({}), setBkDate(null), setBkServiceTimes({}))}
-                          className={`text-left border rounded-lg p-3 hover:shadow-md transition ${selected ? "border-pink-400 bg-pink-50 shadow-md" : "border-slate-200 bg-white"}`}
+                          onClick={() => !isBranchAdmin && (setBkBranchId(br.id), setBkSelectedServices([]), setBkServiceStaff({}), setBkDate(null), setBkServiceTimes({}))}
+                          disabled={isBranchAdmin}
+                          className={`text-left border rounded-lg p-3 transition ${isBranchAdmin ? "cursor-not-allowed" : "hover:shadow-md cursor-pointer"} ${selected ? "border-pink-400 bg-pink-50 shadow-md" : "border-slate-200 bg-white"}`}
                         >
                           <div className="flex items-center gap-2.5">
                             <div className={`w-10 h-10 rounded-lg ${selected ? "bg-pink-100" : "bg-slate-100"} flex items-center justify-center shrink-0`}>

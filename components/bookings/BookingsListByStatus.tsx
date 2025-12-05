@@ -57,11 +57,27 @@ function useBookingsByStatus(status: BookingStatus) {
 
     (async () => {
       try {
-        const ownerUid = await ensureAuth();
+        const userId = await ensureAuth();
         if (cancelled) return;
       
+      // Get user data to check role and branch
+      const { getDoc, doc: firestoreDoc } = await import("firebase/firestore");
+      const userSnap = await getDoc(firestoreDoc(db, "users", userId));
+      const userData = userSnap.data();
+      const userRole = (userData?.role || "").toString();
+      const ownerUid = userRole === "salon_owner" ? userId : (userData?.ownerUid || userId);
+      const userBranchId = userData?.branchId;
+      
+      // Build query constraints
+      const constraints = [where("ownerUid", "==", ownerUid)];
+      
+      // Branch admin should only see bookings for their branch
+      if (userRole === "salon_branch_admin" && userBranchId) {
+        constraints.push(where("branchId", "==", userBranchId));
+      }
+      
       // Query only "bookings" collection (booking engine now saves directly to bookings)
-      const q = query(collection(db, "bookings"), where("ownerUid", "==", ownerUid));
+      const q = query(collection(db, "bookings"), ...constraints);
       unsub = onSnapshot(q, (snap) => {
         if (cancelled) return;
         

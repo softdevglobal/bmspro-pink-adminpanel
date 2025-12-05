@@ -162,7 +162,7 @@ export default function Sidebar({ mobile = false, onClose }: SidebarProps) {
             <span>Dashboard</span>
           </Link>
         )}
-        {mounted && role === "salon_owner" && (
+        {mounted && (role === "salon_owner" || role === "salon_branch_admin") && (
           <>
             <div
               role="button"
