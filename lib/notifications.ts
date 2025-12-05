@@ -24,6 +24,7 @@ export interface Notification {
   branchName?: string;
   bookingDate?: string;
   bookingTime?: string;
+  services?: Array<{ name: string; staffName?: string }>;
 }
 
 /**
@@ -56,6 +57,8 @@ export async function createNotification(data: Omit<Notification, "id" | "create
     if ((data as any).branchName !== undefined) cleanData.branchName = (data as any).branchName;
     if ((data as any).bookingDate !== undefined) cleanData.bookingDate = (data as any).bookingDate;
     if ((data as any).bookingTime !== undefined) cleanData.bookingTime = (data as any).bookingTime;
+    // Add services array if present
+    if ((data as any).services !== undefined) cleanData.services = (data as any).services;
     
     const ref = await db.collection("notifications").add(cleanData);
     return ref.id;
