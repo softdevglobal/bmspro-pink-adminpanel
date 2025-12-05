@@ -96,7 +96,20 @@ export async function PATCH(req: NextRequest, context: { params: Promise<{ id: s
 
     // Create notification for customer
     try {
-      const notificationContent = getNotificationContent(requestedStatus, data.bookingCode);
+      // Use the updated staff info if provided, otherwise use existing
+      const finalStaffName = body.staffName || data.staffName || null;
+      const finalServiceName = data.serviceName || null;
+      const finalBookingDate = data.date || null;
+      const finalBookingTime = data.time || null;
+      
+      const notificationContent = getNotificationContent(
+        requestedStatus, 
+        data.bookingCode,
+        finalStaffName,
+        finalServiceName,
+        finalBookingDate,
+        finalBookingTime
+      );
       
       // Build notification data with only defined values
       const notificationData: any = {
@@ -113,6 +126,13 @@ export async function PATCH(req: NextRequest, context: { params: Promise<{ id: s
       if (data.clientEmail) notificationData.customerEmail = data.clientEmail;
       if (data.clientPhone) notificationData.customerPhone = data.clientPhone;
       if (data.bookingCode) notificationData.bookingCode = data.bookingCode;
+      
+      // Add booking details for richer notifications
+      if (finalStaffName) notificationData.staffName = finalStaffName;
+      if (finalServiceName) notificationData.serviceName = finalServiceName;
+      if (data.branchName) notificationData.branchName = data.branchName;
+      if (finalBookingDate) notificationData.bookingDate = finalBookingDate;
+      if (finalBookingTime) notificationData.bookingTime = finalBookingTime;
       
       await createNotification(notificationData);
     } catch (notifError) {
