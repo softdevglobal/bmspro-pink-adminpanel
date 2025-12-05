@@ -198,9 +198,23 @@ export default function BookingsPage() {
           const statusClass = `status-${b.status}`;
           const statusActions =
             b.status === "Confirmed"
-              ? `<button onclick="app.updateBookingStatus(${b.id}, 'Completed')" class="text-xs text-blue-500 hover:underline">Complete</button> / <button onclick="app.updateBookingStatus(${b.id}, 'Canceled')" class="text-xs text-red-500 hover:underline">Cancel</button>`
+              ? `<div class="flex gap-2 justify-center">
+                   <button onclick="app.updateBookingStatus('${b.id}', 'Completed')" class="group flex items-center gap-1.5 px-3 py-1 rounded-full bg-blue-50 text-blue-600 border border-blue-100 hover:border-blue-500 hover:bg-gradient-to-r hover:from-blue-500 hover:to-indigo-500 hover:text-white transition-all duration-300 shadow-sm hover:shadow-blue-200 hover:shadow-md transform hover:-translate-y-0.5">
+                     <i class="fas fa-check text-[10px]"></i> <span class="text-xs font-bold">Complete</span>
+                   </button>
+                   <button onclick="app.updateBookingStatus('${b.id}', 'Canceled')" class="group flex items-center gap-1.5 px-3 py-1 rounded-full bg-rose-50 text-rose-600 border border-rose-100 hover:border-rose-500 hover:bg-gradient-to-r hover:from-rose-500 hover:to-red-500 hover:text-white transition-all duration-300 shadow-sm hover:shadow-rose-200 hover:shadow-md transform hover:-translate-y-0.5">
+                     <i class="fas fa-times text-[10px]"></i> <span class="text-xs font-bold">Cancel</span>
+                   </button>
+                 </div>`
               : b.status === "Pending"
-              ? `<button onclick="app.updateBookingStatus(${b.id}, 'Confirmed')" class="text-xs text-green-500 hover:underline">Confirm</button> / <button onclick="app.updateBookingStatus(${b.id}, 'Canceled')" class="text-xs text-red-500 hover:underline">Cancel</button>`
+              ? `<div class="flex gap-2 justify-center">
+                   <button onclick="app.updateBookingStatus('${b.id}', 'Confirmed')" class="group flex items-center gap-1.5 px-3 py-1 rounded-full bg-emerald-50 text-emerald-600 border border-emerald-100 hover:border-emerald-500 hover:bg-gradient-to-r hover:from-emerald-500 hover:to-green-500 hover:text-white transition-all duration-300 shadow-sm hover:shadow-emerald-200 hover:shadow-md transform hover:-translate-y-0.5">
+                     <i class="fas fa-check text-[10px]"></i> <span class="text-xs font-bold">Confirm</span>
+                   </button>
+                   <button onclick="app.updateBookingStatus('${b.id}', 'Canceled')" class="group flex items-center gap-1.5 px-3 py-1 rounded-full bg-rose-50 text-rose-600 border border-rose-100 hover:border-rose-500 hover:bg-gradient-to-r hover:from-rose-500 hover:to-red-500 hover:text-white transition-all duration-300 shadow-sm hover:shadow-rose-200 hover:shadow-md transform hover:-translate-y-0.5">
+                     <i class="fas fa-times text-[10px]"></i> <span class="text-xs font-bold">Cancel</span>
+                   </button>
+                 </div>`
               : "";
           tbody.innerHTML += `
             <tr class="hover:bg-slate-50 transition">
@@ -223,12 +237,25 @@ export default function BookingsPage() {
           `;
         });
       },
-      updateBookingStatus: function (id: number, newStatus: string) {
-        const booking = this.data.bookings.find((b: any) => b.id === id);
-        if (booking) {
-          booking.status = newStatus;
-          this.saveData();
-          this.showToast(`Booking ${id} status updated to ${newStatus}.`);
+      updateBookingStatus: async function (id: string, newStatus: string) {
+        try {
+          const { doc, updateDoc } = await import("firebase/firestore");
+          const { db } = await import("@/lib/firebase");
+          
+          // Update in Firestore
+          const bookingRef = doc(db, "bookings", id);
+          await updateDoc(bookingRef, { status: newStatus });
+
+          // Optimistically update local state (though Firestore listener will also catch it)
+          const booking = this.data.bookings.find((b: any) => b.id === id);
+          if (booking) {
+            booking.status = newStatus;
+            this.saveData();
+          }
+          this.showToast(`Booking status updated to ${newStatus}.`);
+        } catch (error) {
+          console.error("Error updating booking:", error);
+          this.showToast("Failed to update booking status.", "error");
         }
       },
       calculateEndTime: function (startTime: string, duration: number) {
@@ -817,7 +844,7 @@ export default function BookingsPage() {
                         <div className="w-10 h-10 rounded-xl bg-white/20 flex items-center justify-center">
                           <i className="fas fa-calendar-check" />
                         </div>
-                        <h1 className="text-2xl font-bold">All Bookings</h1>
+                        <h1 className="text-2xl font-bold">Today&apos;s Bookings</h1>
                       </div>
                       <p className="text-sm text-white/80 mt-2">
                         Today’s schedule, availability, and status.

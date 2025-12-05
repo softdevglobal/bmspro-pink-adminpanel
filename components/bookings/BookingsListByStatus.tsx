@@ -645,10 +645,48 @@ export default function BookingsListByStatus({ status, title }: { status: Bookin
                         )}
                       </div>
 
-                      <div className="rounded-xl border border-slate-200 p-4 bg-slate-50/50">
-                        <div className="flex items-center gap-2 text-slate-700 font-medium">
-                          <i className="fas fa-sparkles text-pink-500" />
-                          {previewRow.serviceName || "-"}
+                      <div className="space-y-3">
+                        <div className="flex items-center justify-between">
+                          <h4 className="text-xs font-bold text-slate-400 uppercase tracking-wider">Services</h4>
+                          {previewRow.services && previewRow.services.length > 1 && (
+                            <span className="text-[10px] bg-slate-100 text-slate-500 px-2 py-0.5 rounded-full">
+                              {previewRow.services.length} items
+                            </span>
+                          )}
+                        </div>
+                        <div className="space-y-2">
+                          {(previewRow.services && previewRow.services.length > 0 ? previewRow.services : [{
+                            id: 'main',
+                            name: previewRow.serviceName,
+                            staffName: previewRow.staffName,
+                            time: previewRow.time,
+                            duration: previewRow.duration,
+                            price: previewRow.price
+                          }]).map((svc, idx) => (
+                            <div key={idx} className="group relative overflow-hidden rounded-xl border border-slate-200 bg-white p-3 shadow-sm hover:shadow-md hover:border-pink-200 transition-all duration-200">
+                              <div className="absolute left-0 top-0 bottom-0 w-1 bg-gradient-to-b from-pink-500 to-purple-500 opacity-0 group-hover:opacity-100 transition-opacity" />
+                              <div className="flex justify-between items-start mb-1.5">
+                                <div className="font-bold text-slate-800 text-sm flex items-center gap-2">
+                                   <div className="w-5 h-5 rounded-full bg-pink-50 flex items-center justify-center text-pink-500 shrink-0">
+                                     <i className="fas fa-magic text-[10px]" />
+                                   </div>
+                                   {svc.name || "Service"}
+                                </div>
+                                {svc.price !== undefined && <div className="font-bold text-slate-900 text-sm">${svc.price}</div>}
+                              </div>
+                              <div className="flex flex-wrap items-center gap-x-4 gap-y-2 text-xs text-slate-500 pl-7">
+                                 <div className="flex items-center gap-1.5 bg-slate-50 px-2 py-1 rounded-md">
+                                    <i className="far fa-clock text-pink-400" />
+                                    <span className="font-medium text-slate-700">{svc.time || previewRow.time}</span>
+                                    {svc.duration && <span className="text-slate-400">({svc.duration}m)</span>}
+                                 </div>
+                                 <div className="flex items-center gap-1.5 bg-slate-50 px-2 py-1 rounded-md">
+                                    <i className="far fa-user text-purple-400" />
+                                    <span className="font-medium text-slate-700">{svc.staffName || previewRow.staffName || "Any Staff"}</span>
+                                 </div>
+                              </div>
+                            </div>
+                          ))}
                         </div>
                       </div>
                       
