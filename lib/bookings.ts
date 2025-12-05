@@ -35,15 +35,7 @@ export type BookingInput = {
   duration: number; // minutes
   status?: BookingStatus;
   price: number;
-  services?: Array<{ 
-    id: string | number; 
-    name?: string; 
-    price?: number; 
-    duration?: number;
-    time?: string;
-    staffId?: string | null;
-    staffName?: string | null;
-  }>;
+  services?: any[];
 };
 
 export async function createBooking(input: BookingInput): Promise<{ id: string }> {
