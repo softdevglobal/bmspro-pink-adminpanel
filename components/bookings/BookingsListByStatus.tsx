@@ -340,7 +340,16 @@ export default function BookingsListByStatus({ status, title }: { status: Bookin
       if (needsStaffAssignment) {
         // Open multi-service staff assignment modal
         setBookingToConfirm(row);
-        setSelectedStaffPerService({});
+        
+        // Pre-fill staff assignments from existing data
+        const initialStaffSelection: Record<string, string> = {};
+        row.services!.forEach(s => {
+          if (s.staffId && s.staffId !== "null") {
+            initialStaffSelection[String(s.id)] = s.staffId;
+          }
+        });
+        setSelectedStaffPerService(initialStaffSelection);
+        
         setStaffAssignModalOpen(true);
       } else {
         // All services have staff assigned
@@ -369,16 +378,11 @@ export default function BookingsListByStatus({ status, title }: { status: Bookin
 
     if (hasMultipleServices) {
       // Validate all services have staff assigned
-      const servicesNeedingStaff = bookingToConfirm.services!.filter(s => 
-        !s.staffId || s.staffName === "Any Available" || s.staffName === "Any Staff"
-      );
+      const allAssigned = bookingToConfirm.services!.every(s => selectedStaffPerService[String(s.id)]);
       
-      if (servicesNeedingStaff.length > 0) {
-        const allAssigned = servicesNeedingStaff.every(s => selectedStaffPerService[String(s.id)]);
-        if (!allAssigned) {
-          alert("Please assign staff to all services");
-          return;
-        }
+      if (!allAssigned) {
+        alert("Please assign staff to all services");
+        return;
       }
     } else {
       // Single service - must have staff selected
@@ -415,9 +419,8 @@ export default function BookingsListByStatus({ status, title }: { status: Bookin
       if (hasMultipleServices) {
         // Update services array with selected staff
         const updatedServices = bookingToConfirm.services!.map(service => {
-          const needsStaff = !service.staffId || service.staffName === "Any Available" || service.staffName === "Any Staff";
-          if (needsStaff && selectedStaffPerService[String(service.id)]) {
-            const staffId = selectedStaffPerService[String(service.id)];
+          const staffId = selectedStaffPerService[String(service.id)];
+          if (staffId) {
             const staff = availableStaffPerService[String(service.id)]?.find(s => s.id === staffId);
             return {
               ...service,
@@ -928,7 +931,6 @@ export default function BookingsListByStatus({ status, title }: { status: Bookin
                     {Array.isArray(bookingToConfirm.services) && bookingToConfirm.services.length > 0 ? (
                       <div className="space-y-4 max-h-96 overflow-y-auto">
                         {bookingToConfirm.services
-                          .filter(service => !service.staffId || service.staffName === "Any Available" || service.staffName === "Any Staff")
                           .map((service) => {
                             const serviceStaff = availableStaffPerService[String(service.id)] || [];
                             const selectedStaff = selectedStaffPerService[String(service.id)];
@@ -1066,11 +1068,8 @@ export default function BookingsListByStatus({ status, title }: { status: Bookin
                   const hasMultipleServices = Array.isArray(bookingToConfirm.services) && bookingToConfirm.services.length > 0;
                   
                   if (hasMultipleServices) {
-                    // Check if all services needing staff have staff assigned
-                    const servicesNeedingStaff = bookingToConfirm.services!.filter(s => 
-                      !s.staffId || s.staffName === "Any Available" || s.staffName === "Any Staff"
-                    );
-                    return !servicesNeedingStaff.every(s => selectedStaffPerService[String(s.id)]);
+                    // Check if all services have staff assigned
+                    return !bookingToConfirm.services!.every(s => selectedStaffPerService[String(s.id)]);
                   } else {
                     // Single service
                     return !selectedStaffId;
