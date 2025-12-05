@@ -160,6 +160,7 @@ function useBookingsByStatus(status: BookingStatus) {
 
 export default function BookingsListByStatus({ status, title }: { status: BookingStatus; title: string }) {
   const { rows, loading, error } = useBookingsByStatus(status);
+  const [sidebarOpen, setSidebarOpen] = useState(false);
   const [updatingMap, setUpdatingMap] = useState<Record<string, boolean>>({});
   const allowedActions = useMemo<ReadonlyArray<"Confirm" | "Cancel" | "Complete">>(() => {
     if (status === "Pending") return ["Confirm", "Cancel"];
@@ -522,17 +523,38 @@ export default function BookingsListByStatus({ status, title }: { status: Bookin
 
   return (
     <div className="flex h-screen overflow-hidden bg-white">
+      {/* Mobile Sidebar Overlay */}
+      {sidebarOpen && (
+        <div className="fixed inset-0 z-[100] md:hidden">
+          <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" onClick={() => setSidebarOpen(false)} />
+          <div className="relative h-full w-64 bg-slate-900 shadow-2xl">
+            <Sidebar mobile onClose={() => setSidebarOpen(false)} />
+          </div>
+        </div>
+      )}
+      
+      {/* Desktop Sidebar */}
       <Sidebar />
+      
       <div className="flex-1 flex flex-col overflow-hidden">
         <main className="flex-1 overflow-auto p-4 sm:p-6 lg:p-8 bg-slate-50">
           <div className="max-w-7xl mx-auto">
             <div className="mb-8">
               <div className="rounded-2xl bg-gradient-to-r from-pink-500 via-fuchsia-600 to-indigo-600 text-white p-6 shadow-sm">
-                <div className="flex items-center gap-3">
-                  <div className="w-10 h-10 rounded-xl bg-white/20 flex items-center justify-center">
-                    <i className="fas fa-calendar-check" />
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-3">
+                    {/* Mobile Menu Button */}
+                    <button 
+                      onClick={() => setSidebarOpen(true)}
+                      className="md:hidden p-2 -ml-2 hover:bg-white/20 rounded-lg transition-colors"
+                    >
+                      <i className="fas fa-bars text-xl"></i>
+                    </button>
+                    <div className="w-10 h-10 rounded-xl bg-white/20 flex items-center justify-center">
+                      <i className="fas fa-calendar-check" />
+                    </div>
+                    <h1 className="text-xl sm:text-2xl font-bold">{title}</h1>
                   </div>
-                  <h1 className="text-2xl font-bold">{title}</h1>
                 </div>
               </div>
             </div>

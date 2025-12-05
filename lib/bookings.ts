@@ -87,10 +87,29 @@ export async function createBooking(input: BookingInput): Promise<{ id: string }
 }
 
 export async function updateBookingStatus(bookingId: string, nextStatus: BookingStatus): Promise<void> {
-  const user = auth.currentUser;
-  const token =
-    (await user?.getIdToken().catch(() => null)) ||
-    (typeof window !== "undefined" ? localStorage.getItem("idToken") : null);
+  // Get fresh token with robust fallback
+  let token: string | null = null;
+  try {
+    if (auth.currentUser) {
+      token = await auth.currentUser.getIdToken(true);
+    } else {
+      // Wait for auth state to settle
+      const user = await new Promise<any>((resolve) => {
+        const unsubscribe = auth.onAuthStateChanged((u) => {
+          unsubscribe();
+          resolve(u);
+        });
+      });
+      if (user) {
+        token = await user.getIdToken(true);
+      } else {
+         // Fallback to stored token if available (less reliable but better than nothing)
+         token = typeof window !== "undefined" ? localStorage.getItem("idToken") : null;
+      }
+    }
+  } catch (err) {
+    console.error("Error getting token:", err);
+  }
 
   const res = await fetch(`/api/bookings/${encodeURIComponent(bookingId)}/status`, {
     method: "PATCH",
