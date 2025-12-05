@@ -11,7 +11,9 @@ type Row = {
   id: string;
   client: string;
   serviceName?: string | null;
+  staffId?: string | null;
   staffName?: string | null;
+  branchId?: string | null;
   branchName?: string | null;
   date: string;
   time: string;
@@ -89,7 +91,9 @@ function useBookingsByStatus(status: BookingStatus) {
               id: doc.id,
               client: String(d.client || ""),
               serviceName: d.serviceName || null,
+              staffId: d.staffId || null,
               staffName: d.staffName || null,
+              branchId: d.branchId || null,
               branchName: d.branchName || null,
               date: String(d.date || ""),
               time: String(d.time || ""),
@@ -152,6 +156,128 @@ export default function BookingsListByStatus({ status, title }: { status: Bookin
   }, [status]);
   const [previewRow, setPreviewRow] = useState<Row | null>(null);
   const [previewOpen, setPreviewOpen] = useState(false);
+
+  // Staff assignment modal state
+  const [staffAssignModalOpen, setStaffAssignModalOpen] = useState(false);
+  const [bookingToConfirm, setBookingToConfirm] = useState<Row | null>(null);
+  const [selectedStaffId, setSelectedStaffId] = useState<string>("");
+  const [availableStaff, setAvailableStaff] = useState<Array<{ id: string; name: string; branchId?: string }>>([]);
+  const [loadingStaff, setLoadingStaff] = useState(false);
+
+  // Fetch available staff when modal opens
+  useEffect(() => {
+    if (!staffAssignModalOpen || !bookingToConfirm) return;
+
+    const fetchStaff = async () => {
+      setLoadingStaff(true);
+      try {
+        const { subscribeSalonStaffForOwner } = await import("@/lib/salonStaff");
+        const userId = auth.currentUser?.uid;
+        if (!userId) return;
+
+        const { getDoc, doc: firestoreDoc } = await import("firebase/firestore");
+        const userSnap = await getDoc(firestoreDoc(db, "users", userId));
+        const userData = userSnap.data();
+        const userRole = (userData?.role || "").toString();
+        const ownerUid = userRole === "salon_owner" ? userId : (userData?.ownerUid || userId);
+
+        const unsub = subscribeSalonStaffForOwner(ownerUid, (staffRows) => {
+          // Filter by branch if booking has branchId
+          const filtered = bookingToConfirm.branchId
+            ? staffRows.filter((s: any) => s.branchId === bookingToConfirm.branchId && s.status === "Active")
+            : staffRows.filter((s: any) => s.status === "Active");
+
+          setAvailableStaff(
+            filtered.map((s: any) => ({
+              id: String(s.id),
+              name: String(s.name || s.displayName || "Staff"),
+              branchId: s.branchId,
+            }))
+          );
+          setLoadingStaff(false);
+        });
+
+        return () => unsub();
+      } catch (err) {
+        console.error("Error fetching staff:", err);
+        setLoadingStaff(false);
+      }
+    };
+
+    fetchStaff();
+  }, [staffAssignModalOpen, bookingToConfirm]);
+
+  const handleConfirmClick = (row: Row) => {
+    // Check if booking needs staff assignment (staffId is null or empty)
+    if (!row.staffId || row.staffId === "null" || row.staffName === "Any Available" || row.staffName === "Any Staff") {
+      // Open staff assignment modal
+      setBookingToConfirm(row);
+      setSelectedStaffId("");
+      setStaffAssignModalOpen(true);
+    } else {
+      // Directly confirm without staff assignment
+      onAction(row.id, "Confirm");
+    }
+  };
+
+  const confirmWithStaffAssignment = async () => {
+    if (!bookingToConfirm || !selectedStaffId) return;
+
+    try {
+      setUpdatingMap((m) => ({ ...m, [bookingToConfirm.id]: true }));
+      
+      // Get selected staff details
+      const selectedStaff = availableStaff.find(s => s.id === selectedStaffId);
+      
+      // Use API endpoint to update booking with staff assignment and confirm status
+      // This ensures notifications are sent and all backend processes are triggered
+      const user = auth.currentUser;
+      const token = await user?.getIdToken().catch(() => null) ||
+        (typeof window !== "undefined" ? localStorage.getItem("idToken") : null);
+
+      const res = await fetch(`/api/bookings/${encodeURIComponent(bookingToConfirm.id)}/status`, {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+        body: JSON.stringify({ 
+          status: "Confirmed",
+          staffId: selectedStaffId,
+          staffName: selectedStaff?.name || "Staff"
+        }),
+      });
+
+      const json = await res.json().catch(() => ({})) as any;
+      if (!res.ok && !json?.devNoop) {
+        throw new Error(json?.error || "Failed to confirm booking");
+      }
+
+      // If dev no-op, perform client-side update
+      if (json?.devNoop) {
+        const { updateDoc, doc: firestoreDoc, serverTimestamp } = await import("firebase/firestore");
+        await updateDoc(firestoreDoc(db, "bookings", bookingToConfirm.id), {
+          staffId: selectedStaffId,
+          staffName: selectedStaff?.name || "Staff",
+          status: "Confirmed",
+          updatedAt: serverTimestamp(),
+        } as any);
+      }
+
+      // Close modal
+      setStaffAssignModalOpen(false);
+      setBookingToConfirm(null);
+      setSelectedStaffId("");
+    } catch (e: any) {
+      console.error("Error confirming booking:", e);
+      alert(e?.message || "Failed to confirm booking");
+    } finally {
+      setUpdatingMap((m) => {
+        const { [bookingToConfirm!.id]: _, ...rest } = m;
+        return rest;
+      });
+    }
+  };
 
   const onAction = async (rowId: string, action: "Confirm" | "Cancel" | "Complete") => {
     try {
@@ -323,7 +449,10 @@ export default function BookingsListByStatus({ status, title }: { status: Bookin
                     {previewRow && allowedActions.includes("Confirm") && (
                       <button
                         disabled={!!updatingMap[previewRow.id]}
-                        onClick={() => onAction(previewRow.id, "Confirm")}
+                        onClick={() => {
+                          closePreview();
+                          handleConfirmClick(previewRow);
+                        }}
                         className={`px-4 py-2 rounded-full text-sm font-semibold inline-flex items-center gap-2 ${updatingMap[previewRow.id] ? "bg-emerald-300 text-white" : "bg-gradient-to-r from-emerald-500 to-green-600 hover:from-emerald-600 hover:to-green-700 text-white shadow-sm"}`}
                         aria-busy={!!updatingMap[previewRow.id]}
                       >
@@ -456,7 +585,7 @@ export default function BookingsListByStatus({ status, title }: { status: Bookin
                               {allowedActions.includes("Confirm" as any) && (
                                 <button
                                   disabled={!!updatingMap[r.id]}
-                                  onClick={() => onAction(r.id, "Confirm")}
+                                  onClick={() => handleConfirmClick(r)}
                                   className={`px-3 py-1.5 rounded-full text-xs font-semibold transition inline-flex items-center gap-1 ${updatingMap[r.id] ? "bg-emerald-300 text-white" : "bg-gradient-to-r from-emerald-500 to-green-600 hover:from-emerald-600 hover:to-green-700 text-white shadow-sm"}`}
                                   aria-busy={!!updatingMap[r.id]}
                                 >
@@ -499,6 +628,163 @@ export default function BookingsListByStatus({ status, title }: { status: Bookin
           </div>
         </main>
       </div>
+
+      {/* Staff Assignment Modal */}
+      {staffAssignModalOpen && bookingToConfirm && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center p-4">
+          {/* Backdrop */}
+          <div
+            className="absolute inset-0 bg-black/60 backdrop-blur-sm animate-fade-in"
+            onClick={() => !updatingMap[bookingToConfirm.id] && setStaffAssignModalOpen(false)}
+          />
+
+          {/* Modal */}
+          <div className="relative bg-white rounded-2xl shadow-2xl max-w-md w-full animate-scale-in overflow-hidden">
+            {/* Header */}
+            <div className="bg-gradient-to-r from-emerald-500 to-green-600 p-5">
+              <div className="flex items-center gap-3">
+                <div className="w-12 h-12 bg-white/20 backdrop-blur-sm rounded-xl flex items-center justify-center">
+                  <i className="fas fa-user-plus text-white text-xl"></i>
+                </div>
+                <div>
+                  <h3 className="text-lg font-bold text-white">Assign Staff Member</h3>
+                  <p className="text-white/80 text-sm">Select a staff member to confirm booking</p>
+                </div>
+              </div>
+            </div>
+
+            {/* Content */}
+            <div className="p-6">
+              {/* Booking Details */}
+              <div className="mb-6 p-4 bg-slate-50 rounded-lg">
+                <div className="flex items-center gap-3 mb-3">
+                  <div className="w-10 h-10 rounded-full bg-gradient-to-br from-pink-500 to-fuchsia-600 text-white flex items-center justify-center text-sm font-bold">
+                    {(bookingToConfirm.client || "?").split(" ").map(s => s[0]).slice(0,2).join("")}
+                  </div>
+                  <div>
+                    <p className="font-semibold text-slate-900">{bookingToConfirm.client}</p>
+                    <p className="text-xs text-slate-500">{bookingToConfirm.serviceName || "Service"}</p>
+                  </div>
+                </div>
+                <div className="flex items-center gap-4 text-xs text-slate-600">
+                  <span><i className="far fa-calendar mr-1"></i>{bookingToConfirm.date}</span>
+                  <span><i className="far fa-clock mr-1"></i>{bookingToConfirm.time}</span>
+                  {bookingToConfirm.branchName && <span><i className="fas fa-store mr-1"></i>{bookingToConfirm.branchName}</span>}
+                </div>
+              </div>
+
+              {/* Staff Selection */}
+              <div>
+                <label className="block text-sm font-semibold text-slate-700 mb-3">
+                  <i className="fas fa-user-tie text-emerald-600 mr-2"></i>
+                  Select Staff Member
+                </label>
+
+                {loadingStaff ? (
+                  <div className="flex items-center justify-center py-8">
+                    <div className="w-8 h-8 border-3 border-emerald-200 border-t-emerald-600 rounded-full animate-spin"></div>
+                    <span className="ml-3 text-slate-600">Loading staff...</span>
+                  </div>
+                ) : availableStaff.length === 0 ? (
+                  <div className="p-4 bg-amber-50 border border-amber-200 rounded-lg text-amber-800 text-sm">
+                    <i className="fas fa-exclamation-triangle mr-2"></i>
+                    No available staff members found for this branch.
+                  </div>
+                ) : (
+                  <div className="space-y-2 max-h-64 overflow-y-auto">
+                    {availableStaff.map((staff) => (
+                      <button
+                        key={staff.id}
+                        onClick={() => setSelectedStaffId(staff.id)}
+                        className={`w-full text-left p-3 rounded-lg border-2 transition-all ${
+                          selectedStaffId === staff.id
+                            ? "border-emerald-500 bg-emerald-50 shadow-sm"
+                            : "border-slate-200 hover:border-emerald-300 hover:bg-slate-50"
+                        }`}
+                      >
+                        <div className="flex items-center gap-3">
+                          <div className={`w-10 h-10 rounded-full flex items-center justify-center text-sm font-bold ${
+                            selectedStaffId === staff.id
+                              ? "bg-emerald-500 text-white"
+                              : "bg-slate-200 text-slate-700"
+                          }`}>
+                            {staff.name.split(" ").map(s => s[0]).slice(0,2).join("")}
+                          </div>
+                          <div className="flex-1">
+                            <p className={`font-semibold ${
+                              selectedStaffId === staff.id ? "text-emerald-900" : "text-slate-800"
+                            }`}>
+                              {staff.name}
+                            </p>
+                          </div>
+                          {selectedStaffId === staff.id && (
+                            <i className="fas fa-check-circle text-emerald-500 text-lg"></i>
+                          )}
+                        </div>
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* Footer */}
+            <div className="bg-slate-50 px-6 py-4 flex gap-3 justify-end border-t border-slate-200">
+              <button
+                onClick={() => setStaffAssignModalOpen(false)}
+                disabled={updatingMap[bookingToConfirm.id]}
+                className="px-4 py-2.5 rounded-lg text-slate-700 hover:bg-slate-200 font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed text-sm"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={confirmWithStaffAssignment}
+                disabled={!selectedStaffId || updatingMap[bookingToConfirm.id]}
+                className="px-5 py-2.5 rounded-lg bg-gradient-to-r from-emerald-500 to-green-600 hover:from-emerald-600 hover:to-green-700 text-white font-semibold transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2 text-sm shadow-lg shadow-emerald-200"
+              >
+                {updatingMap[bookingToConfirm.id] ? (
+                  <>
+                    <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin"></div>
+                    <span>Confirming...</span>
+                  </>
+                ) : (
+                  <>
+                    <i className="fas fa-check-circle"></i>
+                    <span>Confirm Booking</span>
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      <style jsx>{`
+        @keyframes fade-in {
+          from {
+            opacity: 0;
+          }
+          to {
+            opacity: 1;
+          }
+        }
+        @keyframes scale-in {
+          from {
+            opacity: 0;
+            transform: scale(0.95);
+          }
+          to {
+            opacity: 1;
+            transform: scale(1);
+          }
+        }
+        .animate-fade-in {
+          animation: fade-in 0.2s ease-out;
+        }
+        .animate-scale-in {
+          animation: scale-in 0.2s ease-out;
+        }
+      `}</style>
     </div>
   );
 }

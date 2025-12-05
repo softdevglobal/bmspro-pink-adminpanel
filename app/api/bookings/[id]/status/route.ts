@@ -30,7 +30,11 @@ export async function PATCH(req: NextRequest, context: { params: Promise<{ id: s
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    const body = (await req.json().catch(() => ({}))) as { status?: string };
+    const body = (await req.json().catch(() => ({}))) as { 
+      status?: string; 
+      staffId?: string;
+      staffName?: string;
+    };
     const requestedStatus = normalizeBookingStatus(body?.status || "");
 
     const db = adminDb();
@@ -61,13 +65,24 @@ export async function PATCH(req: NextRequest, context: { params: Promise<{ id: s
       return NextResponse.json({ error: `Invalid transition ${currentStatus} -> ${requestedStatus}` }, { status: 400 });
     }
 
+    // Prepare update data
+    const updateData: any = {
+      status: requestedStatus,
+      updatedAt: FieldValue.serverTimestamp(),
+    };
+
+    // Add staff assignment if provided
+    if (body.staffId) {
+      updateData.staffId = body.staffId;
+      updateData.staffName = body.staffName || "Staff";
+    }
+
     // If confirming a booking request, move it to bookings collection
     if (isBookingRequest && requestedStatus === "Confirmed") {
       // Create in bookings collection
       const bookingData = {
         ...data,
-        status: requestedStatus,
-        updatedAt: FieldValue.serverTimestamp(),
+        ...updateData,
         createdAt: data.createdAt || FieldValue.serverTimestamp(),
       };
       await db.collection("bookings").add(bookingData);
@@ -75,11 +90,8 @@ export async function PATCH(req: NextRequest, context: { params: Promise<{ id: s
       // Delete from bookingRequests
       await ref.delete();
     } else {
-      // Just update the status
-      await ref.update({
-        status: requestedStatus,
-        updatedAt: FieldValue.serverTimestamp(),
-      });
+      // Just update the booking
+      await ref.update(updateData);
     }
 
     // Create notification for customer
