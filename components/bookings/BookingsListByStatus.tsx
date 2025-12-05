@@ -10,6 +10,7 @@ import { updateBookingStatus } from "@/lib/bookings";
 type Row = {
   id: string;
   client: string;
+  serviceId?: string | null;
   serviceName?: string | null;
   staffId?: string | null;
   staffName?: string | null;
@@ -90,6 +91,7 @@ function useBookingsByStatus(status: BookingStatus) {
             next.push({
               id: doc.id,
               client: String(d.client || ""),
+              serviceId: d.serviceId || null,
               serviceName: d.serviceName || null,
               staffId: d.staffId || null,
               staffName: d.staffName || null,
@@ -161,8 +163,46 @@ export default function BookingsListByStatus({ status, title }: { status: Bookin
   const [staffAssignModalOpen, setStaffAssignModalOpen] = useState(false);
   const [bookingToConfirm, setBookingToConfirm] = useState<Row | null>(null);
   const [selectedStaffId, setSelectedStaffId] = useState<string>("");
-  const [availableStaff, setAvailableStaff] = useState<Array<{ id: string; name: string; branchId?: string }>>([]);
+  const [availableStaff, setAvailableStaff] = useState<Array<{ id: string; name: string; branchId?: string; avatar?: string }>>([]);
   const [loadingStaff, setLoadingStaff] = useState(false);
+  const [serviceQualifiedStaffIds, setServiceQualifiedStaffIds] = useState<string[]>([]);
+
+  // Fetch service qualified staff IDs when modal opens
+  useEffect(() => {
+    if (!staffAssignModalOpen || !bookingToConfirm || !bookingToConfirm.serviceId) return;
+
+    const fetchServiceQualifiedStaff = async () => {
+      try {
+        const userId = auth.currentUser?.uid;
+        if (!userId) return;
+
+        const { getDoc, doc: firestoreDoc } = await import("firebase/firestore");
+        const userSnap = await getDoc(firestoreDoc(db, "users", userId));
+        const userData = userSnap.data();
+        const userRole = (userData?.role || "").toString();
+        const ownerUid = userRole === "salon_owner" ? userId : (userData?.ownerUid || userId);
+
+        // Fetch service details to get qualified staff IDs
+        const { subscribeServicesForOwner } = await import("@/lib/services");
+        const unsubService = subscribeServicesForOwner(ownerUid, (services) => {
+          const service = services.find((s: any) => String(s.id) === String(bookingToConfirm.serviceId));
+          if (service && Array.isArray((service as any).staffIds)) {
+            setServiceQualifiedStaffIds((service as any).staffIds.map(String));
+          } else {
+            // If no staffIds specified, all staff are qualified
+            setServiceQualifiedStaffIds([]);
+          }
+        });
+
+        return () => unsubService();
+      } catch (err) {
+        console.error("Error fetching service details:", err);
+        setServiceQualifiedStaffIds([]);
+      }
+    };
+
+    fetchServiceQualifiedStaff();
+  }, [staffAssignModalOpen, bookingToConfirm]);
 
   // Fetch available staff when modal opens
   useEffect(() => {
@@ -182,16 +222,50 @@ export default function BookingsListByStatus({ status, title }: { status: Bookin
         const ownerUid = userRole === "salon_owner" ? userId : (userData?.ownerUid || userId);
 
         const unsub = subscribeSalonStaffForOwner(ownerUid, (staffRows) => {
-          // Filter by branch if booking has branchId
-          const filtered = bookingToConfirm.branchId
-            ? staffRows.filter((s: any) => s.branchId === bookingToConfirm.branchId && s.status === "Active")
-            : staffRows.filter((s: any) => s.status === "Active");
+          // Filter by: 1) Active status, 2) Service qualification, 3) Branch & day
+          let filtered = staffRows.filter((s: any) => s.status === "Active");
+
+          // Filter by service qualification
+          if (serviceQualifiedStaffIds.length > 0) {
+            filtered = filtered.filter((s: any) => 
+              serviceQualifiedStaffIds.includes(String(s.id))
+            );
+          }
+
+          // Filter by branch and day of week if booking has branchId and date
+          if (bookingToConfirm.branchId && bookingToConfirm.date) {
+            // Get day of week from booking date
+            const bookingDate = new Date(bookingToConfirm.date);
+            const daysOfWeek = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+            const dayName = daysOfWeek[bookingDate.getDay()];
+
+            filtered = filtered.filter((s: any) => {
+              // Check if staff has a weekly schedule
+              if (s.weeklySchedule && typeof s.weeklySchedule === 'object') {
+                const daySchedule = s.weeklySchedule[dayName];
+                
+                // If day schedule exists and has branchId, check if it matches
+                if (daySchedule && daySchedule.branchId) {
+                  return daySchedule.branchId === bookingToConfirm.branchId;
+                }
+                
+                // If no schedule for this day (null or undefined), staff is not available
+                if (daySchedule === null || daySchedule === undefined) {
+                  return false;
+                }
+              }
+              
+              // Fallback: check static branchId (for staff without weekly schedule)
+              return s.branchId === bookingToConfirm.branchId;
+            });
+          }
 
           setAvailableStaff(
             filtered.map((s: any) => ({
               id: String(s.id),
               name: String(s.name || s.displayName || "Staff"),
               branchId: s.branchId,
+              avatar: s.avatar || s.name || s.displayName || "Staff",
             }))
           );
           setLoadingStaff(false);
@@ -205,7 +279,7 @@ export default function BookingsListByStatus({ status, title }: { status: Bookin
     };
 
     fetchStaff();
-  }, [staffAssignModalOpen, bookingToConfirm]);
+  }, [staffAssignModalOpen, bookingToConfirm, serviceQualifiedStaffIds]);
 
   const handleConfirmClick = (row: Row) => {
     // Check if booking needs staff assignment (staffId is null or empty)
@@ -703,12 +777,17 @@ export default function BookingsListByStatus({ status, title }: { status: Bookin
                         }`}
                       >
                         <div className="flex items-center gap-3">
-                          <div className={`w-10 h-10 rounded-full flex items-center justify-center text-sm font-bold ${
+                          {/* Staff Avatar */}
+                          <div className={`w-10 h-10 rounded-full overflow-hidden flex-shrink-0 border-2 ${
                             selectedStaffId === staff.id
-                              ? "bg-emerald-500 text-white"
-                              : "bg-slate-200 text-slate-700"
+                              ? "border-emerald-500"
+                              : "border-slate-200"
                           }`}>
-                            {staff.name.split(" ").map(s => s[0]).slice(0,2).join("")}
+                            <img
+                              src={`https://api.dicebear.com/7.x/avataaars/svg?seed=${encodeURIComponent(staff.avatar || staff.name)}`}
+                              alt={staff.name}
+                              className="w-full h-full object-cover"
+                            />
                           </div>
                           <div className="flex-1">
                             <p className={`font-semibold ${

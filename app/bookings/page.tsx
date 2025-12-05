@@ -142,7 +142,7 @@ export default function BookingsPage() {
       },
       resetData: function () {
         // No longer needed - data comes from Firestore
-        location.reload();
+          location.reload();
       },
       router: function (_viewId: string) {},
       updateAnalytics: function () {
