@@ -370,25 +370,25 @@ export default function ServicesPage() {
                         <span className="text-lg font-bold">${s.price}</span>
                       </div>
                       
-                      {/* Action buttons - always visible */}
+                      {/* Action buttons - always visible with backdrop for light images */}
                       <div className="absolute top-3 right-3 flex items-center gap-1.5">
                         <button 
                           onClick={() => setPreviewService(s)} 
-                          className="w-8 h-8 rounded-lg flex items-center justify-center text-white hover:text-pink-200 transition-colors"
+                          className="w-8 h-8 rounded-lg flex items-center justify-center bg-slate-900/70 backdrop-blur-sm text-white hover:bg-pink-600 transition-all shadow-lg"
                           title="View Details"
                         >
                           <i className="fas fa-eye" />
                         </button>
                         <button 
                           onClick={() => openEdit(s)} 
-                          className="w-8 h-8 rounded-lg flex items-center justify-center text-white hover:text-blue-200 transition-colors"
+                          className="w-8 h-8 rounded-lg flex items-center justify-center bg-slate-900/70 backdrop-blur-sm text-white hover:bg-blue-600 transition-all shadow-lg"
                           title="Edit Service"
                         >
                           <i className="fas fa-pen" />
                         </button>
                         <button 
                           onClick={() => handleDeleteClick(s)} 
-                          className="w-8 h-8 rounded-lg flex items-center justify-center text-white hover:text-rose-200 transition-colors"
+                          className="w-8 h-8 rounded-lg flex items-center justify-center bg-slate-900/70 backdrop-blur-sm text-white hover:bg-rose-600 transition-all shadow-lg"
                           title="Delete Service"
                         >
                           <i className="fas fa-trash" />
@@ -653,131 +653,207 @@ export default function ServicesPage() {
           </div>
       )}
 
-      {/* Preview Service Modal */}
-      {previewService && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm">
-          <div className="absolute inset-0" onClick={() => setPreviewService(null)} />
-          <div className="relative bg-white rounded-3xl shadow-2xl w-full max-w-2xl max-h-[85vh] overflow-y-auto custom-scrollbar animate-in fade-in zoom-in duration-300">
-            {/* Hero Image Section */}
-            <div className="relative w-full h-48 sm:h-56 bg-gradient-to-br from-pink-100 via-purple-100 to-indigo-100 overflow-hidden">
-              {previewService.imageUrl ? (
-                <img 
-                  src={previewService.imageUrl} 
-                  alt={previewService.name}
-                  className="w-full h-full object-cover"
-                />
-              ) : (
-                <div className="w-full h-full flex items-center justify-center">
-                  <i className="fas fa-spa text-8xl text-pink-300/50" />
-                </div>
-              )}
-              
-              {/* Gradient overlay */}
-              <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-transparent to-transparent" />
-              
-              {/* Close button */}
-              <button 
-                onClick={() => setPreviewService(null)}
-                className="absolute top-4 right-4 w-10 h-10 bg-white/90 backdrop-blur-sm hover:bg-white rounded-full flex items-center justify-center text-slate-700 shadow-lg hover:shadow-xl transition-all"
-              >
-                <i className="fas fa-times" />
-              </button>
-              
-              {/* Service name on image */}
-              <div className="absolute bottom-0 left-0 right-0 p-4 text-white">
-                <h2 className="text-2xl font-bold">{previewService.name}</h2>
-              </div>
-            </div>
-            
-            {/* Content Section */}
-            <div className="p-4 sm:p-6">
-              {/* Price and Duration Row */}
-              <div className="grid grid-cols-2 gap-3 mb-4">
-                <div className="bg-gradient-to-br from-pink-50 to-purple-50 rounded-xl p-3 border-2 border-pink-200">
-                  <div className="text-xs text-slate-600 font-medium mb-1">Price</div>
-                  <div className="text-2xl font-bold bg-gradient-to-r from-pink-600 to-purple-600 bg-clip-text text-transparent">
-                    ${previewService.price}
+      {/* Preview Service Sidebar */}
+      <div
+        className={`fixed inset-0 z-50 ${previewService ? "pointer-events-auto" : "pointer-events-none"}`}
+        aria-hidden={!previewService}
+      >
+        <div
+          onClick={() => setPreviewService(null)}
+          className={`absolute inset-0 bg-black/50 transition-opacity duration-200 ${previewService ? "opacity-100" : "opacity-0"}`}
+        />
+        <aside
+          className={`absolute top-0 h-full right-0 w-[92vw] sm:w-[28rem] bg-white shadow-2xl border-l border-slate-200 transform transition-transform duration-300 ${previewService ? "translate-x-0" : "translate-x-full"}`}
+        >
+          {previewService && (
+            <div className="flex h-full flex-col">
+              {/* Fixed Header */}
+              <div className="shrink-0 bg-gradient-to-r from-pink-500 via-fuchsia-600 to-indigo-600 p-5">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 rounded-xl bg-white/20 flex items-center justify-center">
+                      <i className="fas fa-eye text-white"></i>
+                    </div>
+                    <div>
+                      <h3 className="text-lg font-bold text-white">Service Details</h3>
+                      <p className="text-white/80 text-sm">{previewService.name}</p>
+                    </div>
                   </div>
-                </div>
-                <div className="bg-gradient-to-br from-blue-50 to-indigo-50 rounded-xl p-3 border-2 border-blue-200">
-                  <div className="text-xs text-slate-600 font-medium mb-1">Duration</div>
-                  <div className="text-2xl font-bold text-blue-600">
-                    {previewService.duration}<span className="text-base">min</span>
-                  </div>
+                  <button 
+                    onClick={() => setPreviewService(null)}
+                    className="w-9 h-9 bg-white/20 backdrop-blur-sm hover:bg-white/30 rounded-full flex items-center justify-center text-white transition-all"
+                  >
+                    <i className="fas fa-times text-lg" />
+                  </button>
                 </div>
               </div>
-              
-              {/* Stats Row */}
-              <div className="grid grid-cols-2 gap-3 mb-4">
-                <div className="flex items-center gap-2 bg-slate-50 rounded-lg p-3">
-                  <div className="w-10 h-10 rounded-lg bg-amber-100 flex items-center justify-center">
-                    <i className="fas fa-star text-amber-500" />
-                  </div>
-                  <div>
-                    <div className="text-[10px] text-slate-500">Rating</div>
-                    <div className="text-base font-bold text-slate-900">{previewService.reviews || 0} reviews</div>
-                  </div>
-                </div>
-                <div className="flex items-center gap-2 bg-slate-50 rounded-lg p-3">
-                  <div className="w-10 h-10 rounded-lg bg-emerald-100 flex items-center justify-center">
-                    <i className="fas fa-users text-emerald-600" />
-                  </div>
-                  <div>
-                    <div className="text-[10px] text-slate-500">Qualified Staff</div>
-                    <div className="text-base font-bold text-slate-900">{previewService.staffIds?.length || 0} members</div>
-                  </div>
-                </div>
-              </div>
-              
-              {/* Available Branches */}
-              <div className="mb-4">
-                <h3 className="text-sm font-bold text-slate-700 mb-3 flex items-center gap-2">
-                  <i className="fas fa-store text-purple-600" />
-                  Available Locations
-                </h3>
-                <div className="flex flex-wrap gap-2">
-                  {previewService.branches.length > 0 ? (
-                    previewService.branches.map((bid) => {
-                      const b = branches.find((x) => x.id === bid);
-                      return (
-                        <span 
-                          key={bid} 
-                          className="px-4 py-2 rounded-xl bg-gradient-to-r from-purple-50 to-pink-50 border border-purple-200 text-purple-700 text-sm font-medium"
-                        >
-                          <i className="fas fa-map-marker-alt mr-2" />
-                          {b?.name || bid}
-                        </span>
-                      );
-                    })
+
+              {/* Scrollable Content (including image) */}
+              <div className="flex-1 overflow-y-auto">
+                {/* Service Image */}
+                <div className="relative w-full h-64 bg-gradient-to-br from-pink-100 via-purple-100 to-indigo-100">
+                  {previewService.imageUrl ? (
+                    <img 
+                      src={previewService.imageUrl} 
+                      alt={previewService.name}
+                      className="w-full h-full object-cover"
+                    />
                   ) : (
-                    <span className="text-sm text-slate-400 italic">No branches assigned yet</span>
+                    <div className="w-full h-full flex items-center justify-center">
+                      <i className="fas fa-spa text-8xl text-pink-300/50" />
+                    </div>
                   )}
+                  
+                  {/* Gradient overlay */}
+                  <div className="absolute inset-0 bg-gradient-to-t from-black/40 via-transparent to-transparent" />
+                </div>
+
+                {/* Content */}
+                <div className="p-5 space-y-5">
+                {/* Price and Duration */}
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="bg-gradient-to-br from-pink-50 to-purple-50 rounded-xl p-4 border-2 border-pink-200">
+                    <div className="flex items-center gap-2 mb-2">
+                      <div className="w-8 h-8 rounded-lg bg-pink-100 flex items-center justify-center">
+                        <i className="fas fa-dollar-sign text-pink-600" />
+                      </div>
+                      <div className="text-xs text-slate-600 font-semibold">Price</div>
+                    </div>
+                    <div className="text-3xl font-bold bg-gradient-to-r from-pink-600 to-purple-600 bg-clip-text text-transparent">
+                      ${previewService.price}
+                    </div>
+                  </div>
+                  <div className="bg-gradient-to-br from-blue-50 to-indigo-50 rounded-xl p-4 border-2 border-blue-200">
+                    <div className="flex items-center gap-2 mb-2">
+                      <div className="w-8 h-8 rounded-lg bg-blue-100 flex items-center justify-center">
+                        <i className="fas fa-clock text-blue-600" />
+                      </div>
+                      <div className="text-xs text-slate-600 font-semibold">Duration</div>
+                    </div>
+                    <div className="text-3xl font-bold text-blue-600">
+                      {previewService.duration}<span className="text-lg">min</span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Stats */}
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="bg-white border-2 border-slate-200 rounded-xl p-4">
+                    <div className="flex items-center gap-3">
+                      <div className="w-10 h-10 rounded-lg bg-amber-100 flex items-center justify-center">
+                        <i className="fas fa-star text-amber-500 text-lg" />
+                      </div>
+                      <div>
+                        <div className="text-xs text-slate-500 font-medium">Rating</div>
+                        <div className="text-lg font-bold text-slate-900">{previewService.reviews || 0}</div>
+                        <div className="text-xs text-slate-400">reviews</div>
+                      </div>
+                    </div>
+                  </div>
+                  <div className="bg-white border-2 border-slate-200 rounded-xl p-4">
+                    <div className="flex items-center gap-3">
+                      <div className="w-10 h-10 rounded-lg bg-emerald-100 flex items-center justify-center">
+                        <i className="fas fa-users text-emerald-600 text-lg" />
+                      </div>
+                      <div>
+                        <div className="text-xs text-slate-500 font-medium">Staff</div>
+                        <div className="text-lg font-bold text-slate-900">{previewService.staffIds?.length || 0}</div>
+                        <div className="text-xs text-slate-400">qualified</div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Qualified Staff Members */}
+                {previewService.staffIds && previewService.staffIds.length > 0 && (
+                  <div className="bg-gradient-to-br from-emerald-50 to-teal-50 rounded-xl p-4 border-2 border-emerald-200">
+                    <h3 className="text-sm font-bold text-slate-800 mb-3 flex items-center gap-2">
+                      <i className="fas fa-user-check text-emerald-600" />
+                      Qualified Staff Members
+                    </h3>
+                    <div className="space-y-2">
+                      {previewService.staffIds.map((staffId) => {
+                        const staffMember = staff.find((s) => s.id === staffId);
+                        if (!staffMember) return null;
+                        return (
+                          <div key={staffId} className="flex items-center gap-3 bg-white rounded-lg p-3 border border-emerald-100">
+                            <div className="w-10 h-10 rounded-full overflow-hidden border-2 border-emerald-200 flex-shrink-0">
+                              <img
+                                src={`https://api.dicebear.com/7.x/avataaars/svg?seed=${encodeURIComponent(staffMember.avatar)}`}
+                                alt={staffMember.name}
+                                className="w-full h-full object-cover"
+                              />
+                            </div>
+                            <div className="flex-1 min-w-0">
+                              <p className="font-semibold text-slate-800 text-sm truncate">{staffMember.name}</p>
+                              <p className="text-xs text-slate-500 truncate">{staffMember.role}</p>
+                            </div>
+                            <div className="flex-shrink-0">
+                              <span className="text-xs bg-emerald-50 text-emerald-700 px-2 py-1 rounded-full font-medium">
+                                <i className="fas fa-store text-[10px] mr-1"></i>
+                                {staffMember.branch}
+                              </span>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+                
+                {/* Available Branches */}
+                <div className="bg-gradient-to-br from-purple-50 to-pink-50 rounded-xl p-4 border-2 border-purple-200">
+                  <h3 className="text-sm font-bold text-slate-800 mb-3 flex items-center gap-2">
+                    <i className="fas fa-map-marker-alt text-purple-600" />
+                    Available Locations
+                  </h3>
+                  <div className="flex flex-wrap gap-2">
+                    {previewService.branches.length > 0 ? (
+                      previewService.branches.map((bid) => {
+                        const b = branches.find((x) => x.id === bid);
+                        return (
+                          <span 
+                            key={bid} 
+                            className="inline-flex items-center gap-2 px-3 py-2 rounded-lg bg-white border border-purple-300 text-purple-700 text-sm font-medium shadow-sm"
+                          >
+                            <i className="fas fa-store text-xs" />
+                            {b?.name || bid}
+                          </span>
+                        );
+                      })
+                    ) : (
+                      <span className="text-sm text-slate-500 italic">No branches assigned yet</span>
+                    )}
+                  </div>
+                </div>
                 </div>
               </div>
-              
-              {/* Action Buttons */}
-              <div className="flex gap-2 pt-3 border-t border-slate-100">
+
+              {/* Footer Actions */}
+              <div className="shrink-0 border-t border-slate-200 p-4 bg-white flex gap-3">
+                <button
+                  onClick={() => setPreviewService(null)}
+                  className="flex-1 px-4 py-2.5 bg-slate-200 text-slate-700 rounded-lg font-semibold hover:bg-slate-300 transition-all text-sm"
+                >
+                  <i className="fas fa-times mr-2" />
+                  Close
+                </button>
                 <button
                   onClick={() => {
+                    const serviceToEdit = previewService;
                     setPreviewService(null);
-                    openEdit(previewService);
+                    openEdit(serviceToEdit);
                   }}
-                  className="flex-1 px-4 py-2 bg-gradient-to-r from-pink-600 to-purple-600 text-white rounded-lg font-semibold hover:from-pink-700 hover:to-purple-700 shadow-md hover:shadow-lg transition-all text-sm"
+                  className="flex-1 px-4 py-2.5 bg-gradient-to-r from-pink-600 to-purple-600 text-white rounded-lg font-semibold hover:from-pink-700 hover:to-purple-700 shadow-lg hover:shadow-xl transition-all text-sm"
                 >
                   <i className="fas fa-pen mr-2" />
                   Edit Service
                 </button>
-                <button
-                  onClick={() => setPreviewService(null)}
-                  className="px-4 py-2 bg-slate-100 text-slate-700 rounded-lg font-semibold hover:bg-slate-200 transition-all text-sm"
-                >
-                  Close
-                </button>
               </div>
             </div>
-          </div>
-        </div>
-      )}
+          )}
+        </aside>
+      </div>
 
       {/* Delete Confirmation Modal */}
       {deleteTarget && (
