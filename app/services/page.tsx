@@ -665,7 +665,7 @@ export default function ServicesPage() {
         <aside
           className={`absolute top-0 h-full right-0 w-[92vw] sm:w-[28rem] bg-white shadow-2xl border-l border-slate-200 transform transition-transform duration-300 ${previewService ? "translate-x-0" : "translate-x-full"}`}
         >
-          {previewService && (
+      {previewService && (
             <div className="flex h-full flex-col">
               {/* Fixed Header */}
               <div className="shrink-0 bg-gradient-to-r from-pink-500 via-fuchsia-600 to-indigo-600 p-5">
@@ -692,22 +692,22 @@ export default function ServicesPage() {
               <div className="flex-1 overflow-y-auto">
                 {/* Service Image */}
                 <div className="relative w-full h-64 bg-gradient-to-br from-pink-100 via-purple-100 to-indigo-100">
-                  {previewService.imageUrl ? (
-                    <img 
-                      src={previewService.imageUrl} 
-                      alt={previewService.name}
-                      className="w-full h-full object-cover"
-                    />
-                  ) : (
-                    <div className="w-full h-full flex items-center justify-center">
-                      <i className="fas fa-spa text-8xl text-pink-300/50" />
-                    </div>
-                  )}
-                  
-                  {/* Gradient overlay */}
+              {previewService.imageUrl ? (
+                <img 
+                  src={previewService.imageUrl} 
+                  alt={previewService.name}
+                  className="w-full h-full object-cover"
+                />
+              ) : (
+                <div className="w-full h-full flex items-center justify-center">
+                  <i className="fas fa-spa text-8xl text-pink-300/50" />
+                </div>
+              )}
+              
+              {/* Gradient overlay */}
                   <div className="absolute inset-0 bg-gradient-to-t from-black/40 via-transparent to-transparent" />
                 </div>
-
+              
                 {/* Content */}
                 <div className="p-5 space-y-5">
                 {/* Price and Duration */}
@@ -716,53 +716,53 @@ export default function ServicesPage() {
                     <div className="flex items-center gap-2 mb-2">
                       <div className="w-8 h-8 rounded-lg bg-pink-100 flex items-center justify-center">
                         <i className="fas fa-dollar-sign text-pink-600" />
-                      </div>
+              </div>
                       <div className="text-xs text-slate-600 font-semibold">Price</div>
-                    </div>
+            </div>
                     <div className="text-3xl font-bold bg-gradient-to-r from-pink-600 to-purple-600 bg-clip-text text-transparent">
-                      ${previewService.price}
-                    </div>
+                    ${previewService.price}
                   </div>
+                </div>
                   <div className="bg-gradient-to-br from-blue-50 to-indigo-50 rounded-xl p-4 border-2 border-blue-200">
                     <div className="flex items-center gap-2 mb-2">
                       <div className="w-8 h-8 rounded-lg bg-blue-100 flex items-center justify-center">
                         <i className="fas fa-clock text-blue-600" />
-                      </div>
+                  </div>
                       <div className="text-xs text-slate-600 font-semibold">Duration</div>
                     </div>
                     <div className="text-3xl font-bold text-blue-600">
                       {previewService.duration}<span className="text-lg">min</span>
                     </div>
-                  </div>
                 </div>
-
+              </div>
+              
                 {/* Stats */}
                 <div className="grid grid-cols-2 gap-3">
                   <div className="bg-white border-2 border-slate-200 rounded-xl p-4">
                     <div className="flex items-center gap-3">
-                      <div className="w-10 h-10 rounded-lg bg-amber-100 flex items-center justify-center">
+                  <div className="w-10 h-10 rounded-lg bg-amber-100 flex items-center justify-center">
                         <i className="fas fa-star text-amber-500 text-lg" />
-                      </div>
-                      <div>
+                  </div>
+                  <div>
                         <div className="text-xs text-slate-500 font-medium">Rating</div>
                         <div className="text-lg font-bold text-slate-900">{previewService.reviews || 0}</div>
                         <div className="text-xs text-slate-400">reviews</div>
-                      </div>
-                    </div>
+                  </div>
+                </div>
                   </div>
                   <div className="bg-white border-2 border-slate-200 rounded-xl p-4">
                     <div className="flex items-center gap-3">
-                      <div className="w-10 h-10 rounded-lg bg-emerald-100 flex items-center justify-center">
+                  <div className="w-10 h-10 rounded-lg bg-emerald-100 flex items-center justify-center">
                         <i className="fas fa-users text-emerald-600 text-lg" />
-                      </div>
-                      <div>
+                  </div>
+                  <div>
                         <div className="text-xs text-slate-500 font-medium">Staff</div>
                         <div className="text-lg font-bold text-slate-900">{previewService.staffIds?.length || 0}</div>
                         <div className="text-xs text-slate-400">qualified</div>
                       </div>
-                    </div>
                   </div>
                 </div>
+              </div>
 
                 {/* Qualified Staff Members */}
                 {previewService.staffIds && previewService.staffIds.length > 0 && (
@@ -800,35 +800,35 @@ export default function ServicesPage() {
                     </div>
                   </div>
                 )}
-                
-                {/* Available Branches */}
+              
+              {/* Available Branches */}
                 <div className="bg-gradient-to-br from-purple-50 to-pink-50 rounded-xl p-4 border-2 border-purple-200">
                   <h3 className="text-sm font-bold text-slate-800 mb-3 flex items-center gap-2">
                     <i className="fas fa-map-marker-alt text-purple-600" />
-                    Available Locations
-                  </h3>
-                  <div className="flex flex-wrap gap-2">
-                    {previewService.branches.length > 0 ? (
-                      previewService.branches.map((bid) => {
-                        const b = branches.find((x) => x.id === bid);
-                        return (
-                          <span 
-                            key={bid} 
+                  Available Locations
+                </h3>
+                <div className="flex flex-wrap gap-2">
+                  {previewService.branches.length > 0 ? (
+                    previewService.branches.map((bid) => {
+                      const b = branches.find((x) => x.id === bid);
+                      return (
+                        <span 
+                          key={bid} 
                             className="inline-flex items-center gap-2 px-3 py-2 rounded-lg bg-white border border-purple-300 text-purple-700 text-sm font-medium shadow-sm"
-                          >
+                        >
                             <i className="fas fa-store text-xs" />
-                            {b?.name || bid}
-                          </span>
-                        );
-                      })
-                    ) : (
+                          {b?.name || bid}
+                        </span>
+                      );
+                    })
+                  ) : (
                       <span className="text-sm text-slate-500 italic">No branches assigned yet</span>
-                    )}
+                  )}
                   </div>
                 </div>
                 </div>
               </div>
-
+              
               {/* Footer Actions */}
               <div className="shrink-0 border-t border-slate-200 p-4 bg-white flex gap-3">
                 <button
@@ -849,9 +849,9 @@ export default function ServicesPage() {
                   <i className="fas fa-pen mr-2" />
                   Edit Service
                 </button>
-              </div>
-            </div>
-          )}
+          </div>
+        </div>
+      )}
         </aside>
       </div>
 

@@ -564,7 +564,7 @@ export default function BookingsListByStatus({ status, title }: { status: Bookin
             <div className="mb-8">
               <div className="rounded-2xl bg-gradient-to-r from-pink-500 via-fuchsia-600 to-indigo-600 text-white p-6 shadow-sm">
                 <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-3">
+                <div className="flex items-center gap-3">
                     {/* Mobile Menu Button */}
                     <button 
                       onClick={() => setSidebarOpen(true)}
@@ -572,8 +572,8 @@ export default function BookingsListByStatus({ status, title }: { status: Bookin
                     >
                       <i className="fas fa-bars text-xl"></i>
                     </button>
-                    <div className="w-10 h-10 rounded-xl bg-white/20 flex items-center justify-center">
-                      <i className="fas fa-calendar-check" />
+                  <div className="w-10 h-10 rounded-xl bg-white/20 flex items-center justify-center">
+                    <i className="fas fa-calendar-check" />
                     </div>
                     <h1 className="text-xl sm:text-2xl font-bold">{title}</h1>
                   </div>
@@ -828,11 +828,11 @@ export default function BookingsListByStatus({ status, title }: { status: Bookin
                                   ))}
                                 </div>
                               ) : (
-                                <div className="text-xs mt-0.5">
-                                  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-slate-100 text-slate-600">
-                                    <i className="fas fa-sparkles text-[10px]" />
-                                    {r.serviceName || "Unknown Service"}
-                                  </span>
+                              <div className="text-xs mt-0.5">
+                                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-slate-100 text-slate-600">
+                                  <i className="fas fa-sparkles text-[10px]" />
+                                  {r.serviceName || "Unknown Service"}
+                                </span>
                                 </div>
                               )}
                             </div>

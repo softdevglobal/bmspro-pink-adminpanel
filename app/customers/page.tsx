@@ -417,7 +417,7 @@ export default function CustomersPage() {
                   </button>
                 </div>
               </div>
-
+              
               {/* Scrollable Content */}
               <div className="flex-1 overflow-y-auto p-5 space-y-4">
                 {/* Profile Section */}
@@ -428,13 +428,13 @@ export default function CustomersPage() {
                   <div className="flex-1 min-w-0">
                     <h4 className="font-bold text-lg text-slate-900 mb-1">{previewCust.name}</h4>
                     <span className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold ${
-                      previewCust.status === "Inactive" 
-                        ? "bg-red-100 text-red-700" 
-                        : "bg-green-100 text-green-700"
-                    }`}>
+                        previewCust.status === "Inactive" 
+                          ? "bg-red-100 text-red-700" 
+                          : "bg-green-100 text-green-700"
+                      }`}>
                       <span className="w-1.5 h-1.5 rounded-full bg-current"></span>
-                      {previewCust.status || "Active"}
-                    </span>
+                        {previewCust.status || "Active"}
+                      </span>
                   </div>
                 </div>
 
@@ -490,13 +490,13 @@ export default function CustomersPage() {
                 <div className="bg-gradient-to-r from-pink-50 via-purple-50 to-indigo-50 rounded-xl p-4 border-2 border-pink-200">
                   <div className="flex items-center justify-center gap-3">
                     <span className="text-3xl">
-                      {(previewCust.visits ?? 0) >= 10 ? "🌟" : (previewCust.visits ?? 0) >= 5 ? "💎" : "🆕"}
-                    </span>
+                    {(previewCust.visits ?? 0) >= 10 ? "🌟" : (previewCust.visits ?? 0) >= 5 ? "💎" : "🆕"}
+                  </span>
                     <div>
                       <div className="font-bold text-sm text-slate-900">
-                        {(previewCust.visits ?? 0) >= 10 ? "VIP Member" : 
-                         (previewCust.visits ?? 0) >= 5 ? "Regular Customer" : 
-                         "New Customer"}
+                    {(previewCust.visits ?? 0) >= 10 ? "VIP Member" : 
+                     (previewCust.visits ?? 0) >= 5 ? "Regular Customer" : 
+                     "New Customer"}
                       </div>
                       <div className="text-xs text-slate-600">
                         {(previewCust.visits ?? 0) >= 10 ? "10+ bookings" : 
@@ -521,25 +521,25 @@ export default function CustomersPage() {
 
               {/* Footer Actions */}
               <div className="shrink-0 border-t border-slate-200 p-4 bg-white flex gap-3">
-                <button 
-                  onClick={() => setPreviewOpen(false)} 
+                  <button 
+                    onClick={() => setPreviewOpen(false)} 
                   className="flex-1 px-4 py-2.5 rounded-lg text-sm font-semibold bg-slate-200 hover:bg-slate-300 text-slate-700 transition"
-                >
+                  >
                   <i className="fas fa-times mr-2" />
-                  Close
-                </button>
-                <button 
-                  onClick={() => { setPreviewOpen(false); removeCustomer(previewCust.id); }} 
+                    Close
+                  </button>
+                  <button 
+                    onClick={() => { setPreviewOpen(false); removeCustomer(previewCust.id); }} 
                   className="flex-1 px-4 py-2.5 rounded-lg text-sm font-semibold bg-rose-600 hover:bg-rose-700 text-white transition shadow-lg"
-                >
+                  >
                   <i className="fas fa-trash mr-2" />
-                  Delete
-                </button>
+                    Delete
+                  </button>
               </div>
             </div>
           )}
         </aside>
-      </div>
+        </div>
 
       {isModalOpen && (
         <div className="fixed inset-0 z-50">
