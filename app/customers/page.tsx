@@ -383,136 +383,163 @@ export default function CustomersPage() {
         </main>
       </div>
 
-      {/* Preview modal */}
-      {previewOpen && previewCust && (
-        <div className="fixed inset-0 z-50">
-          <div className="absolute inset-0 bg-black/50" onClick={() => setPreviewOpen(false)} />
-          <div className="relative flex items-center justify-center min-h-screen p-2 sm:p-4">
-            <div className="bg-white rounded-2xl shadow-2xl w-full max-w-xl overflow-hidden max-h-[90vh] flex flex-col">
-              <div className="bg-gradient-to-r from-pink-500 via-fuchsia-600 to-indigo-600 px-4 sm:px-5 py-3 sm:py-4 text-white flex items-center justify-between flex-shrink-0">
-                <div className="flex items-center gap-2">
-                  <div className="w-9 h-9 sm:w-10 sm:h-10 rounded-lg bg-white/20 flex items-center justify-center">
-                    <i className="fas fa-user text-sm sm:text-base" />
+      {/* Preview Sidebar */}
+      <div
+        className={`fixed inset-0 z-50 ${previewOpen ? "pointer-events-auto" : "pointer-events-none"}`}
+        aria-hidden={!previewOpen}
+      >
+        <div
+          onClick={() => setPreviewOpen(false)}
+          className={`absolute inset-0 bg-black/50 transition-opacity duration-200 ${previewOpen ? "opacity-100" : "opacity-0"}`}
+        />
+        <aside
+          className={`absolute top-0 h-full right-0 w-[92vw] sm:w-[28rem] bg-white shadow-2xl border-l border-slate-200 transform transition-transform duration-300 ${previewOpen ? "translate-x-0" : "translate-x-full"}`}
+        >
+          {previewCust && (
+            <div className="flex h-full flex-col">
+              {/* Fixed Header */}
+              <div className="shrink-0 bg-gradient-to-r from-pink-500 via-fuchsia-600 to-indigo-600 p-5">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 rounded-xl bg-white/20 flex items-center justify-center">
+                      <i className="fas fa-user text-white"></i>
+                    </div>
+                    <div>
+                      <h3 className="text-lg font-bold text-white">Customer Details</h3>
+                      <p className="text-white/80 text-sm">{previewCust.name}</p>
+                    </div>
                   </div>
-                  <h3 className="text-base sm:text-lg font-bold">Customer Details</h3>
+                  <button 
+                    onClick={() => setPreviewOpen(false)}
+                    className="w-9 h-9 bg-white/20 backdrop-blur-sm hover:bg-white/30 rounded-full flex items-center justify-center text-white transition-all"
+                  >
+                    <i className="fas fa-times text-lg" />
+                  </button>
                 </div>
-                <button className="text-white/80 hover:text-white text-lg" onClick={() => setPreviewOpen(false)}>
-                  <i className="fas fa-times" />
-                </button>
               </div>
-              
-              <div className="p-4 sm:p-5 space-y-3 sm:space-y-4 overflow-y-auto flex-1">
+
+              {/* Scrollable Content */}
+              <div className="flex-1 overflow-y-auto p-5 space-y-4">
                 {/* Profile Section */}
-                <div className="flex items-center gap-3">
-                  <div className="w-14 h-14 sm:w-16 sm:h-16 rounded-full bg-gradient-to-br from-pink-100 to-pink-200 text-pink-700 flex items-center justify-center font-bold text-lg sm:text-xl flex-shrink-0">
+                <div className="flex items-center gap-4 bg-gradient-to-r from-pink-50 to-purple-50 rounded-xl p-4 border-2 border-pink-200">
+                  <div className="w-16 h-16 rounded-full bg-gradient-to-br from-pink-500 to-fuchsia-600 text-white flex items-center justify-center font-bold text-2xl shadow-lg flex-shrink-0">
                     {previewCust.name.substring(0, 1).toUpperCase()}
                   </div>
-                  <div className="flex-1">
-                    <div className="flex items-center gap-2 flex-wrap">
-                      <h4 className="font-bold text-base sm:text-lg text-slate-900">{previewCust.name}</h4>
-                      <span className={`px-2 py-0.5 rounded-full text-xs font-semibold ${
-                        previewCust.status === "Inactive" 
-                          ? "bg-red-100 text-red-700" 
-                          : "bg-green-100 text-green-700"
-                      }`}>
-                        {previewCust.status || "Active"}
-                      </span>
-                    </div>
+                  <div className="flex-1 min-w-0">
+                    <h4 className="font-bold text-lg text-slate-900 mb-1">{previewCust.name}</h4>
+                    <span className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold ${
+                      previewCust.status === "Inactive" 
+                        ? "bg-red-100 text-red-700" 
+                        : "bg-green-100 text-green-700"
+                    }`}>
+                      <span className="w-1.5 h-1.5 rounded-full bg-current"></span>
+                      {previewCust.status || "Active"}
+                    </span>
                   </div>
                 </div>
 
                 {/* Contact Information */}
-                <div className="bg-slate-50 rounded-lg p-3">
-                  <h5 className="font-semibold text-sm text-slate-900 mb-2 flex items-center gap-2">
-                    <i className="fas fa-address-book text-pink-600 text-xs" />
+                <div className="bg-white rounded-xl p-4 border-2 border-slate-200">
+                  <h5 className="font-semibold text-sm text-slate-800 mb-3 flex items-center gap-2">
+                    <i className="fas fa-address-book text-pink-600" />
                     Contact Information
                   </h5>
-                  <div className="space-y-2">
-                    <div className="flex items-center gap-2">
-                      <div className="w-8 h-8 rounded-lg bg-pink-100 flex items-center justify-center flex-shrink-0">
-                        <i className="fas fa-phone text-pink-600 text-xs" />
+                  <div className="space-y-3">
+                    <div className="flex items-center gap-3">
+                      <div className="w-10 h-10 rounded-lg bg-pink-100 flex items-center justify-center flex-shrink-0">
+                        <i className="fas fa-phone text-pink-600" />
                       </div>
                       <div className="min-w-0 flex-1">
-                        <div className="text-xs text-slate-500">Phone</div>
-                        <div className="font-medium text-sm text-slate-900">{previewCust.phone || "Not provided"}</div>
+                        <div className="text-xs text-slate-500 font-medium">Phone Number</div>
+                        <div className="font-semibold text-sm text-slate-900">{previewCust.phone || "Not provided"}</div>
                       </div>
                     </div>
-                    <div className="flex items-center gap-2">
-                      <div className="w-8 h-8 rounded-lg bg-indigo-100 flex items-center justify-center flex-shrink-0">
-                        <i className="fas fa-envelope text-indigo-600 text-xs" />
+                    <div className="flex items-center gap-3">
+                      <div className="w-10 h-10 rounded-lg bg-indigo-100 flex items-center justify-center flex-shrink-0">
+                        <i className="fas fa-envelope text-indigo-600" />
                       </div>
                       <div className="min-w-0 flex-1">
-                        <div className="text-xs text-slate-500">Email</div>
-                        <div className="font-medium text-sm text-slate-900 truncate">{previewCust.email || "Not provided"}</div>
+                        <div className="text-xs text-slate-500 font-medium">Email Address</div>
+                        <div className="font-semibold text-sm text-slate-900 truncate">{previewCust.email || "Not provided"}</div>
                       </div>
                     </div>
                   </div>
                 </div>
 
                 {/* Booking Statistics */}
-                <div className="bg-slate-50 rounded-lg p-3">
-                  <h5 className="font-semibold text-sm text-slate-900 mb-2 flex items-center gap-2">
-                    <i className="fas fa-chart-line text-pink-600 text-xs" />
+                <div className="bg-white rounded-xl p-4 border-2 border-slate-200">
+                  <h5 className="font-semibold text-sm text-slate-800 mb-3 flex items-center gap-2">
+                    <i className="fas fa-chart-simple text-pink-600" />
                     Booking Statistics
                   </h5>
-                  <div className="grid grid-cols-2 gap-2">
-                    <div className="bg-white rounded-lg p-2 border border-slate-200 text-center">
-                      <div className="text-2xl font-bold text-pink-600 mb-0.5">{previewCust.visits ?? 0}</div>
-                      <div className="text-xs text-slate-500">Total Bookings</div>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div className="bg-gradient-to-br from-pink-50 to-purple-50 rounded-lg p-3 border border-pink-200">
+                      <div className="text-3xl font-bold bg-gradient-to-r from-pink-600 to-purple-600 bg-clip-text text-transparent mb-1">
+                        {previewCust.visits ?? 0}
+                      </div>
+                      <div className="text-xs text-slate-600 font-medium">Total Bookings</div>
                     </div>
-                    <div className="bg-white rounded-lg p-2 border border-slate-200 text-center">
-                      <div className="text-sm font-bold text-slate-900 mb-0.5">{previewCust.lastVisit || "Never"}</div>
-                      <div className="text-xs text-slate-500">Last Visit</div>
+                    <div className="bg-gradient-to-br from-blue-50 to-indigo-50 rounded-lg p-3 border border-blue-200">
+                      <div className="text-sm font-bold text-blue-600 mb-1">{previewCust.lastVisit || "Never"}</div>
+                      <div className="text-xs text-slate-600 font-medium">Last Visit</div>
                     </div>
                   </div>
                 </div>
 
                 {/* Loyalty Badge */}
-                <div className="flex items-center justify-center gap-2 bg-gradient-to-r from-pink-50 to-indigo-50 rounded-lg p-2 border border-pink-200">
-                  <span className="text-2xl">
-                    {(previewCust.visits ?? 0) >= 10 ? "🌟" : (previewCust.visits ?? 0) >= 5 ? "💎" : "🆕"}
-                  </span>
-                  <span className="font-semibold text-sm text-slate-900">
-                    {(previewCust.visits ?? 0) >= 10 ? "VIP Member" : 
-                     (previewCust.visits ?? 0) >= 5 ? "Regular Customer" : 
-                     "New Customer"}
-                  </span>
+                <div className="bg-gradient-to-r from-pink-50 via-purple-50 to-indigo-50 rounded-xl p-4 border-2 border-pink-200">
+                  <div className="flex items-center justify-center gap-3">
+                    <span className="text-3xl">
+                      {(previewCust.visits ?? 0) >= 10 ? "🌟" : (previewCust.visits ?? 0) >= 5 ? "💎" : "🆕"}
+                    </span>
+                    <div>
+                      <div className="font-bold text-sm text-slate-900">
+                        {(previewCust.visits ?? 0) >= 10 ? "VIP Member" : 
+                         (previewCust.visits ?? 0) >= 5 ? "Regular Customer" : 
+                         "New Customer"}
+                      </div>
+                      <div className="text-xs text-slate-600">
+                        {(previewCust.visits ?? 0) >= 10 ? "10+ bookings" : 
+                         (previewCust.visits ?? 0) >= 5 ? "5+ bookings" : 
+                         "First time customer"}
+                      </div>
+                    </div>
+                  </div>
                 </div>
 
                 {/* Notes Section */}
                 {previewCust.notes && (
-                  <div className="bg-amber-50 rounded-lg p-3 border border-amber-200">
-                    <h5 className="font-semibold text-sm text-slate-900 mb-1.5 flex items-center gap-2">
-                      <i className="fas fa-sticky-note text-amber-600 text-xs" />
+                  <div className="bg-amber-50 rounded-xl p-4 border-2 border-amber-200">
+                    <h5 className="font-semibold text-sm text-slate-900 mb-2 flex items-center gap-2">
+                      <i className="fas fa-sticky-note text-amber-600" />
                       Notes
                     </h5>
-                    <div className="text-xs text-slate-700 whitespace-pre-wrap line-clamp-3">{previewCust.notes}</div>
+                    <div className="text-sm text-slate-700 whitespace-pre-wrap">{previewCust.notes}</div>
                   </div>
                 )}
               </div>
 
-              <div className="px-4 py-3 border-t border-slate-200 bg-slate-50 flex-shrink-0">
-                <div className="flex items-center gap-2">
-                  <button 
-                    onClick={() => setPreviewOpen(false)} 
-                    className="flex-1 px-4 py-2 rounded-lg text-sm font-semibold bg-slate-200 hover:bg-slate-300 text-slate-700 transition"
-                  >
-                    <i className="fas fa-times mr-1" />
-                    Close
-                  </button>
-                  <button 
-                    onClick={() => { setPreviewOpen(false); removeCustomer(previewCust.id); }} 
-                    className="flex-1 px-4 py-2 rounded-lg text-sm font-semibold bg-rose-600 hover:bg-rose-700 text-white transition"
-                  >
-                    <i className="fas fa-trash mr-1" />
-                    Delete
-                  </button>
-                </div>
+              {/* Footer Actions */}
+              <div className="shrink-0 border-t border-slate-200 p-4 bg-white flex gap-3">
+                <button 
+                  onClick={() => setPreviewOpen(false)} 
+                  className="flex-1 px-4 py-2.5 rounded-lg text-sm font-semibold bg-slate-200 hover:bg-slate-300 text-slate-700 transition"
+                >
+                  <i className="fas fa-times mr-2" />
+                  Close
+                </button>
+                <button 
+                  onClick={() => { setPreviewOpen(false); removeCustomer(previewCust.id); }} 
+                  className="flex-1 px-4 py-2.5 rounded-lg text-sm font-semibold bg-rose-600 hover:bg-rose-700 text-white transition shadow-lg"
+                >
+                  <i className="fas fa-trash mr-2" />
+                  Delete
+                </button>
               </div>
             </div>
-          </div>
-        </div>
-      )}
+          )}
+        </aside>
+      </div>
 
       {isModalOpen && (
         <div className="fixed inset-0 z-50">
