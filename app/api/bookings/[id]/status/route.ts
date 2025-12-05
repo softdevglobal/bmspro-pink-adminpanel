@@ -130,7 +130,11 @@ export async function PATCH(req: NextRequest, context: { params: Promise<{ id: s
         finalStaffName,
         finalServiceName,
         finalBookingDate,
-        finalBookingTime
+        finalBookingTime,
+        finalServices ? finalServices.map((s: any) => ({
+          name: s.name || "Service",
+          staffName: s.staffName || "Any Available"
+        })) : undefined
       );
       
       // Build notification data with only defined values
