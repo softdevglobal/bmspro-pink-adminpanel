@@ -146,9 +146,11 @@ export default function LoginPage() {
       <div className="w-full max-w-md">
         <div className="rounded-2xl border border-slate-200 shadow-sm p-6">
           <div className="flex items-center gap-3 mb-6">
-            <div className="w-10 h-10 bg-gradient-to-br from-pink-500 to-pink-600 rounded-xl flex items-center justify-center shadow-lg">
-              <i className="fas fa-scissors text-white text-lg" />
-            </div>
+            <img
+              src="/bmspink-icon.jpeg"
+              alt="BMS PRO PINK"
+              className="w-10 h-10 rounded-xl shadow-lg object-cover"
+            />
             <div>
               <h1 className="font-bold text-lg text-slate-900">BMS PRO</h1>
               <p className="text-xs font-semibold text-pink-600">PINK — Admin</p>
