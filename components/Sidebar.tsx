@@ -37,6 +37,7 @@ export default function Sidebar({ mobile = false, onClose }: SidebarProps) {
   const [mounted, setMounted] = useState(false);
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [openBookings, setOpenBookings] = useState(false);
+  const [openStaff, setOpenStaff] = useState(false); // Staff Toggle State
   // Do not auto-open based on route; keep user preference until manually changed
 
   useEffect(() => {
@@ -88,6 +89,8 @@ export default function Sidebar({ mobile = false, onClose }: SidebarProps) {
         if (cachedName) setUserName(cachedName);
         const ob = localStorage.getItem("sidebarOpenBookings");
         if (ob === "1" || ob === "0") setOpenBookings(ob === "1");
+        const os = localStorage.getItem("sidebarOpenStaff"); // Staff Toggle Hydration
+        if (os === "1" || os === "0") setOpenStaff(os === "1");
       }
     } catch {}
   }, []);
@@ -98,6 +101,18 @@ export default function Sidebar({ mobile = false, onClose }: SidebarProps) {
       try {
         if (typeof window !== "undefined") {
           localStorage.setItem("sidebarOpenBookings", nv ? "1" : "0");
+        }
+      } catch {}
+      return nv;
+    });
+  };
+
+  const toggleStaff = () => {
+    setOpenStaff((v) => {
+      const nv = !v;
+      try {
+        if (typeof window !== "undefined") {
+          localStorage.setItem("sidebarOpenStaff", nv ? "1" : "0");
         }
       } catch {}
       return nv;
@@ -268,17 +283,54 @@ export default function Sidebar({ mobile = false, onClose }: SidebarProps) {
           </Link>
         )}
         {mounted && role === "salon_owner" && (
-          <Link href="/staff" className={`flex items-center space-x-3 px-4 py-3 rounded-xl text-sm transition ${isStaff ? "bg-pink-500 text-white shadow-lg" : "hover:bg-slate-800 text-slate-400 hover:text-white"}`}>
-            <i className="fas fa-users w-5" />
-            <span>Staff Management</span>
-          </Link>
+          <>
+            <div
+              role="button"
+              onClick={toggleStaff}
+              className={`flex items-center space-x-3 px-4 py-3 rounded-xl text-sm transition cursor-pointer ${
+                isStaff ? "bg-pink-500 text-white shadow-lg" : "hover:bg-slate-800 text-slate-400 hover:text-white"
+              }`}
+            >
+              <i className="fas fa-users w-5" />
+              <span>Staff</span>
+              <span className="ml-auto opacity-70">
+                <i className={`fas fa-chevron-${openStaff ? "down" : "right"}`} />
+              </span>
+            </div>
+            {openStaff && (
+              <>
+                <Link
+                  href="/staff"
+                  className={`ml-3 flex items-center space-x-3 px-3 py-2 rounded-lg text-sm font-medium transition ${
+                    pathname === "/staff" || pathname?.startsWith("/staff/manage")
+                      ? "bg-slate-800 text-white"
+                      : "text-slate-400 hover:bg-slate-800 hover:text-white"
+                  }`}
+                >
+                  <i className="fas fa-user-cog w-4" />
+                  <span>Staff Management</span>
+                </Link>
+                <Link
+                  href="/staff/attendance"
+                  className={`ml-3 flex items-center space-x-3 px-3 py-2 rounded-lg text-sm font-medium transition ${
+                    pathname === "/staff/attendance"
+                      ? "bg-slate-800 text-white"
+                      : "text-slate-400 hover:bg-slate-800 hover:text-white"
+                  }`}
+                >
+                  <i className="fas fa-calendar-check w-4" />
+                  <span>Attendance</span>
+                </Link>
+              </>
+            )}
+          </>
         )}
-        {mounted && role !== "salon_branch_admin" && (
+        {/* {mounted && role !== "salon_branch_admin" && (
           <Link href="/billing" className={`flex items-center space-x-3 px-4 py-3 rounded-xl text-sm transition ${isBilling ? "bg-pink-500 text-white shadow-lg" : "hover:bg-slate-800 text-slate-400 hover:text-white"}`}>
             <i className="fas fa-credit-card w-5" />
             <span>Billing & Invoices</span>
           </Link>
-        )}
+        )} */}
         {mounted && role === "super_admin" && (
           <Link href="/settings" className={`flex items-center space-x-3 px-4 py-3 rounded-xl text-sm transition ${isSettings ? "bg-pink-500 text-white shadow-lg" : "hover:bg-slate-800 text-slate-400 hover:text-white"}`}>
             <i className="fas fa-cog w-5" />
