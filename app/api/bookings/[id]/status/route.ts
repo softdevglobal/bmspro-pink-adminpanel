@@ -88,15 +88,20 @@ export async function PATCH(req: NextRequest, context: { params: Promise<{ id: s
       updatedAt: FieldValue.serverTimestamp(),
     };
 
-    // Add staff assignment if provided
-    if (body.staffId) {
+    // Add services update if provided (for multi-service staff assignment)
+    if (body.services && Array.isArray(body.services) && body.services.length > 0) {
+      updateData.services = body.services;
+      
+      // If we have services, we don't need top-level staff info
+      // We'll mark them for deletion if this is an update to an existing booking
+      if (!isBookingRequest) {
+        updateData.staffId = FieldValue.delete();
+        updateData.staffName = FieldValue.delete();
+      }
+    } else if (body.staffId) {
+      // Only set top-level staff if no services array update (legacy support)
       updateData.staffId = body.staffId;
       updateData.staffName = body.staffName || "Staff";
-    }
-
-    // Add services update if provided (for multi-service staff assignment)
-    if (body.services) {
-      updateData.services = body.services;
     }
 
     // If confirming a booking request, move it to bookings collection
@@ -107,6 +112,13 @@ export async function PATCH(req: NextRequest, context: { params: Promise<{ id: s
         ...updateData,
         createdAt: data.createdAt || FieldValue.serverTimestamp(),
       };
+      
+      // Explicitly remove top-level staff fields for new booking document if services exist
+      if (body.services && Array.isArray(body.services) && body.services.length > 0) {
+        delete bookingData.staffId;
+        delete bookingData.staffName;
+      }
+      
       await db.collection("bookings").add(bookingData);
       
       // Delete from bookingRequests

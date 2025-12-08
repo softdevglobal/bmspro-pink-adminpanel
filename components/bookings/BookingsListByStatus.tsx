@@ -432,12 +432,8 @@ export default function BookingsListByStatus({ status, title }: { status: Bookin
           return service;
         });
 
-        // Update main staffId and staffName (use first service's staff as primary)
-        const firstStaff = updatedServices[0];
-        const uniqueStaffIds = new Set(updatedServices.map(s => s.staffId).filter(Boolean));
-        const mainStaffName = uniqueStaffIds.size === 1 ? firstStaff.staffName : "Multiple Staff";
-
         // CALL API instead of direct update to trigger notifications
+        // We only send services array, API handles removal of top-level staff fields
         const res = await fetch(`/api/bookings/${encodeURIComponent(bookingToConfirm.id)}/status`, {
           method: "PATCH",
           headers: {
@@ -446,9 +442,7 @@ export default function BookingsListByStatus({ status, title }: { status: Bookin
           },
           body: JSON.stringify({ 
             status: "Confirmed",
-            services: updatedServices,
-            staffId: firstStaff.staffId,
-            staffName: mainStaffName
+            services: updatedServices
           }),
         });
 
@@ -459,11 +453,11 @@ export default function BookingsListByStatus({ status, title }: { status: Bookin
 
         // If dev no-op or unauthorized in dev, perform client-side update
         if (json?.devNoop) {
-          const { updateDoc, doc: firestoreDoc, serverTimestamp } = await import("firebase/firestore");
+          const { updateDoc, doc: firestoreDoc, serverTimestamp, deleteField } = await import("firebase/firestore");
           await updateDoc(firestoreDoc(db, "bookings", bookingToConfirm.id), {
             services: updatedServices,
-            staffId: firstStaff.staffId,
-            staffName: mainStaffName,
+            staffId: deleteField(),
+            staffName: deleteField(),
             status: "Confirmed",
             updatedAt: serverTimestamp(),
           } as any);
