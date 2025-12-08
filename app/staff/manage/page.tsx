@@ -538,7 +538,16 @@ export default function SettingsPage() {
               </button>
             </div>
 
-            {activeTab === "directory" && (
+            {!ownerUid && (
+              <div className="flex justify-center items-center py-20">
+                <div className="flex flex-col items-center gap-3">
+                  <i className="fas fa-circle-notch fa-spin text-4xl text-pink-500" />
+                  <p className="text-slate-500 font-medium">Loading staff data...</p>
+                </div>
+              </div>
+            )}
+
+            {ownerUid && activeTab === "directory" && (
               <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
                 <div className="lg:col-span-2 space-y-4">
                   {data.staff.map((s) => {
@@ -618,7 +627,7 @@ export default function SettingsPage() {
               </div>
             )}
 
-            {activeTab === "training" && (
+            {ownerUid && activeTab === "training" && (
               <div className="bg-white border border-slate-200 rounded-xl">
                 <div className="overflow-x-auto">
                   <table className="w-full min-w-[700px] text-left text-sm text-slate-600">
@@ -689,7 +698,7 @@ export default function SettingsPage() {
               </div>
             )}
 
-            {activeTab === "roster" && (
+            {ownerUid && activeTab === "roster" && (
               <div className="bg-white border border-slate-200 rounded-xl p-4">
                 <div className="flex items-center justify-between mb-4 flex-wrap gap-3">
                   <h3 className="text-slate-800 text-lg font-bold">Weekly Roster</h3>
