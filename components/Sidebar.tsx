@@ -36,8 +36,8 @@ export default function Sidebar({ mobile = false, onClose }: SidebarProps) {
   const [userEmail, setUserEmail] = useState<string>("");
   const [mounted, setMounted] = useState(false);
   const [confirmOpen, setConfirmOpen] = useState(false);
-  const [openBookings, setOpenBookings] = useState(false);
-  const [openStaff, setOpenStaff] = useState(false); // Staff Toggle State
+  const [openBookings, setOpenBookings] = useState(pathname?.startsWith("/bookings") || false);
+  const [openStaff, setOpenStaff] = useState(pathname?.startsWith("/staff") || false); // Staff Toggle State
   // Do not auto-open based on route; keep user preference until manually changed
 
   useEffect(() => {
@@ -300,7 +300,7 @@ export default function Sidebar({ mobile = false, onClose }: SidebarProps) {
             {openStaff && (
               <>
                 <Link
-                  href="/staff"
+                  href="/staff/manage"
                   className={`ml-3 flex items-center space-x-3 px-3 py-2 rounded-lg text-sm font-medium transition ${
                     pathname === "/staff" || pathname?.startsWith("/staff/manage")
                       ? "bg-slate-800 text-white"
