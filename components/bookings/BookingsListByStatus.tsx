@@ -4,6 +4,7 @@ import React, { useEffect, useMemo, useState } from "react";
 import { auth, db } from "@/lib/firebase";
 import { collection, onSnapshot, query, where } from "firebase/firestore";
 import type { BookingStatus } from "@/lib/bookingTypes";
+import { normalizeBookingStatus } from "@/lib/bookingTypes";
 import Sidebar from "@/components/Sidebar";
 import { updateBookingStatus } from "@/lib/bookings";
 
@@ -94,11 +95,12 @@ function useBookingsByStatus(status: BookingStatus) {
         if (cancelled) return;
         
         let next: Row[] = [];
-        snap.forEach((doc) => {
-          const d = doc.data() as any;
-          if (String(d?.status || "") === status) {
+        snap.forEach((docSnap) => {
+          const d = docSnap.data() as any;
+          const normalizedStatus = normalizeBookingStatus(d?.status || null);
+          if (normalizedStatus === status) {
             next.push({
-              id: doc.id,
+              id: docSnap.id,
               client: String(d.client || ""),
               serviceId: d.serviceId || null,
               serviceName: d.serviceName || null,
@@ -113,7 +115,7 @@ function useBookingsByStatus(status: BookingStatus) {
               clientEmail: d.clientEmail || null,
               clientPhone: d.clientPhone || null,
               notes: d.notes || null,
-              status: d.status || null,
+              status: normalizedStatus,
               bookingCode: d.bookingCode || null,
               bookingSource: d.bookingSource || null,
               services: d.services || null,
