@@ -1,7 +1,7 @@
 "use client";
 import React, { useEffect, useState } from "react";
 import Sidebar from "@/components/Sidebar";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { onAuthStateChanged } from "firebase/auth";
 import Script from "next/script";
 import { subscribeServicesForOwner } from "@/lib/services";
@@ -13,8 +13,10 @@ import { db } from "@/lib/firebase";
 
 export default function BookingsPage() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const [mobileOpen, setMobileOpen] = useState(false);
   const [chartReady, setChartReady] = useState(false);
+  const [autoOpenHandled, setAutoOpenHandled] = useState(false);
 
   // Booking wizard state
   const [bkStep, setBkStep] = useState<1 | 2 | 3>(1);
@@ -610,6 +612,24 @@ export default function BookingsPage() {
     }
     appRef()?.openModal("booking");
   };
+
+  // Auto-open booking wizard when ?create=true is in URL
+  useEffect(() => {
+    if (autoOpenHandled) return;
+    if (!ownerUid) return; // Wait for auth
+    
+    const shouldCreate = searchParams?.get("create") === "true";
+    if (shouldCreate) {
+      // Small delay to ensure modal system is ready
+      const timer = setTimeout(() => {
+        openBookingWizard();
+        setAutoOpenHandled(true);
+        // Clear the query param from URL without refresh
+        router.replace("/bookings/dashboard", { scroll: false });
+      }, 500);
+      return () => clearTimeout(timer);
+    }
+  }, [searchParams, ownerUid, autoOpenHandled, router]);
   const monthName = new Date(bkMonthYear.year, bkMonthYear.month, 1).toLocaleString(undefined, {
     month: "long",
     year: "numeric",

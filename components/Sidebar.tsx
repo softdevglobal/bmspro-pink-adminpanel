@@ -197,9 +197,16 @@ export default function Sidebar({ mobile = false, onClose }: SidebarProps) {
             {openBookings && (
               <>
                 <Link
+                  href="/bookings/dashboard?create=true"
+                  className="ml-3 flex items-center space-x-3 px-3 py-2 rounded-lg text-sm font-medium transition bg-gradient-to-r from-pink-600 to-purple-600 text-white hover:from-pink-700 hover:to-purple-700 shadow-sm"
+                >
+                  <i className="fas fa-plus w-4" />
+                  <span>Create Booking</span>
+                </Link>
+                <Link
                   href="/bookings/dashboard"
                   className={`ml-3 flex items-center space-x-3 px-3 py-2 rounded-lg text-sm font-medium transition ${
-                    isBookingsDashboard ? "bg-slate-800 text-white" : "text-slate-400 hover:bg-slate-800 hover:text-white"
+                    isBookingsDashboard && !pathname?.includes("create") ? "bg-slate-800 text-white" : "text-slate-400 hover:bg-slate-800 hover:text-white"
                   }`}
                 >
                   <i className="fas fa-gauge w-4" />
