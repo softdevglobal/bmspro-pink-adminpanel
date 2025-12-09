@@ -1278,33 +1278,36 @@ export default function BookingsPage() {
                   <div className="font-bold text-slate-700 mb-4">Your Details</div>
                   <div className="space-y-4">
               <div>
-                      <label className="block text-xs font-medium text-slate-500 mb-1">Full Name</label>
+                      <label className="block text-xs font-medium text-slate-500 mb-1">Full Name <span className="text-pink-500">*</span></label>
                       <input
                         type="text"
                         value={bkClientName}
                         onChange={(e) => setBkClientName(e.target.value)}
                         className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-pink-500"
                         placeholder="John Doe"
+                        required
                       />
                 </div>
                     <div>
-                      <label className="block text-xs font-medium text-slate-500 mb-1">Email Address</label>
+                      <label className="block text-xs font-medium text-slate-500 mb-1">Email Address <span className="text-pink-500">*</span></label>
                       <input
                         type="email"
                         value={bkClientEmail}
                         onChange={(e) => setBkClientEmail(e.target.value)}
                         className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-pink-500"
                         placeholder="john@example.com"
+                        required
                       />
                     </div>
                     <div>
-                      <label className="block text-xs font-medium text-slate-500 mb-1">Phone Number</label>
+                      <label className="block text-xs font-medium text-slate-500 mb-1">Phone Number <span className="text-pink-500">*</span></label>
                       <input
                         type="tel"
                         value={bkClientPhone}
                         onChange={(e) => setBkClientPhone(e.target.value)}
                         className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-pink-500"
                         placeholder="+1 555 000 1111"
+                        required
                       />
                     </div>
                     <div>
@@ -1372,9 +1375,9 @@ export default function BookingsPage() {
                     Back
                   </button>
                   <button
-                    disabled={!bkBranchId || bkSelectedServices.length === 0 || !bkDate || Object.keys(bkServiceTimes).length !== bkSelectedServices.length || submittingBooking}
+                    disabled={!bkBranchId || bkSelectedServices.length === 0 || !bkDate || Object.keys(bkServiceTimes).length !== bkSelectedServices.length || !bkClientName.trim() || !bkClientEmail.trim() || !bkClientPhone.trim() || submittingBooking}
                     onClick={handleConfirmBooking}
-                    className={`px-5 py-2 rounded-lg text-white font-semibold ${bkBranchId && bkSelectedServices.length > 0 && bkDate && Object.keys(bkServiceTimes).length === bkSelectedServices.length && !submittingBooking ? "bg-pink-600 hover:bg-pink-700" : "bg-slate-300 cursor-not-allowed"}`}
+                    className={`px-5 py-2 rounded-lg text-white font-semibold ${bkBranchId && bkSelectedServices.length > 0 && bkDate && Object.keys(bkServiceTimes).length === bkSelectedServices.length && bkClientName.trim() && bkClientEmail.trim() && bkClientPhone.trim() && !submittingBooking ? "bg-pink-600 hover:bg-pink-700" : "bg-slate-300 cursor-not-allowed"}`}
                   >
                     {submittingBooking ? <span className="inline-flex items-center"><i className="fas fa-spinner animate-spin mr-2" /> Confirming…</span> : "Confirm Booking"}
                   </button>
