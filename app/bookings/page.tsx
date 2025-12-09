@@ -1006,7 +1006,14 @@ export default function BookingsPage() {
                     </div>
                   ) : (
                     <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-                      {servicesList.map((srv: any) => {
+                      {servicesList
+                        .filter((srv: any) => {
+                          // Filter services by selected branch
+                          // Show service if it has the selected branch in its branches array
+                          if (!srv.branches || srv.branches.length === 0) return true; // Show if no branch restriction
+                          return srv.branches.includes(bkBranchId);
+                        })
+                        .map((srv: any) => {
                         const isSelected = bkSelectedServices.includes(srv.id);
                         return (
                           <button
@@ -1041,6 +1048,12 @@ export default function BookingsPage() {
                           </button>
                         );
                       })}
+                      {servicesList.filter((srv: any) => !srv.branches || srv.branches.length === 0 || srv.branches.includes(bkBranchId)).length === 0 && (
+                        <div className="col-span-full bg-slate-50 border-2 border-dashed border-slate-300 rounded-lg p-8 text-center">
+                          <i className="fas fa-concierge-bell text-4xl text-slate-300 mb-2 block" />
+                          <p className="text-slate-500 font-medium text-sm">No services available at this branch</p>
+                        </div>
+                      )}
                     </div>
                   )}
                 </div>
