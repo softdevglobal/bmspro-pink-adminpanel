@@ -1,5 +1,5 @@
 "use client";
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useState, Suspense } from "react";
 import Sidebar from "@/components/Sidebar";
 import { useRouter, useSearchParams } from "next/navigation";
 import { onAuthStateChanged } from "firebase/auth";
@@ -11,7 +11,8 @@ import { createBooking } from "@/lib/bookings";
 import { collection, onSnapshot, query, where } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 
-export default function BookingsPage() {
+// Wrapper component to handle search params with Suspense
+function BookingsPageContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const [mobileOpen, setMobileOpen] = useState(false);
@@ -1423,4 +1424,18 @@ export default function BookingsPage() {
   );
 }
 
-
+// Main export wrapped in Suspense for useSearchParams
+export default function BookingsPage() {
+  return (
+    <Suspense fallback={
+      <div className="flex h-screen items-center justify-center bg-slate-50">
+        <div className="flex flex-col items-center gap-3">
+          <i className="fas fa-circle-notch fa-spin text-4xl text-pink-500" />
+          <p className="text-slate-500 font-medium">Loading bookings...</p>
+        </div>
+      </div>
+    }>
+      <BookingsPageContent />
+    </Suspense>
+  );
+}
