@@ -1001,15 +1001,15 @@ export default function SettingsPage() {
                 </div>
               </div>
 
-              {/* Access & Branch Section */}
+              {/* Access Level Section */}
               <div className="bg-indigo-50 rounded-lg sm:rounded-xl p-3 sm:p-4 border border-indigo-200">
                 <h4 className="text-xs sm:text-sm font-bold text-slate-700 mb-2 sm:mb-3 flex items-center gap-2">
                   <i className="fas fa-shield-halved text-indigo-600" />
-                  Access & Branch
+                  Access Level
                 </h4>
                 <div className="space-y-2.5 sm:space-y-3">
                   <div>
-                    <label className="block text-xs font-bold text-slate-600 mb-1">Access Level</label>
+                    <label className="block text-xs font-bold text-slate-600 mb-1">Staff Type</label>
                     <select
                       name="system_role"
                       className="w-full border border-indigo-300 rounded-lg p-2 sm:p-2.5 text-xs sm:text-sm bg-white focus:ring-2 focus:ring-indigo-500 focus:outline-none"
@@ -1021,41 +1021,48 @@ export default function SettingsPage() {
                     </select>
                     <p className="text-[10px] text-slate-500 mt-1">
                       {selectedSystemRole === "salon_branch_admin" 
-                        ? "Assigned to ONE branch for the entire week."
-                        : "Can be assigned to different branches per day."
+                        ? "Has full management access to their assigned branch."
+                        : "Can be scheduled at different branches using the weekly roster below."
                       }
                     </p>
                   </div>
-                  <div>
-                    <label className="block text-xs font-bold text-slate-600 mb-1">
-                      {selectedSystemRole === "salon_branch_admin" ? "Assigned Branch (Required)" : "Primary Branch (Optional)"}
-                    </label>
-                    <select
-                      name="branch"
-                      className="w-full border border-indigo-300 rounded-lg p-2 sm:p-2.5 text-xs sm:text-sm bg-white focus:ring-2 focus:ring-indigo-500 focus:outline-none"
-                      defaultValue={editingStaff?.branchId || ""}
-                      required={selectedSystemRole === "salon_branch_admin"}
-                    >
-                      <option value="">-- {selectedSystemRole === "salon_branch_admin" ? "Select Branch" : "Unassigned"} --</option>
-                      {data.branches.length > 0 ? (
-                        data.branches.map((b) => (
-                          <option key={b.id} value={b.id}>
-                            {b.name}
+                  
+                  {/* Branch Selection - Only shown for Branch Admin */}
+                  {selectedSystemRole === "salon_branch_admin" && (
+                    <div>
+                      <label className="block text-xs font-bold text-slate-600 mb-1">
+                        Assigned Branch <span className="text-rose-500">*</span>
+                      </label>
+                      <select
+                        name="branch"
+                        className="w-full border border-indigo-300 rounded-lg p-2 sm:p-2.5 text-xs sm:text-sm bg-white focus:ring-2 focus:ring-indigo-500 focus:outline-none"
+                        defaultValue={editingStaff?.branchId || ""}
+                        required
+                      >
+                        <option value="">-- Select Branch --</option>
+                        {data.branches.length > 0 ? (
+                          data.branches.map((b) => (
+                            <option key={b.id} value={b.id}>
+                              {b.name}
+                            </option>
+                          ))
+                        ) : (
+                          <option value="" disabled>
+                            No Branches Configured
                           </option>
-                        ))
-                      ) : (
-                        <option value="" disabled>
-                          No Branches Configured
-                        </option>
-                      )}
-                    </select>
-                    {selectedSystemRole === "salon_branch_admin" && (
+                        )}
+                      </select>
                       <p className="text-[10px] text-indigo-600 mt-1 font-medium">
                         <i className="fas fa-info-circle mr-1" />
-                        Assigned for all 7 days of the week.
+                        This admin will manage this branch for all 7 days.
                       </p>
-                    )}
-                  </div>
+                    </div>
+                  )}
+                  
+                  {/* Hidden field for Standard Staff - no branch required */}
+                  {selectedSystemRole === "salon_staff" && (
+                    <input type="hidden" name="branch" value="" />
+                  )}
                 </div>
               </div>
               {/* Training Section */}

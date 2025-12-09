@@ -183,13 +183,22 @@ export default function DashboardPage() {
       }
       );
 
-      // Subscribe to salon staff
-      const staffQuery = query(collection(db, "salon_staff"), where("ownerUid", "==", ownerUid));
+      // Subscribe to staff from users collection (staff have ownerUid set)
+      const staffQuery = query(collection(db, "users"), where("ownerUid", "==", ownerUid));
       unsubStaff = onSnapshot(
         staffQuery,
         (snapshot) => {
-          const staff = snapshot.docs.map(doc => doc.data());
-          const activeCount = staff.filter((s: any) => s.status === "Active").length;
+          const staff = snapshot.docs
+            .map(doc => doc.data())
+            .filter((s: any) => {
+              // Only count salon_staff and salon_branch_admin roles
+              const role = (s.role || "").toLowerCase();
+              return role === "salon_staff" || role === "salon_branch_admin";
+            });
+          // Count active staff (those with status "Active" or no status set)
+          const activeCount = staff.filter((s: any) => 
+            !s.status || s.status === "Active"
+          ).length;
           setActiveStaff(activeCount);
         },
         (error) => {
