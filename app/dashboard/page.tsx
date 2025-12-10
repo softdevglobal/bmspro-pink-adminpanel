@@ -20,7 +20,7 @@ export default function DashboardPage() {
   const [weeklyBookings, setWeeklyBookings] = useState<number>(0);
   const [revenueGrowth, setRevenueGrowth] = useState<number>(0);
   const [recentTenants, setRecentTenants] = useState<any[]>([]);
-  const [recentBookings, setRecentBookings] = useState<any[]>([]);
+  const [recentActivities, setRecentActivities] = useState<any[]>([]);
   const [isSuperAdmin, setIsSuperAdmin] = useState<boolean>(false);
   const revCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const statusCanvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -167,16 +167,6 @@ export default function DashboardPage() {
         });
         
         setStatusData(statusCount);
-
-        // Get recent bookings (sorted by updatedAt or createdAt, most recent first)
-        const sortedBookings = [...bookings].sort((a: any, b: any) => {
-          const aTime = a.updatedAt?.toMillis?.() || a.updatedAt?.seconds * 1000 || 
-                        a.createdAt?.toMillis?.() || a.createdAt?.seconds * 1000 || 0;
-          const bTime = b.updatedAt?.toMillis?.() || b.updatedAt?.seconds * 1000 || 
-                        b.createdAt?.toMillis?.() || b.createdAt?.seconds * 1000 || 0;
-          return bTime - aTime;
-        });
-        setRecentBookings(sortedBookings.slice(0, 10)); // Get 10 most recent
       },
       (error) => {
         if (error.code === "permission-denied") {
@@ -247,11 +237,12 @@ export default function DashboardPage() {
     };
   }, [ownerUid]);
 
-  // Fetch recent activity (tenants for super admin, bookings for salon owners)
+  // Fetch recent activity (tenants for super admin, booking activities for salon owners)
   useEffect(() => {
     if (!ownerUid) return;
 
     let unsubTenants: (() => void) | undefined;
+    let unsubActivities: (() => void) | undefined;
 
     (async () => {
       const { db } = await import("@/lib/firebase");
@@ -290,11 +281,53 @@ export default function DashboardPage() {
           }
         }
         );
+      } else {
+        // For salon owners, fetch recent booking activities
+        // Note: Using simple query without orderBy to avoid index requirement
+        // We'll sort client-side instead
+        console.log("Fetching booking activities for ownerUid:", ownerUid);
+        const activitiesQuery = query(
+          collection(db, "bookingActivities"),
+          where("ownerUid", "==", ownerUid)
+        );
+        unsubActivities = onSnapshot(
+          activitiesQuery,
+          (snapshot) => {
+            console.log("Booking activities snapshot received:", snapshot.docs.length, "documents");
+            const activities = snapshot.docs.map(doc => ({
+              id: doc.id,
+              ...doc.data(),
+            }));
+            // Sort by createdAt descending client-side
+            activities.sort((a: any, b: any) => {
+              const aTime = a.createdAt?.toMillis?.() || a.createdAt?.seconds * 1000 || 0;
+              const bTime = b.createdAt?.toMillis?.() || b.createdAt?.seconds * 1000 || 0;
+              return bTime - aTime;
+            });
+            // Take only 15 most recent
+            setRecentActivities(activities.slice(0, 15));
+          },
+          (error) => {
+            console.error("Booking activities error:", error.code, error.message);
+            if (error.code === "permission-denied") {
+              console.warn("Permission denied for booking activities query. Please update Firestore rules.");
+              setRecentActivities([]);
+            } else if (error.code === "failed-precondition") {
+              // Index not created yet - this is expected initially
+              console.warn("Booking activities index not ready. Please create bookings to populate activities.");
+              setRecentActivities([]);
+            } else {
+              console.error("Error in booking activities snapshot:", error);
+              setRecentActivities([]);
+            }
+          }
+        );
       }
     })();
 
     return () => {
       unsubTenants?.();
+      unsubActivities?.();
     };
   }, [ownerUid, isSuperAdmin]);
 
@@ -602,20 +635,11 @@ export default function DashboardPage() {
           </div>
           <div className="bg-white rounded-2xl border border-slate-200 shadow-sm">
             <div className="p-6 border-b border-slate-200">
-              <div className="flex items-center justify-between">
-                <div>
-                  <h3 className="font-semibold text-lg text-slate-900">Recent Activity</h3>
-                  <p className="text-sm text-slate-500 mt-1">
-                    {isSuperAdmin ? "Latest tenant onboardings" : "Recent bookings"}
-                  </p>
-                </div>
-                <button 
-                  onClick={() => router.push(isSuperAdmin ? "/tenants" : "/bookings")}
-                  className="px-4 py-2 text-sm font-medium text-pink-600 hover:bg-pink-50 rounded-lg transition"
-                >
-                  View All
-                  <i className="fas fa-arrow-right ml-2 text-xs" />
-                </button>
+              <div>
+                <h3 className="font-semibold text-lg text-slate-900">Recent Activity</h3>
+                <p className="text-sm text-slate-500 mt-1">
+                  {isSuperAdmin ? "Latest tenant onboardings" : "Recent bookings"}
+                </p>
               </div>
             </div>
             <div className="overflow-x-auto">
@@ -759,15 +783,15 @@ export default function DashboardPage() {
                 <table className="w-full">
                   <thead className="bg-slate-50 border-b border-slate-200">
                     <tr>
+                      <th className="px-6 py-4 text-left text-xs font-semibold text-slate-600 uppercase tracking-wider">Activity</th>
                       <th className="px-6 py-4 text-left text-xs font-semibold text-slate-600 uppercase tracking-wider">Client</th>
                       <th className="px-6 py-4 text-left text-xs font-semibold text-slate-600 uppercase tracking-wider">Service</th>
-                      <th className="px-6 py-4 text-left text-xs font-semibold text-slate-600 uppercase tracking-wider">Date & Time</th>
-                      <th className="px-6 py-4 text-left text-xs font-semibold text-slate-600 uppercase tracking-wider">Status</th>
+                      <th className="px-6 py-4 text-left text-xs font-semibold text-slate-600 uppercase tracking-wider">Booking Date</th>
                       <th className="px-6 py-4 text-right text-xs font-semibold text-slate-600 uppercase tracking-wider">Amount</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-200">
-                    {recentBookings.length === 0 ? (
+                    {recentActivities.length === 0 ? (
                       <tr>
                         <td colSpan={5} className="px-6 py-8 text-center text-slate-500">
                           <i className="fas fa-calendar-check text-4xl text-slate-300 mb-3 block" />
@@ -775,20 +799,20 @@ export default function DashboardPage() {
                         </td>
                       </tr>
                     ) : (
-                      recentBookings.map((booking: any, idx: number) => {
-                        const statusLabel = booking.status || "Pending";
-                        const statusLower = statusLabel.toLowerCase();
-                        const statusConfig: Record<string, { bg: string; text: string; icon: string }> = {
-                          confirmed: { bg: "bg-emerald-50", text: "text-emerald-700", icon: "fa-check-circle" },
-                          completed: { bg: "bg-blue-50", text: "text-blue-700", icon: "fa-circle-check" },
-                          pending: { bg: "bg-amber-50", text: "text-amber-700", icon: "fa-clock" },
-                          canceled: { bg: "bg-rose-50", text: "text-rose-700", icon: "fa-times-circle" },
-                          cancelled: { bg: "bg-rose-50", text: "text-rose-700", icon: "fa-times-circle" },
+                      recentActivities.map((activity: any) => {
+                        // Activity type config
+                        const activityConfig: Record<string, { label: string; bg: string; text: string; icon: string }> = {
+                          booking_created: { label: "New Booking", bg: "bg-amber-50", text: "text-amber-700", icon: "fa-plus-circle" },
+                          booking_confirmed: { label: "Confirmed", bg: "bg-emerald-50", text: "text-emerald-700", icon: "fa-check-circle" },
+                          booking_completed: { label: "Completed", bg: "bg-blue-50", text: "text-blue-700", icon: "fa-circle-check" },
+                          booking_cancelled: { label: "Cancelled", bg: "bg-rose-50", text: "text-rose-700", icon: "fa-times-circle" },
+                          booking_rescheduled: { label: "Rescheduled", bg: "bg-purple-50", text: "text-purple-700", icon: "fa-calendar-alt" },
+                          staff_assigned: { label: "Staff Assigned", bg: "bg-indigo-50", text: "text-indigo-700", icon: "fa-user-plus" },
                         };
-                        const statusStyle = statusConfig[statusLower] || { bg: "bg-slate-100", text: "text-slate-700", icon: "fa-circle-info" };
+                        const activityStyle = activityConfig[activity.activityType] || { label: "Updated", bg: "bg-slate-100", text: "text-slate-700", icon: "fa-circle-info" };
 
                         // Get initials from client name
-                        const clientName = booking.client || booking.clientName || "Unknown";
+                        const clientName = activity.clientName || "Unknown";
                         const initials = clientName
                           .split(" ")
                           .map((s: string) => s[0])
@@ -798,20 +822,18 @@ export default function DashboardPage() {
                           .toUpperCase();
 
                         // Format date and time
-                        const bookingDate = booking.date 
-                          ? new Date(booking.date).toLocaleDateString('en-AU', { day: 'numeric', month: 'short', year: 'numeric' })
+                        const bookingDate = activity.date 
+                          ? new Date(activity.date).toLocaleDateString('en-AU', { day: 'numeric', month: 'short' })
                           : "—";
-                        const bookingTime = booking.time || "—";
+                        const bookingTime = activity.time || "";
 
-                        // Calculate relative time for update
-                        const updatedAt = booking.updatedAt?.toDate?.() || 
-                                          (booking.updatedAt?.seconds ? new Date(booking.updatedAt.seconds * 1000) : null) ||
-                                          booking.createdAt?.toDate?.() ||
-                                          (booking.createdAt?.seconds ? new Date(booking.createdAt.seconds * 1000) : null);
+                        // Calculate relative time for activity
+                        const createdAt = activity.createdAt?.toDate?.() || 
+                                          (activity.createdAt?.seconds ? new Date(activity.createdAt.seconds * 1000) : null);
                         let timeAgo = "";
-                        if (updatedAt) {
+                        if (createdAt) {
                           const now = new Date();
-                          const diffMs = now.getTime() - updatedAt.getTime();
+                          const diffMs = now.getTime() - createdAt.getTime();
                           const diffMins = Math.floor(diffMs / (1000 * 60));
                           const diffHours = Math.floor(diffMs / (1000 * 60 * 60));
                           const diffDays = Math.floor(diffHours / 24);
@@ -829,47 +851,42 @@ export default function DashboardPage() {
                           }
                         }
 
-                        const colors = [
-                          { from: "from-pink-400", to: "to-pink-600" },
-                          { from: "from-blue-400", to: "to-blue-600" },
-                          { from: "from-purple-400", to: "to-purple-600" },
-                          { from: "from-teal-400", to: "to-teal-600" },
-                          { from: "from-rose-400", to: "to-rose-600" },
-                        ];
-                        const color = colors[idx % colors.length];
-
                         return (
-                          <tr key={booking.id} className="hover:bg-slate-50 transition">
+                          <tr key={activity.id} className="hover:bg-slate-50 transition">
                             <td className="px-6 py-4">
                               <div className="flex items-center space-x-3">
-                                <div className={`w-10 h-10 bg-gradient-to-br ${color.from} ${color.to} rounded-lg flex items-center justify-center`}>
-                                  <span className="text-white font-semibold text-sm">{initials}</span>
+                                <div className={`w-9 h-9 ${activityStyle.bg} rounded-lg flex items-center justify-center`}>
+                                  <i className={`fas ${activityStyle.icon} ${activityStyle.text}`} />
                                 </div>
                                 <div>
-                                  <p className="font-medium text-slate-900">{clientName}</p>
-                                  {timeAgo && <p className="text-xs text-slate-500">{timeAgo}</p>}
+                                  <span className={`px-2.5 py-1 ${activityStyle.bg} ${activityStyle.text} rounded-lg text-xs font-semibold`}>
+                                    {activityStyle.label}
+                                  </span>
+                                  {timeAgo && <p className="text-xs text-slate-400 mt-1">{timeAgo}</p>}
                                 </div>
                               </div>
                             </td>
                             <td className="px-6 py-4">
-                              <p className="text-sm text-slate-900">{booking.serviceName || "—"}</p>
-                              {booking.branchName && (
-                                <p className="text-xs text-slate-500">{booking.branchName}</p>
+                              <div className="flex items-center space-x-2">
+                                <div className="w-8 h-8 bg-gradient-to-br from-pink-400 to-pink-600 rounded-full flex items-center justify-center">
+                                  <span className="text-white font-semibold text-xs">{initials}</span>
+                                </div>
+                                <span className="text-sm font-medium text-slate-900">{clientName}</span>
+                              </div>
+                            </td>
+                            <td className="px-6 py-4">
+                              <p className="text-sm text-slate-900">{activity.serviceName || "—"}</p>
+                              {activity.branchName && (
+                                <p className="text-xs text-slate-500">{activity.branchName}</p>
                               )}
                             </td>
                             <td className="px-6 py-4">
                               <p className="text-sm text-slate-900">{bookingDate}</p>
-                              <p className="text-xs text-slate-500">{bookingTime}</p>
-                            </td>
-                            <td className="px-6 py-4">
-                              <span className={`px-3 py-1 ${statusStyle.bg} ${statusStyle.text} rounded-lg text-sm font-medium flex items-center w-fit`}>
-                                <i className={`fas ${statusStyle.icon} text-xs mr-1.5`} />
-                                {statusLabel}
-                              </span>
+                              {bookingTime && <p className="text-xs text-slate-500">{bookingTime}</p>}
                             </td>
                             <td className="px-6 py-4 text-right">
                               <span className="font-semibold text-slate-900">
-                                AU${(Number(booking.price) || 0).toLocaleString()}
+                                AU${(Number(activity.price) || 0).toLocaleString()}
                               </span>
                             </td>
                           </tr>
@@ -893,5 +910,6 @@ export default function DashboardPage() {
     </div>
   );
 }
+
 
 

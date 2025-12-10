@@ -36,6 +36,13 @@ function BookingsPageContent() {
   const [bkNotes, setBkNotes] = useState<string>("");
   const [submittingBooking, setSubmittingBooking] = useState<boolean>(false);
 
+  // Staff assignment modal state for confirming bookings
+  const [staffAssignModalOpen, setStaffAssignModalOpen] = useState(false);
+  const [bookingToConfirm, setBookingToConfirm] = useState<any>(null);
+  const [selectedStaffId, setSelectedStaffId] = useState<string>("");
+  const [selectedStaffPerService, setSelectedStaffPerService] = useState<Record<string, string>>({});
+  const [confirmingBooking, setConfirmingBooking] = useState(false);
+
   // Real data from Firestore
   const [ownerUid, setOwnerUid] = useState<string | null>(null);
   const [userBranchId, setUserBranchId] = useState<string | null>(null);
@@ -241,16 +248,70 @@ function BookingsPageContent() {
         });
       },
       updateBookingStatus: async function (id: string, newStatus: string) {
-        try {
-          const { doc, updateDoc } = await import("firebase/firestore");
-          const { db } = await import("@/lib/firebase");
+        const booking = this.data.bookings.find((b: any) => b.id === id);
+        
+        // If confirming, check if staff assignment is needed
+        if (newStatus === "Confirmed" && booking) {
+          const hasMultipleServices = Array.isArray(booking.services) && booking.services.length > 0;
           
-          // Update in Firestore
-          const bookingRef = doc(db, "bookings", id);
-          await updateDoc(bookingRef, { status: newStatus });
+          if (hasMultipleServices) {
+            // Check if any service needs staff assignment
+            const needsStaffAssignment = booking.services.some((s: any) => 
+              !s.staffId || s.staffId === "null" || s.staffName === "Any Available" || s.staffName === "Any Staff"
+            );
+            
+            if (needsStaffAssignment) {
+              // Trigger staff assignment modal via React state
+              const event = new CustomEvent("openStaffAssignModal", { detail: booking });
+              window.dispatchEvent(event);
+              return;
+            }
+          } else {
+            // Single service booking - check if needs staff assignment
+            if (!booking.staffId || booking.staffId === "null" || booking.staffName === "Any Available" || booking.staffName === "Any Staff") {
+              // Trigger staff assignment modal via React state
+              const event = new CustomEvent("openStaffAssignModal", { detail: booking });
+              window.dispatchEvent(event);
+              return;
+            }
+          }
+        }
+        
+        try {
+          // Use the API endpoint to update status (triggers notifications and activity log)
+          const { auth } = await import("@/lib/firebase");
+          let token: string | null = null;
+          try {
+            if (auth.currentUser) {
+              token = await auth.currentUser.getIdToken(true);
+            }
+          } catch (e) {
+            console.error("Error getting token:", e);
+          }
+          
+          const res = await fetch(`/api/bookings/${encodeURIComponent(id)}/status`, {
+            method: "PATCH",
+            headers: {
+              "Content-Type": "application/json",
+              ...(token ? { Authorization: `Bearer ${token}` } : {}),
+            },
+            body: JSON.stringify({ status: newStatus }),
+          });
+          
+          const json = await res.json().catch(() => ({})) as any;
+          if (!res.ok && !json?.devNoop) {
+            throw new Error(json?.error || "Failed to update booking status");
+          }
+          
+          // If dev no-op, also update locally
+          if (json?.devNoop) {
+            const { doc, updateDoc } = await import("firebase/firestore");
+            const { db } = await import("@/lib/firebase");
+            const bookingRef = doc(db, "bookings", id);
+            await updateDoc(bookingRef, { status: newStatus });
+          }
 
           // Optimistically update local state (though Firestore listener will also catch it)
-          const booking = this.data.bookings.find((b: any) => b.id === id);
           if (booking) {
             booking.status = newStatus;
             this.saveData();
@@ -506,6 +567,7 @@ function BookingsPageContent() {
             duration: Number(b.duration || 0),
             status: String(b.status || "Confirmed"),
             price: Number(b.price || 0),
+            services: b.services || null, // Include services array for multi-service bookings
           });
         });
         try {
@@ -590,6 +652,176 @@ function BookingsPageContent() {
       unsubStaff();
     };
   }, [ownerUid, userRole, userBranchId]);
+
+  // Listen for staff assignment modal event from app.updateBookingStatus
+  useEffect(() => {
+    const handleOpenStaffAssignModal = (e: CustomEvent) => {
+      const booking = e.detail;
+      setBookingToConfirm(booking);
+      setSelectedStaffId("");
+      
+      // Pre-fill staff assignments for services that already have staff
+      const initialStaffSelection: Record<string, string> = {};
+      if (Array.isArray(booking.services) && booking.services.length > 0) {
+        booking.services.forEach((s: any) => {
+          if (s.staffId && s.staffId !== "null" && s.staffName !== "Any Available" && s.staffName !== "Any Staff") {
+            initialStaffSelection[String(s.id)] = s.staffId;
+          }
+        });
+      }
+      setSelectedStaffPerService(initialStaffSelection);
+      setStaffAssignModalOpen(true);
+    };
+    
+    window.addEventListener("openStaffAssignModal" as any, handleOpenStaffAssignModal);
+    return () => {
+      window.removeEventListener("openStaffAssignModal" as any, handleOpenStaffAssignModal);
+    };
+  }, []);
+
+  // Confirm booking with staff assignment
+  const confirmWithStaffAssignment = async () => {
+    if (!bookingToConfirm) return;
+    
+    const hasMultipleServices = Array.isArray(bookingToConfirm.services) && bookingToConfirm.services.length > 0;
+    
+    if (hasMultipleServices) {
+      // Validate ALL services have staff assigned (selected in modal)
+      const allAssigned = bookingToConfirm.services.every((s: any) => selectedStaffPerService[String(s.id)]);
+      if (!allAssigned) {
+        appRef()?.showToast("Please assign staff to all services", "error");
+        return;
+      }
+    } else {
+      if (!selectedStaffId) {
+        appRef()?.showToast("Please select a staff member", "error");
+        return;
+      }
+    }
+    
+    setConfirmingBooking(true);
+    
+    try {
+      const { auth } = await import("@/lib/firebase");
+      let token: string | null = null;
+      try {
+        if (auth.currentUser) {
+          token = await auth.currentUser.getIdToken(true);
+        }
+      } catch (e) {
+        console.error("Error getting token:", e);
+      }
+      
+      if (hasMultipleServices) {
+        // Update services array with selected staff
+        const updatedServices = bookingToConfirm.services.map((service: any) => {
+          const staffId = selectedStaffPerService[String(service.id)];
+          if (staffId) {
+            const staff = staffList.find(s => s.id === staffId);
+            return {
+              ...service,
+              staffId: staffId,
+              staffName: staff?.name || "Staff"
+            };
+          }
+          return service;
+        });
+        
+        const res = await fetch(`/api/bookings/${encodeURIComponent(bookingToConfirm.id)}/status`, {
+          method: "PATCH",
+          headers: {
+            "Content-Type": "application/json",
+            ...(token ? { Authorization: `Bearer ${token}` } : {}),
+          },
+          body: JSON.stringify({ 
+            status: "Confirmed",
+            services: updatedServices
+          }),
+        });
+        
+        const json = await res.json().catch(() => ({})) as any;
+        if (!res.ok && !json?.devNoop) {
+          throw new Error(json?.error || "Failed to confirm booking");
+        }
+        
+        if (json?.devNoop) {
+          const { updateDoc, doc, serverTimestamp, deleteField } = await import("firebase/firestore");
+          await updateDoc(doc(db, "bookings", bookingToConfirm.id), {
+            services: updatedServices,
+            staffId: deleteField(),
+            staffName: deleteField(),
+            status: "Confirmed",
+            updatedAt: serverTimestamp(),
+          } as any);
+        }
+      } else {
+        // Single service
+        const selectedStaff = staffList.find(s => s.id === selectedStaffId);
+        
+        const res = await fetch(`/api/bookings/${encodeURIComponent(bookingToConfirm.id)}/status`, {
+          method: "PATCH",
+          headers: {
+            "Content-Type": "application/json",
+            ...(token ? { Authorization: `Bearer ${token}` } : {}),
+          },
+          body: JSON.stringify({ 
+            status: "Confirmed",
+            staffId: selectedStaffId,
+            staffName: selectedStaff?.name || "Staff"
+          }),
+        });
+        
+        const json = await res.json().catch(() => ({})) as any;
+        if (!res.ok && !json?.devNoop) {
+          throw new Error(json?.error || "Failed to confirm booking");
+        }
+        
+        if (json?.devNoop) {
+          const { updateDoc, doc, serverTimestamp } = await import("firebase/firestore");
+          await updateDoc(doc(db, "bookings", bookingToConfirm.id), {
+            staffId: selectedStaffId,
+            staffName: selectedStaff?.name || "Staff",
+            status: "Confirmed",
+            updatedAt: serverTimestamp(),
+          } as any);
+        }
+      }
+      
+      // Close modal and show success
+      setStaffAssignModalOpen(false);
+      setBookingToConfirm(null);
+      setSelectedStaffId("");
+      setSelectedStaffPerService({});
+      appRef()?.showToast("Booking confirmed successfully!");
+    } catch (e: any) {
+      console.error("Error confirming booking:", e);
+      appRef()?.showToast(e?.message || "Failed to confirm booking", "error");
+    } finally {
+      setConfirmingBooking(false);
+    }
+  };
+
+  // Get available staff for a service (used in staff assignment modal)
+  const getAvailableStaffForService = (serviceId: string | number) => {
+    const service = servicesList.find(s => String(s.id) === String(serviceId));
+    const qualifiedStaffIds = (service?.staffIds && Array.isArray(service.staffIds)) 
+      ? service.staffIds.map(String) 
+      : [];
+    
+    let filtered = staffList.filter(s => s.status === "Active");
+    
+    // Filter by service qualification
+    if (qualifiedStaffIds.length > 0) {
+      filtered = filtered.filter(s => qualifiedStaffIds.includes(String(s.id)));
+    }
+    
+    // Filter by branch
+    if (bookingToConfirm?.branchId) {
+      filtered = filtered.filter(s => s.branchId === bookingToConfirm.branchId);
+    }
+    
+    return filtered;
+  };
 
   const resetWizard = () => {
     setBkStep(1);
@@ -790,7 +1022,7 @@ function BookingsPageContent() {
       })
     };
     
-    // Persist to backend; fallback to local store on error for smooth UX
+    // Persist to backend - Firestore listener will update the UI automatically
     (async () => {
       try {
         await createBooking({
@@ -811,15 +1043,19 @@ function BookingsPageContent() {
           price: newBooking.price,
           services: newBooking.services, // Pass detailed services array
         } as any); // Type assertion needed until we update lib
-      } catch {
-        // continue with local persistence
-      } finally {
+        
+        // Don't add locally - Firestore listener will handle it to avoid duplicates
         if (app) {
-          app.data.bookings.push(newBooking);
-          app.saveData();
           app.closeModal("booking");
           app.showToast("New Booking Created!");
         }
+      } catch (error) {
+        console.error("Error creating booking:", error);
+        if (app) {
+          app.closeModal("booking");
+          app.showToast("Failed to create booking", "error");
+        }
+      } finally {
         setSubmittingBooking(false);
         resetWizard();
       }
@@ -1408,6 +1644,220 @@ function BookingsPageContent() {
           </div>
         </div>
       </div>
+
+      {/* Staff Assignment Modal for Confirming Bookings */}
+      {staffAssignModalOpen && bookingToConfirm && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center p-4">
+          {/* Backdrop */}
+          <div
+            className="absolute inset-0 bg-black/60 backdrop-blur-sm"
+            onClick={() => !confirmingBooking && setStaffAssignModalOpen(false)}
+          />
+
+          {/* Modal */}
+          <div className="relative bg-white rounded-2xl shadow-2xl max-w-md w-full overflow-hidden">
+            {/* Header */}
+            <div className="bg-gradient-to-r from-emerald-500 to-green-600 p-5">
+              <div className="flex items-center gap-3">
+                <div className="w-12 h-12 bg-white/20 backdrop-blur-sm rounded-xl flex items-center justify-center">
+                  <i className="fas fa-user-plus text-white text-xl"></i>
+                </div>
+                <div>
+                  <h3 className="text-lg font-bold text-white">Assign Staff Member</h3>
+                  <p className="text-white/80 text-sm">Select a staff member to confirm booking</p>
+                </div>
+              </div>
+            </div>
+
+            {/* Content */}
+            <div className="p-6">
+              {/* Booking Details */}
+              <div className="mb-6 p-4 bg-slate-50 rounded-lg">
+                <div className="flex items-center gap-3 mb-3">
+                  <div className="w-10 h-10 rounded-full bg-gradient-to-br from-pink-500 to-fuchsia-600 text-white flex items-center justify-center text-sm font-bold">
+                    {(bookingToConfirm.client || "?").split(" ").map((s: string) => s[0]).slice(0,2).join("")}
+                  </div>
+                  <div>
+                    <p className="font-semibold text-slate-900">{bookingToConfirm.client}</p>
+                    <p className="text-xs text-slate-500">{bookingToConfirm.serviceName || "Service"}</p>
+                  </div>
+                </div>
+                <div className="flex items-center gap-4 text-xs text-slate-600">
+                  <span><i className="far fa-calendar mr-1"></i>{bookingToConfirm.date}</span>
+                  <span><i className="far fa-clock mr-1"></i>{bookingToConfirm.time}</span>
+                </div>
+              </div>
+
+              {/* Staff Selection */}
+              <div>
+                {/* Multiple Services - show staff selection for each service */}
+                {Array.isArray(bookingToConfirm.services) && bookingToConfirm.services.length > 0 ? (
+                  <div className="space-y-4 max-h-96 overflow-y-auto">
+                    {bookingToConfirm.services.map((service: any) => {
+                      const availableStaff = getAvailableStaffForService(service.id);
+                      const selectedStaff = selectedStaffPerService[String(service.id)];
+                      const needsAssignment = !service.staffId || service.staffId === "null" || service.staffName === "Any Available" || service.staffName === "Any Staff";
+                      
+                      return (
+                        <div key={String(service.id)} className="border-2 border-purple-200 rounded-xl p-4 bg-purple-50/50">
+                          <div className="mb-3 flex items-center gap-2">
+                            <i className="fas fa-spa text-purple-600"></i>
+                            <h4 className="font-bold text-slate-800">{service.name}</h4>
+                            <span className="text-xs text-slate-500 ml-auto">{service.duration} min</span>
+                            {!needsAssignment && (
+                              <span className="text-xs bg-emerald-100 text-emerald-700 px-2 py-0.5 rounded-full">
+                                <i className="fas fa-check mr-1"></i>Assigned
+                              </span>
+                            )}
+                          </div>
+                          
+                          {availableStaff.length === 0 ? (
+                            <div className="p-3 bg-amber-50 border border-amber-200 rounded-lg text-amber-800 text-xs">
+                              <i className="fas fa-exclamation-triangle mr-2"></i>
+                              No qualified staff available for this service
+                            </div>
+                          ) : (
+                            <div className="space-y-2">
+                              {availableStaff.map((staff) => (
+                                <button
+                                  key={staff.id}
+                                  onClick={() => setSelectedStaffPerService(prev => ({
+                                    ...prev,
+                                    [String(service.id)]: staff.id
+                                  }))}
+                                  className={`w-full text-left p-2 rounded-lg border-2 transition-all ${
+                                    selectedStaff === staff.id
+                                      ? "border-emerald-500 bg-emerald-50 shadow-sm"
+                                      : "border-slate-200 hover:border-emerald-300 hover:bg-white"
+                                  }`}
+                                >
+                                  <div className="flex items-center gap-2">
+                                    <div className={`w-8 h-8 rounded-full overflow-hidden flex-shrink-0 border-2 ${
+                                      selectedStaff === staff.id ? "border-emerald-500" : "border-slate-200"
+                                    }`}>
+                                      <img
+                                        src={`https://api.dicebear.com/7.x/avataaars/svg?seed=${encodeURIComponent(staff.avatar || staff.name)}`}
+                                        alt={staff.name}
+                                        className="w-full h-full object-cover"
+                                      />
+                                    </div>
+                                    <div className="flex-1">
+                                      <p className={`font-semibold text-sm ${
+                                        selectedStaff === staff.id ? "text-emerald-900" : "text-slate-800"
+                                      }`}>
+                                        {staff.name}
+                                      </p>
+                                    </div>
+                                    {selectedStaff === staff.id && (
+                                      <i className="fas fa-check-circle text-emerald-500"></i>
+                                    )}
+                                  </div>
+                                </button>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                ) : (
+                  /* Single Service */
+                  <>
+                    <label className="block text-sm font-semibold text-slate-700 mb-3">
+                      <i className="fas fa-user-tie text-emerald-600 mr-2"></i>
+                      Select Staff Member
+                    </label>
+                    {(() => {
+                      const availableStaff = getAvailableStaffForService(bookingToConfirm.serviceId);
+                      return availableStaff.length === 0 ? (
+                        <div className="p-4 bg-amber-50 border border-amber-200 rounded-lg text-amber-800 text-sm">
+                          <i className="fas fa-exclamation-triangle mr-2"></i>
+                          No available staff members found for this service/branch.
+                        </div>
+                      ) : (
+                        <div className="space-y-2 max-h-64 overflow-y-auto">
+                          {availableStaff.map((staff) => (
+                            <button
+                              key={staff.id}
+                              onClick={() => setSelectedStaffId(staff.id)}
+                              className={`w-full text-left p-3 rounded-lg border-2 transition-all ${
+                                selectedStaffId === staff.id
+                                  ? "border-emerald-500 bg-emerald-50 shadow-sm"
+                                  : "border-slate-200 hover:border-emerald-300 hover:bg-slate-50"
+                              }`}
+                            >
+                              <div className="flex items-center gap-3">
+                                <div className={`w-10 h-10 rounded-full overflow-hidden flex-shrink-0 border-2 ${
+                                  selectedStaffId === staff.id ? "border-emerald-500" : "border-slate-200"
+                                }`}>
+                                  <img
+                                    src={`https://api.dicebear.com/7.x/avataaars/svg?seed=${encodeURIComponent(staff.avatar || staff.name)}`}
+                                    alt={staff.name}
+                                    className="w-full h-full object-cover"
+                                  />
+                                </div>
+                                <div className="flex-1">
+                                  <p className={`font-semibold ${
+                                    selectedStaffId === staff.id ? "text-emerald-900" : "text-slate-800"
+                                  }`}>
+                                    {staff.name}
+                                  </p>
+                                </div>
+                                {selectedStaffId === staff.id && (
+                                  <i className="fas fa-check-circle text-emerald-500 text-lg"></i>
+                                )}
+                              </div>
+                            </button>
+                          ))}
+                        </div>
+                      );
+                    })()}
+                  </>
+                )}
+              </div>
+            </div>
+
+            {/* Footer */}
+            <div className="bg-slate-50 px-6 py-4 flex gap-3 justify-end border-t border-slate-200">
+              <button
+                onClick={() => setStaffAssignModalOpen(false)}
+                disabled={confirmingBooking}
+                className="px-4 py-2.5 rounded-lg text-slate-700 hover:bg-slate-200 font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed text-sm"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={confirmWithStaffAssignment}
+                disabled={(() => {
+                  if (confirmingBooking) return true;
+                  
+                  const hasMultipleServices = Array.isArray(bookingToConfirm.services) && bookingToConfirm.services.length > 0;
+                  
+                  if (hasMultipleServices) {
+                    // Check all services have staff selected
+                    return !bookingToConfirm.services.every((s: any) => selectedStaffPerService[String(s.id)]);
+                  } else {
+                    return !selectedStaffId;
+                  }
+                })()}
+                className="px-5 py-2.5 rounded-lg bg-gradient-to-r from-emerald-500 to-green-600 hover:from-emerald-600 hover:to-green-700 text-white font-semibold transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2 text-sm shadow-lg shadow-emerald-200"
+              >
+                {confirmingBooking ? (
+                  <>
+                    <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin"></div>
+                    <span>Confirming...</span>
+                  </>
+                ) : (
+                  <>
+                    <i className="fas fa-check-circle"></i>
+                    <span>Confirm Booking</span>
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Minimal CSS for modal, toasts, status badges, and time slots */}
       <style>{`

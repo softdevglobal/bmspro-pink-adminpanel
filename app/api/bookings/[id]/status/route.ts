@@ -4,6 +4,16 @@ import { FieldValue } from "firebase-admin/firestore";
 import { canTransitionStatus, normalizeBookingStatus } from "@/lib/bookingTypes";
 import { createNotification, getNotificationContent } from "@/lib/notifications";
 
+// Helper to get activity type from status
+function getActivityType(status: string): string {
+  const s = status.toLowerCase();
+  if (s === "confirmed") return "booking_confirmed";
+  if (s === "completed") return "booking_completed";
+  if (s === "cancelled" || s === "canceled") return "booking_cancelled";
+  if (s === "pending") return "booking_created";
+  return "booking_updated";
+}
+
 export const runtime = "nodejs";
 
 export async function PATCH(req: NextRequest, context: { params: Promise<{ id: string }> }) {
@@ -126,6 +136,30 @@ export async function PATCH(req: NextRequest, context: { params: Promise<{ id: s
     } else {
       // Just update the booking
       await ref.update(updateData);
+    }
+
+    // Create booking activity log entry
+    try {
+      const activityData = {
+        ownerUid: ownerUid,
+        bookingId: id,
+        bookingCode: data.bookingCode || null,
+        activityType: getActivityType(requestedStatus),
+        clientName: data.client || data.clientName || "Unknown",
+        serviceName: data.serviceName || null,
+        branchName: data.branchName || null,
+        staffName: body.staffName || data.staffName || null,
+        price: data.price || null,
+        date: data.date || null,
+        time: data.time || null,
+        previousStatus: currentStatus,
+        newStatus: requestedStatus,
+        createdAt: FieldValue.serverTimestamp(),
+      };
+      await db.collection("bookingActivities").add(activityData);
+    } catch (activityError) {
+      console.error("Failed to create booking activity:", activityError);
+      // Don't fail the request if activity creation fails
     }
 
     // Create notification for customer

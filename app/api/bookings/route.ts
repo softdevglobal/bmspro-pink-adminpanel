@@ -119,6 +119,30 @@ export async function POST(req: NextRequest) {
 
     try {
       const ref = await adminDb().collection("bookings").add(payload);
+      
+      // Create booking activity log for new booking
+      try {
+        await adminDb().collection("bookingActivities").add({
+          ownerUid: ownerUid,
+          bookingId: ref.id,
+          bookingCode: bookingCode,
+          activityType: "booking_created",
+          clientName: String(body.client),
+          serviceName: serviceName,
+          branchName: branchName,
+          staffName: staffName,
+          price: Number(body.price) || 0,
+          date: String(body.date),
+          time: String(body.time),
+          previousStatus: null,
+          newStatus: normalizeBookingStatus(body.status || "Pending"),
+          createdAt: FieldValue.serverTimestamp(),
+        });
+      } catch (activityError) {
+        console.error("Failed to create booking activity:", activityError);
+        // Don't fail the request if activity creation fails
+      }
+      
       return NextResponse.json({ id: ref.id });
     } catch (e) {
       if (process.env.NODE_ENV !== "production") {
