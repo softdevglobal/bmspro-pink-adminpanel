@@ -327,7 +327,7 @@ export default function BranchesPage() {
                     </div>
                     <h1 className="text-2xl font-bold">Branch Management</h1>
                   </div>
-                  <p className="text-sm text-white/80 mt-2">Manage your salon locations and addresses.</p>
+                  <p className="text-sm text-white/80 mt-2">Manage your salon.</p>
                 </div>
               </div>
             </div>
@@ -348,9 +348,7 @@ export default function BranchesPage() {
             </div>
 
                 <div id="branch-grid" className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-              {branches.map((b, idx) => {
-                const isHQ = b.id === "br1";
-                const rate = isHQ ? 75 : 45; // mock metric
+              {branches.map((b) => {
                 return (
                   <div key={b.id} className="bg-white rounded-2xl border border-slate-200 shadow-sm p-6">
                     <div className="flex items-start justify-between mb-6">
@@ -387,13 +385,6 @@ export default function BranchesPage() {
                           </button>
                         )}
                       </div>
-                    </div>
-                    <div className="h-2 bg-slate-100 rounded-full overflow-hidden mb-2">
-                      <div className="h-full bg-purple-500 rounded-full" style={{ width: `${rate}%` }} />
-                    </div>
-                        <div className="flex items-center justify-between text-xs text-slate-500">
-                          <span className="truncate">Occupancy Rate (Mock)</span>
-                          <span className="ml-3">{rate}%</span>
                     </div>
                         {(b.phone || b.email) && (
                           <div className="mt-3 text-xs text-slate-500 flex flex-col gap-1">

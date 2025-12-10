@@ -529,7 +529,7 @@ export default function DashboardPage() {
             <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm min-w-0">
               <div className="flex items-center justify-between mb-3">
                 <span className="text-sm font-medium text-slate-600">
-                  Monthly Recurring Revenue
+                  Monthly Revenue
                 </span>
                 <div className="w-10 h-10 bg-pink-50 rounded-xl flex items-center justify-center">
                   <i className="fas fa-dollar-sign text-pink-500" />
