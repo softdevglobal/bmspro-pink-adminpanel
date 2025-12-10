@@ -961,13 +961,29 @@ export default function BranchDetailsPage() {
                           branchBookings.map((b: any) => [String(b.client || ""), { name: b.client, email: b.clientEmail, phone: b.clientPhone }])
                         ).values()
                       ).map((c: any, idx) => (
-                        <div key={idx} className="flex items-center gap-3">
-                          <div className="w-9 h-9 rounded-full bg-pink-100 text-pink-600 flex items-center justify-center font-bold text-xs">
+                        <div key={idx} className="flex items-center gap-3 p-3 rounded-xl border border-slate-100 hover:bg-slate-50 transition">
+                          <div className="w-10 h-10 rounded-full bg-pink-100 text-pink-600 flex items-center justify-center font-bold text-sm">
                             {(c.name || "U").toString().slice(0, 1).toUpperCase()}
                           </div>
                           <div className="flex-1 min-w-0">
                             <div className="text-sm font-semibold text-slate-800 truncate">{c.name || "Unknown"}</div>
-                            <div className="text-xs text-slate-500 truncate">{c.email || c.phone || "—"}</div>
+                            <div className="flex flex-wrap items-center gap-3 mt-1">
+                              {c.email && (
+                                <span className="inline-flex items-center gap-1.5 text-xs text-slate-500">
+                                  <i className="fas fa-envelope text-slate-400"></i>
+                                  <span className="truncate">{c.email}</span>
+                                </span>
+                              )}
+                              {c.phone && (
+                                <span className="inline-flex items-center gap-1.5 text-xs text-slate-500">
+                                  <i className="fas fa-phone text-slate-400"></i>
+                                  <span>{c.phone}</span>
+                                </span>
+                              )}
+                              {!c.email && !c.phone && (
+                                <span className="text-xs text-slate-400">No contact info</span>
+                              )}
+                            </div>
                           </div>
                         </div>
                       ))}
