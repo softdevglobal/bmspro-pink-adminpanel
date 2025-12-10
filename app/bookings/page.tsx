@@ -208,11 +208,11 @@ function BookingsPageContent() {
           let staffName = "Unassigned";
           if (Array.isArray(b.services) && b.services.length > 0) {
             // Get unique staff names from services array
-            const staffNames = b.services
-              .map((s: any) => s.staffName)
+            const staffNames: string[] = b.services
+              .map((s: any) => s.staffName as string)
               .filter((name: string) => name && name !== "Any Available" && name !== "Any Staff");
             if (staffNames.length > 0) {
-              const uniqueNames = [...new Set(staffNames)];
+              const uniqueNames: string[] = [...new Set(staffNames)];
               staffName = uniqueNames.length === 1 ? uniqueNames[0] : uniqueNames.join(", ");
             }
           } else if (b.staffName && b.staffName !== "Any Available" && b.staffName !== "Any Staff") {
