@@ -20,6 +20,7 @@ export default function DashboardPage() {
   const [weeklyBookings, setWeeklyBookings] = useState<number>(0);
   const [revenueGrowth, setRevenueGrowth] = useState<number>(0);
   const [recentTenants, setRecentTenants] = useState<any[]>([]);
+  const [recentBookings, setRecentBookings] = useState<any[]>([]);
   const [isSuperAdmin, setIsSuperAdmin] = useState<boolean>(false);
   const revCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const statusCanvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -166,6 +167,16 @@ export default function DashboardPage() {
         });
         
         setStatusData(statusCount);
+
+        // Get recent bookings (sorted by updatedAt or createdAt, most recent first)
+        const sortedBookings = [...bookings].sort((a: any, b: any) => {
+          const aTime = a.updatedAt?.toMillis?.() || a.updatedAt?.seconds * 1000 || 
+                        a.createdAt?.toMillis?.() || a.createdAt?.seconds * 1000 || 0;
+          const bTime = b.updatedAt?.toMillis?.() || b.updatedAt?.seconds * 1000 || 
+                        b.createdAt?.toMillis?.() || b.createdAt?.seconds * 1000 || 0;
+          return bTime - aTime;
+        });
+        setRecentBookings(sortedBookings.slice(0, 10)); // Get 10 most recent
       },
       (error) => {
         if (error.code === "permission-denied") {
@@ -598,15 +609,13 @@ export default function DashboardPage() {
                     {isSuperAdmin ? "Latest tenant onboardings" : "Recent bookings"}
                   </p>
                 </div>
-                {isSuperAdmin && (
-                  <button 
-                    onClick={() => router.push("/tenants")}
-                    className="px-4 py-2 text-sm font-medium text-pink-600 hover:bg-pink-50 rounded-lg transition"
-                  >
-                    View All
-                    <i className="fas fa-arrow-right ml-2 text-xs" />
-                  </button>
-                )}
+                <button 
+                  onClick={() => router.push(isSuperAdmin ? "/tenants" : "/bookings")}
+                  className="px-4 py-2 text-sm font-medium text-pink-600 hover:bg-pink-50 rounded-lg transition"
+                >
+                  View All
+                  <i className="fas fa-arrow-right ml-2 text-xs" />
+                </button>
               </div>
             </div>
             <div className="overflow-x-auto">
@@ -747,10 +756,128 @@ export default function DashboardPage() {
                   </tbody>
                 </table>
               ) : (
-                <div className="px-6 py-8 text-center text-slate-500">
-                  <i className="fas fa-calendar-check text-4xl text-slate-300 mb-3" />
-                  <p>Booking activity will appear here</p>
-                </div>
+                <table className="w-full">
+                  <thead className="bg-slate-50 border-b border-slate-200">
+                    <tr>
+                      <th className="px-6 py-4 text-left text-xs font-semibold text-slate-600 uppercase tracking-wider">Client</th>
+                      <th className="px-6 py-4 text-left text-xs font-semibold text-slate-600 uppercase tracking-wider">Service</th>
+                      <th className="px-6 py-4 text-left text-xs font-semibold text-slate-600 uppercase tracking-wider">Date & Time</th>
+                      <th className="px-6 py-4 text-left text-xs font-semibold text-slate-600 uppercase tracking-wider">Status</th>
+                      <th className="px-6 py-4 text-right text-xs font-semibold text-slate-600 uppercase tracking-wider">Amount</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-200">
+                    {recentBookings.length === 0 ? (
+                      <tr>
+                        <td colSpan={5} className="px-6 py-8 text-center text-slate-500">
+                          <i className="fas fa-calendar-check text-4xl text-slate-300 mb-3 block" />
+                          <p>Booking activity will appear here</p>
+                        </td>
+                      </tr>
+                    ) : (
+                      recentBookings.map((booking: any, idx: number) => {
+                        const statusLabel = booking.status || "Pending";
+                        const statusLower = statusLabel.toLowerCase();
+                        const statusConfig: Record<string, { bg: string; text: string; icon: string }> = {
+                          confirmed: { bg: "bg-emerald-50", text: "text-emerald-700", icon: "fa-check-circle" },
+                          completed: { bg: "bg-blue-50", text: "text-blue-700", icon: "fa-circle-check" },
+                          pending: { bg: "bg-amber-50", text: "text-amber-700", icon: "fa-clock" },
+                          canceled: { bg: "bg-rose-50", text: "text-rose-700", icon: "fa-times-circle" },
+                          cancelled: { bg: "bg-rose-50", text: "text-rose-700", icon: "fa-times-circle" },
+                        };
+                        const statusStyle = statusConfig[statusLower] || { bg: "bg-slate-100", text: "text-slate-700", icon: "fa-circle-info" };
+
+                        // Get initials from client name
+                        const clientName = booking.client || booking.clientName || "Unknown";
+                        const initials = clientName
+                          .split(" ")
+                          .map((s: string) => s[0])
+                          .filter(Boolean)
+                          .slice(0, 2)
+                          .join("")
+                          .toUpperCase();
+
+                        // Format date and time
+                        const bookingDate = booking.date 
+                          ? new Date(booking.date).toLocaleDateString('en-AU', { day: 'numeric', month: 'short', year: 'numeric' })
+                          : "—";
+                        const bookingTime = booking.time || "—";
+
+                        // Calculate relative time for update
+                        const updatedAt = booking.updatedAt?.toDate?.() || 
+                                          (booking.updatedAt?.seconds ? new Date(booking.updatedAt.seconds * 1000) : null) ||
+                                          booking.createdAt?.toDate?.() ||
+                                          (booking.createdAt?.seconds ? new Date(booking.createdAt.seconds * 1000) : null);
+                        let timeAgo = "";
+                        if (updatedAt) {
+                          const now = new Date();
+                          const diffMs = now.getTime() - updatedAt.getTime();
+                          const diffMins = Math.floor(diffMs / (1000 * 60));
+                          const diffHours = Math.floor(diffMs / (1000 * 60 * 60));
+                          const diffDays = Math.floor(diffHours / 24);
+                          
+                          if (diffMins < 1) {
+                            timeAgo = "Just now";
+                          } else if (diffMins < 60) {
+                            timeAgo = `${diffMins}m ago`;
+                          } else if (diffHours < 24) {
+                            timeAgo = `${diffHours}h ago`;
+                          } else if (diffDays === 1) {
+                            timeAgo = "1d ago";
+                          } else {
+                            timeAgo = `${diffDays}d ago`;
+                          }
+                        }
+
+                        const colors = [
+                          { from: "from-pink-400", to: "to-pink-600" },
+                          { from: "from-blue-400", to: "to-blue-600" },
+                          { from: "from-purple-400", to: "to-purple-600" },
+                          { from: "from-teal-400", to: "to-teal-600" },
+                          { from: "from-rose-400", to: "to-rose-600" },
+                        ];
+                        const color = colors[idx % colors.length];
+
+                        return (
+                          <tr key={booking.id} className="hover:bg-slate-50 transition">
+                            <td className="px-6 py-4">
+                              <div className="flex items-center space-x-3">
+                                <div className={`w-10 h-10 bg-gradient-to-br ${color.from} ${color.to} rounded-lg flex items-center justify-center`}>
+                                  <span className="text-white font-semibold text-sm">{initials}</span>
+                                </div>
+                                <div>
+                                  <p className="font-medium text-slate-900">{clientName}</p>
+                                  {timeAgo && <p className="text-xs text-slate-500">{timeAgo}</p>}
+                                </div>
+                              </div>
+                            </td>
+                            <td className="px-6 py-4">
+                              <p className="text-sm text-slate-900">{booking.serviceName || "—"}</p>
+                              {booking.branchName && (
+                                <p className="text-xs text-slate-500">{booking.branchName}</p>
+                              )}
+                            </td>
+                            <td className="px-6 py-4">
+                              <p className="text-sm text-slate-900">{bookingDate}</p>
+                              <p className="text-xs text-slate-500">{bookingTime}</p>
+                            </td>
+                            <td className="px-6 py-4">
+                              <span className={`px-3 py-1 ${statusStyle.bg} ${statusStyle.text} rounded-lg text-sm font-medium flex items-center w-fit`}>
+                                <i className={`fas ${statusStyle.icon} text-xs mr-1.5`} />
+                                {statusLabel}
+                              </span>
+                            </td>
+                            <td className="px-6 py-4 text-right">
+                              <span className="font-semibold text-slate-900">
+                                AU${(Number(booking.price) || 0).toLocaleString()}
+                              </span>
+                            </td>
+                          </tr>
+                        );
+                      })
+                    )}
+                  </tbody>
+                </table>
               )}
             </div>
           </div>
