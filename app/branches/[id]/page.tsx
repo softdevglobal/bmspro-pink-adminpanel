@@ -19,6 +19,26 @@ type HoursMap = {
   Sunday?: HoursDay;
 };
 
+type StaffByDay = {
+  Monday?: string[];
+  Tuesday?: string[];
+  Wednesday?: string[];
+  Thursday?: string[];
+  Friday?: string[];
+  Saturday?: string[];
+  Sunday?: string[];
+};
+
+type WeeklySchedule = {
+  Monday?: { branchId: string; branchName: string } | null;
+  Tuesday?: { branchId: string; branchName: string } | null;
+  Wednesday?: { branchId: string; branchName: string } | null;
+  Thursday?: { branchId: string; branchName: string } | null;
+  Friday?: { branchId: string; branchName: string } | null;
+  Saturday?: { branchId: string; branchName: string } | null;
+  Sunday?: { branchId: string; branchName: string } | null;
+};
+
 type Branch = {
   id: string;
   name: string;
@@ -27,6 +47,7 @@ type Branch = {
   phone?: string;
   email?: string;
   staffIds?: string[];
+  staffByDay?: StaffByDay;
   serviceIds?: string[];
   hours?: string | HoursMap;
   capacity?: number;
@@ -49,7 +70,7 @@ export default function BranchDetailsPage() {
     "overview" | "analytics" | "appointments" | "services" | "staff" | "customers" | "schedule"
   >("overview");
   const [allServices, setAllServices] = useState<Array<{ id: string; name: string; icon?: string; price?: number; duration?: number; branches?: string[] }>>([]);
-  const [allStaff, setAllStaff] = useState<Array<{ id: string; name: string; status?: string; branch?: string }>>([]);
+  const [allStaff, setAllStaff] = useState<Array<{ id: string; name: string; status?: string; branch?: string; staffRole?: string; weeklySchedule?: WeeklySchedule }>>([]);
   const [branchBookings, setBranchBookings] = useState<Array<any>>([]);
   const [monthYear, setMonthYear] = useState<{ month: number; year: number }>(() => {
     const t = new Date();
@@ -121,6 +142,7 @@ export default function BranchDetailsPage() {
           manager: data.manager,
           status: (data.status as any) || "Active",
           staffIds: Array.isArray(data.staffIds) ? data.staffIds.map(String) : [],
+          staffByDay: data.staffByDay as StaffByDay | undefined,
           serviceIds: Array.isArray(data.serviceIds) ? data.serviceIds.map(String) : [],
         };
         setBranch(b);
@@ -194,6 +216,8 @@ export default function BranchDetailsPage() {
           name: String(s.name || s.displayName || "Staff"),
           status: s.status,
           branch: s.branchName,
+          staffRole: s.staffRole || s.role || "Staff",
+          weeklySchedule: s.weeklySchedule || {},
         }))
       );
     });
@@ -209,7 +233,17 @@ export default function BranchDetailsPage() {
   }, [monthYear]);
 
   const serviceCount = (branch?.serviceIds || []).length;
-  const staffCount = (branch?.staffIds || []).length;
+  
+  // Count staff who work at this branch (based on weeklySchedule)
+  const staffCount = useMemo(() => {
+    if (!branch) return 0;
+    return allStaff.filter((st) => {
+      const schedule = st.weeklySchedule || {};
+      return Object.values(schedule).some(
+        (day) => day && day.branchId === branch.id
+      );
+    }).length;
+  }, [allStaff, branch]);
 
   const goPrevMonth = () =>
     setMonthYear(({ month, year }) => {
@@ -347,7 +381,7 @@ export default function BranchDetailsPage() {
                     <i className="fas fa-users" />
                   </div>
                 </div>
-                <div className="mt-2 text-2xl font-bold text-slate-800">{(branch.staffIds || []).length}</div>
+                <div className="mt-2 text-2xl font-bold text-slate-800">{staffCount}</div>
               </div>
               <div className="bg-white border border-slate-200 rounded-2xl p-4 shadow-sm">
                 <div className="flex items-center justify-between">
@@ -785,32 +819,102 @@ export default function BranchDetailsPage() {
 
                 {activeTab === "staff" && (
                   <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-6">
-                    <div className="text-sm font-bold text-slate-700 mb-4">Staff assigned to this branch</div>
-                    {(branch.staffIds || []).length === 0 ? (
-                      <div className="text-sm text-slate-400">No staff assigned.</div>
-                    ) : (
-                      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-                        {allStaff
-                          .filter((st) => (branch.staffIds || []).includes(st.id))
-                          .map((st) => {
+                    <div className="flex items-center justify-between mb-4">
+                      <div className="text-sm font-bold text-slate-700">Staff assigned to this branch</div>
+                      <div className="flex items-center gap-3 text-xs text-slate-500">
+                        <div className="flex items-center gap-1">
+                          <div className="w-2 h-2 rounded-full bg-emerald-500" />
+                          <span>Working Day</span>
+                        </div>
+                        <div className="flex items-center gap-1">
+                          <div className="w-2 h-2 rounded-full bg-slate-300" />
+                          <span>Off Day</span>
+                        </div>
+                      </div>
+                    </div>
+                    {(() => {
+                      // Get staff who work at this branch (check weeklySchedule for branchId match)
+                      const branchStaff = allStaff.filter((st) => {
+                        // Check if any day in their schedule is for this branch
+                        const schedule = st.weeklySchedule || {};
+                        return Object.values(schedule).some(
+                          (day) => day && day.branchId === branch.id
+                        );
+                      });
+
+                      if (branchStaff.length === 0) {
+                        return <div className="text-sm text-slate-400">No staff assigned.</div>;
+                      }
+
+                      const DAYS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"] as const;
+                      const SHORT_DAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+
+                      return (
+                        <div className="space-y-3">
+                          {branchStaff.map((st) => {
+                            const schedule = st.weeklySchedule || {};
                             const statusColor =
                               st.status === "Active" ? "bg-emerald-100 text-emerald-700" : st.status === "Suspended" ? "bg-rose-100 text-rose-700" : "bg-slate-100 text-slate-600";
+                            
+                            // Get days this staff works at THIS branch
+                            const workingDays = DAYS.filter(
+                              (day) => schedule[day]?.branchId === branch.id
+                            );
+
                             return (
-                              <div key={st.id} className="border border-slate-200 rounded-xl p-4 hover:shadow-sm transition bg-white">
-                                <div className="flex items-start gap-3">
-                                  <div className="w-10 h-10 rounded-full bg-slate-200 text-slate-600 flex items-center justify-center">
-                                    <i className="fas fa-user" />
+                              <div key={st.id} className="border border-slate-200 rounded-xl p-4 hover:shadow-md transition bg-white">
+                                <div className="flex flex-col sm:flex-row sm:items-center gap-4">
+                                  {/* Staff info */}
+                                  <div className="flex items-center gap-3 min-w-[200px]">
+                                    <div className="w-10 h-10 rounded-full bg-gradient-to-br from-pink-100 to-purple-100 text-pink-600 flex items-center justify-center font-semibold text-sm">
+                                      {st.name.substring(0, 2).toUpperCase()}
+                                    </div>
+                                    <div className="min-w-0 flex-1">
+                                      <div className="text-sm font-semibold text-slate-800 truncate">{st.name}</div>
+                                      <div className="text-xs text-slate-500 truncate">{st.staffRole}</div>
+                                    </div>
                                   </div>
-                                  <div className="min-w-0 flex-1">
-                                    <div className="text-sm font-semibold text-slate-800 truncate">{st.name}</div>
-                                    {st.status && <div className={`inline-flex mt-1 text-xs px-2 py-0.5 rounded-full ${statusColor}`}>{st.status}</div>}
+
+                                  {/* Weekly schedule pills */}
+                                  <div className="flex-1">
+                                    <div className="flex flex-wrap gap-1.5">
+                                      {DAYS.map((day, idx) => {
+                                        const isWorking = schedule[day]?.branchId === branch.id;
+                                        return (
+                                          <div
+                                            key={day}
+                                            className={`px-2 py-1 rounded-md text-xs font-medium transition ${
+                                              isWorking
+                                                ? "bg-emerald-100 text-emerald-700 border border-emerald-200"
+                                                : "bg-slate-50 text-slate-400 border border-slate-100"
+                                            }`}
+                                            title={isWorking ? `Works here on ${day}` : `Off on ${day}`}
+                                          >
+                                            {SHORT_DAYS[idx]}
+                                          </div>
+                                        );
+                                      })}
+                                    </div>
+                                  </div>
+
+                                  {/* Status badge */}
+                                  <div className="flex items-center gap-2">
+                                    <span className="text-xs text-slate-500">
+                                      {workingDays.length} day{workingDays.length !== 1 ? "s" : ""}/week
+                                    </span>
+                                    {st.status && (
+                                      <div className={`inline-flex text-xs px-2 py-0.5 rounded-full ${statusColor}`}>
+                                        {st.status}
+                                      </div>
+                                    )}
                                   </div>
                                 </div>
                               </div>
                             );
                           })}
-                      </div>
-                    )}
+                        </div>
+                      );
+                    })()}
                   </div>
                 )}
 

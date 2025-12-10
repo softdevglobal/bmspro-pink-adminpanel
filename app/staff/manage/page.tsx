@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { onAuthStateChanged } from "firebase/auth";
 import { auth, db } from "@/lib/firebase";
 import { doc, setDoc, serverTimestamp } from "firebase/firestore";
-import { subscribeBranchesForOwner } from "@/lib/branches";
+import { subscribeBranchesForOwner, syncBranchStaffFromSchedule, removeStaffFromAllBranches } from "@/lib/branches";
 import {
   createSalonStaffForOwner as createStaff,
   subscribeSalonStaffForOwner,
@@ -246,6 +246,10 @@ export default function SettingsPage() {
             },
             weeklySchedule: finalSchedule,
           });
+
+          // SYNC: Update branch staffIds from the schedule (old schedule from editingStaff)
+          const oldSchedule = editingStaff?.weeklySchedule || null;
+          await syncBranchStaffFromSchedule(newAuthUid, finalSchedule, oldSchedule, ownerUid);
           
           // 2. Delete the old legacy record (users/{editingStaffId})
           // We use try-catch because it might not exist if it was in the old 'salon_staff' collection
@@ -276,6 +280,10 @@ export default function SettingsPage() {
               },
               weeklySchedule: finalSchedule,
             });
+
+            // SYNC: Update branch staffIds from the schedule
+            const oldSchedule = editingStaff?.weeklySchedule || null;
+            await syncBranchStaffFromSchedule(editingStaffId, finalSchedule, oldSchedule, ownerUid);
           } catch (err: any) {
             // If update fails (e.g. doc not found), try to recreate it if we have data
             if (err?.code === 'not-found' || err?.message?.includes('No document')) {
@@ -298,6 +306,11 @@ export default function SettingsPage() {
                     },
                     weeklySchedule: finalSchedule,
                  });
+                 
+                 // SYNC: Update branch staffIds from the schedule
+                 const oldSchedule = editingStaff?.weeklySchedule || null;
+                 await syncBranchStaffFromSchedule(newAuthUid, finalSchedule, oldSchedule, ownerUid);
+                 
                  // Try to cleanup old ID if possible
                  try { await deleteDoc(doc(db, "salon_staff", editingStaffId)); } catch {}
                } else {
@@ -383,6 +396,9 @@ export default function SettingsPage() {
             weeklySchedule: finalSchedule,
           });
 
+          // SYNC: Update branch staffIds from the schedule
+          await syncBranchStaffFromSchedule(authUid, finalSchedule, null, ownerUid);
+
           // SYNC: If new staff is branch admin, update branch
           if (systemRole === "salon_branch_admin" && branchId) {
              await updateBranch(branchId, { adminStaffId: newRef });
@@ -422,7 +438,7 @@ export default function SettingsPage() {
   };
 
   const confirmDeleteStaff = async () => {
-    if (!deleteTarget) return;
+    if (!deleteTarget || !ownerUid) return;
     setDeleting(true);
     try {
       // Attempt auth deletion first (best-effort)
@@ -433,6 +449,10 @@ export default function SettingsPage() {
           body: JSON.stringify({ uid: deleteTarget.authUid, email: deleteTarget.email }),
         });
       } catch {}
+      
+      // Remove staff from all branches first
+      await removeStaffFromAllBranches(deleteTarget.id, ownerUid);
+      
       // Then remove Firestore record
       await deleteSalonStaff(deleteTarget.id);
       setDeleteTarget(null);
