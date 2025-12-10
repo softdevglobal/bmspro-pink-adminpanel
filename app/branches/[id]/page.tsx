@@ -554,7 +554,23 @@ export default function BranchDetailsPage() {
                                     </div>
                                   </td>
                                   <td className="px-4 py-3 text-slate-500">{b.serviceName || String(b.serviceId || "")}</td>
-                                  <td className="px-4 py-3 text-slate-500">{b.staffName || b.staffId || "-"}</td>
+                                  <td className="px-4 py-3 text-slate-500">
+                                    {(() => {
+                                      if (Array.isArray(b.services) && b.services.length > 0) {
+                                        const staffNames = b.services
+                                          .map((s: any) => s.staffName)
+                                          .filter((name: string) => name && name !== "Any Available" && name !== "Any Staff");
+                                        if (staffNames.length > 0) {
+                                          const uniqueNames = [...new Set(staffNames)];
+                                          return uniqueNames.join(", ");
+                                        }
+                                      }
+                                      if (b.staffName && b.staffName !== "Any Available" && b.staffName !== "Any Staff") {
+                                        return b.staffName;
+                                      }
+                                      return "—";
+                                    })()}
+                                  </td>
                                   <td className="px-4 py-3">
                                     <span
                                       className={`px-2 py-1 rounded-md text-xs font-medium ${
@@ -753,7 +769,23 @@ export default function BranchDetailsPage() {
                                   <div className="font-medium text-slate-700">{b.date}</div>
                                   <div className="text-xs text-slate-500">{b.time}</div>
                                 </td>
-                                <td className="p-4">{b.staffName || b.staffId || "—"}</td>
+                                <td className="p-4">
+                                  {(() => {
+                                    if (Array.isArray(b.services) && b.services.length > 0) {
+                                      const staffNames = b.services
+                                        .map((s: any) => s.staffName)
+                                        .filter((name: string) => name && name !== "Any Available" && name !== "Any Staff");
+                                      if (staffNames.length > 0) {
+                                        const uniqueNames = [...new Set(staffNames)];
+                                        return uniqueNames.join(", ");
+                                      }
+                                    }
+                                    if (b.staffName && b.staffName !== "Any Available" && b.staffName !== "Any Staff") {
+                                      return b.staffName;
+                                    }
+                                    return "—";
+                                  })()}
+                                </td>
                                 <td className="p-4 font-semibold text-slate-700">${Number(b.price || 0).toFixed(0)}</td>
                                 <td className="p-4">
                                   <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium ${
