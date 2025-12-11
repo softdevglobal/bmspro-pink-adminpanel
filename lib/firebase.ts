@@ -1,6 +1,7 @@
 import { initializeApp, getApps, getApp } from "firebase/app";
 import { getAuth } from "firebase/auth";
 import { initializeFirestore } from "firebase/firestore";
+import { getStorage } from "firebase/storage";
 
 // Firebase configuration (prefer env; fallback to hard-coded dev values)
 const firebaseConfig = {
@@ -22,4 +23,7 @@ const db = initializeFirestore(app, {
   ignoreUndefinedProperties: true,
 });
 
-export { app, auth, db };
+// Firebase Storage for file uploads
+const storage = getStorage(app);
+
+export { app, auth, db, storage };

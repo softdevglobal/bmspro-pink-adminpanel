@@ -22,6 +22,8 @@ export default function DashboardPage() {
   const [recentTenants, setRecentTenants] = useState<any[]>([]);
   const [recentActivities, setRecentActivities] = useState<any[]>([]);
   const [isSuperAdmin, setIsSuperAdmin] = useState<boolean>(false);
+  const [salonName, setSalonName] = useState<string>("");
+  const [logoUrl, setLogoUrl] = useState<string>("");
   const revCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const statusCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const chartsRef = useRef<{ revenue?: any; status?: any }>({});
@@ -44,7 +46,8 @@ export default function DashboardPage() {
           
           // Check if user is super admin or branch admin
           const userDoc = await getDoc(doc(db, "users", user.uid));
-          const role = userDoc.data()?.role || "";
+          const userData = userDoc.data();
+          const role = userData?.role || "";
           
           // Redirect salon_branch_admin to branches page
           if (role === "salon_branch_admin") {
@@ -53,6 +56,8 @@ export default function DashboardPage() {
           }
           
           setIsSuperAdmin(role === "super_admin");
+          setSalonName(userData?.name || userData?.displayName || "");
+          setLogoUrl(userData?.logoUrl || "");
         } catch {
           router.replace("/login");
         }
@@ -513,13 +518,40 @@ export default function DashboardPage() {
 
           <div className="mb-8">
             <div className="rounded-2xl bg-gradient-to-r from-pink-500 via-fuchsia-600 to-indigo-600 text-white p-6 shadow-lg relative overflow-hidden">
-              <div className="relative z-10 flex items-center gap-3">
-                <div className="w-10 h-10 rounded-xl bg-white/20 flex items-center justify-center">
-                  <i className="fas fa-chart-line" />
+              <div className="relative z-10 flex items-center justify-between">
+                <div className="flex items-center gap-4">
+                  {/* Logo or default icon */}
+                  {logoUrl ? (
+                    <div className="w-14 h-14 rounded-xl bg-white p-1.5 shadow-lg">
+                      <img src={logoUrl} alt="Salon Logo" className="w-full h-full object-contain rounded-lg" />
+                    </div>
+                  ) : (
+                    <div className="w-14 h-14 rounded-xl bg-white/20 flex items-center justify-center backdrop-blur-sm">
+                      <i className="fas fa-chart-line text-2xl" />
+                    </div>
+                  )}
+                  <div>
+                    <h1 className="text-2xl font-bold">
+                      {salonName ? `${salonName}` : "Dashboard"}
+                    </h1>
+                    <p className="text-sm text-white/80 mt-1">
+                      {salonName ? "Business Overview" : "Real-time system overview"}
+                    </p>
+                  </div>
                 </div>
-                <div>
-                  <h1 className="text-2xl font-bold">Dashboard</h1>
-                  <p className="text-sm text-white/80 mt-1">Real-time system overview</p>
+
+                {/* Right side - Notification icon */}
+                <div className="flex items-center gap-3">
+                  <button 
+                    className="relative w-12 h-12 rounded-xl bg-white/20 hover:bg-white/30 flex items-center justify-center transition-all backdrop-blur-sm group"
+                    title="Notifications"
+                  >
+                    <i className="fas fa-bell text-lg group-hover:animate-wiggle" />
+                    {/* Notification badge - show if there are unread notifications */}
+                    <span className="absolute -top-1 -right-1 w-5 h-5 bg-red-500 text-white text-xs font-bold rounded-full flex items-center justify-center shadow-lg border-2 border-white/20">
+                      3
+                    </span>
+                  </button>
                 </div>
               </div>
               <div className="absolute top-0 right-0 -mr-10 -mt-10 w-64 h-64 rounded-full bg-white opacity-10 blur-2xl" />
@@ -907,6 +939,21 @@ export default function DashboardPage() {
         strategy="afterInteractive"
         onLoad={buildCharts}
       />
+
+      {/* Animation for notification bell */}
+      <style>{`
+        @keyframes wiggle {
+          0%, 100% { transform: rotate(0deg); }
+          15% { transform: rotate(12deg); }
+          30% { transform: rotate(-10deg); }
+          45% { transform: rotate(8deg); }
+          60% { transform: rotate(-6deg); }
+          75% { transform: rotate(4deg); }
+        }
+        .group:hover .group-hover\\:animate-wiggle {
+          animation: wiggle 0.5s ease-in-out;
+        }
+      `}</style>
     </div>
   );
 }

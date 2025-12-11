@@ -1,18 +1,26 @@
 "use client";
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useState, useRef } from "react";
 import Sidebar from "@/components/Sidebar";
 import { useRouter } from "next/navigation";
 import { onAuthStateChanged } from "firebase/auth";
-import { auth, db } from "@/lib/firebase";
+import { auth, db, storage } from "@/lib/firebase";
 import { doc, getDoc, updateDoc, serverTimestamp } from "firebase/firestore";
+import { ref, uploadBytes, getDownloadURL } from "firebase/storage";
 
 type UserData = {
   uid: string;
   name: string;
   email: string;
   phone?: string;
+  contactPhone?: string;
   abn?: string;
   address?: string;
+  locationText?: string;
+  businessStructure?: string;
+  gstRegistered?: boolean;
+  state?: string;
+  plan?: string;
+  price?: string;
   role: string;
   logoUrl?: string;
   appointmentReminders?: boolean;
@@ -36,8 +44,20 @@ export default function OwnerSettingsPage() {
   const [phone, setPhone] = useState("");
   const [minimumLeadTime, setMinimumLeadTime] = useState("1 hour");
   const [cancellationWindow, setCancellationWindow] = useState("2 hours");
-  const [appointmentReminders, setAppointmentReminders] = useState(false);
-  const [marketingEmails, setMarketingEmails] = useState(false);
+  const [logoUrl, setLogoUrl] = useState("");
+  const [uploadingLogo, setUploadingLogo] = useState(false);
+  const logoInputRef = useRef<HTMLInputElement>(null);
+
+  // Toast notifications
+  const [toasts, setToasts] = useState<{ id: number; message: string; type: 'success' | 'error' }[]>([]);
+
+  const showToast = (message: string, type: 'success' | 'error' = 'success') => {
+    const id = Date.now();
+    setToasts(prev => [...prev, { id, message, type }]);
+    setTimeout(() => {
+      setToasts(prev => prev.filter(t => t.id !== id));
+    }, 3000);
+  };
 
   useEffect(() => {
     const unsub = onAuthStateChanged(auth, async (user) => {
@@ -63,14 +83,21 @@ export default function OwnerSettingsPage() {
           return;
         }
 
-        // Set user data
+        // Set user data - use locationText as address and contactPhone as phone
         const userData: UserData = {
           uid: user.uid,
           name: data?.name || data?.displayName || "",
           email: user.email || data?.email || "",
-          phone: data?.phone || "",
+          phone: data?.contactPhone || data?.phone || "",
+          contactPhone: data?.contactPhone || "",
           abn: data?.abn || "",
-          address: data?.address || "",
+          address: data?.locationText || data?.address || "",
+          locationText: data?.locationText || "",
+          businessStructure: data?.businessStructure || "",
+          gstRegistered: data?.gstRegistered ?? false,
+          state: data?.state || "",
+          plan: data?.plan || "",
+          price: data?.price || "",
           role: role,
           logoUrl: data?.logoUrl || "",
           appointmentReminders: data?.appointmentReminders ?? true,
@@ -81,15 +108,14 @@ export default function OwnerSettingsPage() {
         
         setUserData(userData);
         
-        // Initialize form fields
+        // Initialize form fields - use locationText for address and contactPhone for phone
         setSalonName(userData.name);
         setAbn(userData.abn || "");
-        setAddress(userData.address || "");
-        setPhone(userData.phone || "");
+        setAddress(userData.locationText || userData.address || "");
+        setPhone(userData.contactPhone || userData.phone || "");
         setMinimumLeadTime(userData.minimumLeadTime || "1 hour");
         setCancellationWindow(userData.cancellationWindow || "2 hours");
-        setAppointmentReminders(userData.appointmentReminders ?? true);
-        setMarketingEmails(userData.marketingEmails ?? false);
+        setLogoUrl(userData.logoUrl || "");
         
         setMounted(true);
         setLoading(false);
@@ -109,15 +135,15 @@ export default function OwnerSettingsPage() {
         name: salonName,
         displayName: salonName,
         abn: abn,
-        address: address,
-        phone: phone,
+        locationText: address,
+        contactPhone: phone,
         updatedAt: serverTimestamp(),
       });
-      setUserData({ ...userData, name: salonName, abn, address, phone });
-      alert("Profile saved successfully!");
+      setUserData({ ...userData, name: salonName, abn, address, locationText: address, phone, contactPhone: phone });
+      showToast("Profile saved successfully!");
     } catch (error) {
       console.error("Error saving profile:", error);
-      alert("Failed to save profile. Please try again.");
+      showToast("Failed to save profile. Please try again.", "error");
     } finally {
       setSaving(null);
     }
@@ -133,31 +159,84 @@ export default function OwnerSettingsPage() {
         updatedAt: serverTimestamp(),
       });
       setUserData({ ...userData, minimumLeadTime, cancellationWindow });
-      alert("Booking rules saved successfully!");
+      showToast("Booking rules saved successfully!");
     } catch (error) {
       console.error("Error saving rules:", error);
-      alert("Failed to save rules. Please try again.");
+      showToast("Failed to save rules. Please try again.", "error");
     } finally {
       setSaving(null);
     }
   };
 
-  const handleSaveNotifications = async () => {
-    if (!userData) return;
-    setSaving("notifications");
+  const handleLogoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file || !userData) return;
+
+    // Validate file type
+    const validTypes = ['image/png', 'image/jpeg', 'image/jpg', 'image/svg+xml', 'image/webp'];
+    if (!validTypes.includes(file.type)) {
+      showToast("Please upload a valid image file (PNG, JPG, SVG, or WebP)", "error");
+      return;
+    }
+
+    // Validate file size (max 5MB)
+    if (file.size > 5 * 1024 * 1024) {
+      showToast("File size must be less than 5MB", "error");
+      return;
+    }
+
+    setUploadingLogo(true);
     try {
+      // Create a unique filename
+      const fileExtension = file.name.split('.').pop();
+      const fileName = `salon-logos/${userData.uid}/logo-${Date.now()}.${fileExtension}`;
+      const storageRef = ref(storage, fileName);
+
+      // Upload the file
+      await uploadBytes(storageRef, file);
+
+      // Get the download URL
+      const downloadUrl = await getDownloadURL(storageRef);
+
+      // Save URL to Firestore
       await updateDoc(doc(db, "users", userData.uid), {
-        appointmentReminders,
-        marketingEmails,
+        logoUrl: downloadUrl,
         updatedAt: serverTimestamp(),
       });
-      setUserData({ ...userData, appointmentReminders, marketingEmails });
-      alert("Notification preferences saved successfully!");
+
+      setLogoUrl(downloadUrl);
+      setUserData({ ...userData, logoUrl: downloadUrl });
+      showToast("Logo uploaded successfully!");
     } catch (error) {
-      console.error("Error saving notifications:", error);
-      alert("Failed to save notifications. Please try again.");
+      console.error("Error uploading logo:", error);
+      showToast("Failed to upload logo. Please try again.", "error");
     } finally {
-      setSaving(null);
+      setUploadingLogo(false);
+      // Reset the input
+      if (logoInputRef.current) {
+        logoInputRef.current.value = "";
+      }
+    }
+  };
+
+  const handleRemoveLogo = async () => {
+    if (!userData) return;
+    if (!confirm("Are you sure you want to remove the logo?")) return;
+
+    setUploadingLogo(true);
+    try {
+      await updateDoc(doc(db, "users", userData.uid), {
+        logoUrl: "",
+        updatedAt: serverTimestamp(),
+      });
+      setLogoUrl("");
+      setUserData({ ...userData, logoUrl: "" });
+      showToast("Logo removed successfully!");
+    } catch (error) {
+      console.error("Error removing logo:", error);
+      showToast("Failed to remove logo. Please try again.", "error");
+    } finally {
+      setUploadingLogo(false);
     }
   };
 
@@ -351,9 +430,15 @@ export default function OwnerSettingsPage() {
                   {/* Account Info Card */}
                   <div className="bg-gradient-to-br from-pink-50 to-purple-50 border border-pink-100 rounded-2xl p-6">
                     <div className="flex items-center gap-3 mb-4">
-                      <div className="w-12 h-12 rounded-full bg-gradient-to-br from-pink-500 to-purple-600 text-white flex items-center justify-center font-bold text-lg">
-                        {salonName ? salonName.slice(0, 2).toUpperCase() : "SA"}
-                      </div>
+                      {logoUrl ? (
+                        <div className="w-12 h-12 rounded-full border-2 border-pink-200 overflow-hidden bg-white">
+                          <img src={logoUrl} alt="Salon Logo" className="w-full h-full object-cover" />
+                        </div>
+                      ) : (
+                        <div className="w-12 h-12 rounded-full bg-gradient-to-br from-pink-500 to-purple-600 text-white flex items-center justify-center font-bold text-lg">
+                          {salonName ? salonName.slice(0, 2).toUpperCase() : "SA"}
+                        </div>
+                      )}
                       <div>
                         <h3 className="font-semibold text-slate-900">{salonName || "Your Salon"}</h3>
                         <p className="text-xs text-slate-500">{userData.email}</p>
@@ -364,79 +449,127 @@ export default function OwnerSettingsPage() {
                         <span className="text-slate-600">Role</span>
                         <span className="px-2 py-0.5 bg-pink-100 text-pink-700 rounded-full text-xs font-medium">Salon Owner</span>
                       </div>
+                      {abn && (
+                        <div className="flex items-center justify-between py-2 border-b border-pink-100">
+                          <span className="text-slate-600">ABN</span>
+                          <span className="text-slate-800 font-medium">{abn}</span>
+                        </div>
+                      )}
                       {phone && (
                         <div className="flex items-center justify-between py-2 border-b border-pink-100">
                           <span className="text-slate-600">Phone</span>
                           <span className="text-slate-800">{phone}</span>
                         </div>
                       )}
-                      {abn && (
+                      {address && (
+                        <div className="py-2 border-b border-pink-100">
+                          <span className="text-slate-600 block mb-1">Address</span>
+                          <span className="text-slate-800 text-xs">{address}</span>
+                        </div>
+                      )}
+                      {userData.businessStructure && (
+                        <div className="flex items-center justify-between py-2 border-b border-pink-100">
+                          <span className="text-slate-600">Structure</span>
+                          <span className="text-slate-800">{userData.businessStructure}</span>
+                        </div>
+                      )}
+                      {userData.state && (
+                        <div className="flex items-center justify-between py-2 border-b border-pink-100">
+                          <span className="text-slate-600">State</span>
+                          <span className="text-slate-800">{userData.state}</span>
+                        </div>
+                      )}
+                      <div className="flex items-center justify-between py-2 border-b border-pink-100">
+                        <span className="text-slate-600">GST Registered</span>
+                        <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${userData.gstRegistered ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-600'}`}>
+                          {userData.gstRegistered ? 'Yes' : 'No'}
+                        </span>
+                      </div>
+                      {userData.plan && (
                         <div className="flex items-center justify-between py-2">
-                          <span className="text-slate-600">ABN</span>
-                          <span className="text-slate-800">{abn}</span>
+                          <span className="text-slate-600">Plan</span>
+                          <span className="px-2 py-0.5 bg-emerald-100 text-emerald-700 rounded-full text-xs font-medium">
+                            {userData.plan} {userData.price ? `(${userData.price})` : ""}
+                          </span>
                         </div>
                       )}
                     </div>
                   </div>
 
-                  {/* Branding */}
+                  {/* Branding - Logo Upload */}
                   <div className="bg-white border border-slate-200 rounded-2xl p-6">
-                    <h3 className="text-base font-semibold text-slate-900 mb-4">Branding</h3>
+                    <h3 className="text-base font-semibold text-slate-900 mb-4">Salon Logo</h3>
                     <div className="space-y-4">
                       <div>
-                        <label className="block text-sm font-medium text-slate-700 mb-2">Logo</label>
-                        <div className="flex items-center justify-center border border-dashed border-slate-300 rounded-xl h-28 text-slate-500 hover:border-pink-400 hover:bg-pink-50 transition cursor-pointer">
-                          <div className="text-center">
-                            <i className="fas fa-upload mr-2" />
-                            <span>Upload PNG/SVG</span>
-                            <p className="text-xs text-slate-400 mt-1">Coming soon</p>
+                        <input
+                          ref={logoInputRef}
+                          type="file"
+                          accept="image/png,image/jpeg,image/jpg,image/svg+xml,image/webp"
+                          className="hidden"
+                          onChange={handleLogoUpload}
+                          disabled={uploadingLogo}
+                        />
+                        
+                        {logoUrl ? (
+                          <div className="space-y-3">
+                            <div className="relative w-full h-32 rounded-xl border border-slate-200 overflow-hidden bg-slate-50">
+                              <img 
+                                src={logoUrl} 
+                                alt="Salon Logo" 
+                                className="w-full h-full object-contain p-2"
+                              />
+                            </div>
+                            <div className="flex gap-2">
+                              <button
+                                onClick={() => logoInputRef.current?.click()}
+                                disabled={uploadingLogo}
+                                className="flex-1 px-4 py-2 border border-slate-300 rounded-lg text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+                              >
+                                {uploadingLogo ? (
+                                  <>
+                                    <i className="fas fa-spinner fa-spin" />
+                                    Uploading...
+                                  </>
+                                ) : (
+                                  <>
+                                    <i className="fas fa-sync-alt" />
+                                    Change Logo
+                                  </>
+                                )}
+                              </button>
+                              <button
+                                onClick={handleRemoveLogo}
+                                disabled={uploadingLogo}
+                                className="px-4 py-2 border border-red-200 rounded-lg text-sm font-medium text-red-600 hover:bg-red-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                              >
+                                <i className="fas fa-trash" />
+                              </button>
+                            </div>
                           </div>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Notifications */}
-                  <div className="bg-white border border-slate-200 rounded-2xl p-6">
-                    <h3 className="text-base font-semibold text-slate-900 mb-4">Notifications</h3>
-                    <div className="space-y-3">
-                      <label className="flex items-center justify-between cursor-pointer">
-                        <span className="text-sm text-slate-700">Appointment reminders</span>
-                        <input 
-                          type="checkbox" 
-                          className="h-4 w-4 rounded border-slate-300 text-pink-600 focus:ring-pink-500"
-                          checked={appointmentReminders}
-                          onChange={(e) => setAppointmentReminders(e.target.checked)}
-                        />
-                      </label>
-                      <label className="flex items-center justify-between cursor-pointer">
-                        <span className="text-sm text-slate-700">Marketing emails</span>
-                        <input 
-                          type="checkbox" 
-                          className="h-4 w-4 rounded border-slate-300 text-pink-600 focus:ring-pink-500"
-                          checked={marketingEmails}
-                          onChange={(e) => setMarketingEmails(e.target.checked)}
-                        />
-                      </label>
-                    </div>
-                    <div className="mt-4 flex justify-end">
-                      <button 
-                        onClick={handleSaveNotifications}
-                        disabled={saving === "notifications"}
-                        className="px-5 py-2.5 bg-pink-600 text-white rounded-lg font-semibold hover:bg-pink-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
-                      >
-                        {saving === "notifications" ? (
-                          <>
-                            <i className="fas fa-spinner fa-spin" />
-                            Saving...
-                          </>
                         ) : (
-                          <>
-                            <i className="fas fa-save" />
-                            Save
-                          </>
+                          <div 
+                            onClick={() => !uploadingLogo && logoInputRef.current?.click()}
+                            className={`flex flex-col items-center justify-center border-2 border-dashed rounded-xl h-32 transition cursor-pointer ${
+                              uploadingLogo 
+                                ? 'border-pink-300 bg-pink-50' 
+                                : 'border-slate-300 hover:border-pink-400 hover:bg-pink-50'
+                            }`}
+                          >
+                            {uploadingLogo ? (
+                              <div className="text-center text-pink-600">
+                                <i className="fas fa-spinner fa-spin text-2xl mb-2" />
+                                <p className="text-sm font-medium">Uploading...</p>
+                              </div>
+                            ) : (
+                              <div className="text-center text-slate-500">
+                                <i className="fas fa-cloud-upload-alt text-2xl mb-2" />
+                                <p className="text-sm font-medium">Click to upload logo</p>
+                                <p className="text-xs text-slate-400 mt-1">PNG, JPG, SVG or WebP (max 5MB)</p>
+                              </div>
+                            )}
+                          </div>
                         )}
-                      </button>
+                      </div>
                     </div>
                   </div>
                 </aside>
@@ -445,6 +578,37 @@ export default function OwnerSettingsPage() {
           )}
         </main>
       </div>
+
+      {/* Toast notifications */}
+      <div className="fixed bottom-5 right-5 z-50 space-y-2">
+        {toasts.map((t) => (
+          <div
+            key={t.id}
+            className={`bg-slate-800 text-white px-4 py-3 rounded-lg shadow-lg border-l-4 flex items-center gap-2 animate-slide-in ${
+              t.type === 'error' ? 'border-red-500' : 'border-pink-500'
+            }`}
+          >
+            <i className={`fas ${t.type === 'error' ? 'fa-circle-xmark text-red-500' : 'fa-circle-check text-pink-500'}`} />
+            <span className="text-sm">{t.message}</span>
+          </div>
+        ))}
+      </div>
+
+      <style>{`
+        @keyframes slide-in {
+          from {
+            transform: translateX(100%);
+            opacity: 0;
+          }
+          to {
+            transform: translateX(0);
+            opacity: 1;
+          }
+        }
+        .animate-slide-in {
+          animation: slide-in 0.3s ease-out;
+        }
+      `}</style>
     </div>
   );
 }
