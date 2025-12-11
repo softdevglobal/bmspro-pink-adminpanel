@@ -24,10 +24,87 @@ export default function DashboardPage() {
   const [isSuperAdmin, setIsSuperAdmin] = useState<boolean>(false);
   const [salonName, setSalonName] = useState<string>("");
   const [logoUrl, setLogoUrl] = useState<string>("");
+  
+  // Notification state
+  const [notifications, setNotifications] = useState<any[]>([]);
+  const [notificationPanelOpen, setNotificationPanelOpen] = useState(false);
+  const [unreadCount, setUnreadCount] = useState(0);
+  const [toastNotifications, setToastNotifications] = useState<any[]>([]);
+  const previousPendingIdsRef = useRef<Set<string>>(new Set());
+  const isInitialLoadRef = useRef(true);
+
+  // Show toast notification
+  const showToastNotification = (booking: any) => {
+    const id = `toast-${Date.now()}`;
+    const toast = {
+      id,
+      title: 'New Booking Request!',
+      message: `${booking.customerName || booking.clientName || 'A customer'} requested a booking`,
+      serviceName: booking.serviceName || booking.services?.[0]?.name || 'Service',
+      price: booking.price || booking.totalPrice,
+    };
+    setToastNotifications(prev => [...prev, toast]);
+    
+    // Auto remove after 5 seconds
+    setTimeout(() => {
+      setToastNotifications(prev => prev.filter(t => t.id !== id));
+    }, 5000);
+  };
+  
   const revCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const statusCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const chartsRef = useRef<{ revenue?: any; status?: any }>({});
   const builtRef = useRef(false);
+
+  // Play notification sound using Web Audio API
+  const playNotificationSound = () => {
+    if (typeof window === "undefined") return;
+    
+    try {
+      const AudioContext = window.AudioContext || (window as any).webkitAudioContext;
+      if (!AudioContext) return;
+      
+      const audioCtx = new AudioContext();
+      
+      // Create a pleasant notification chime with multiple tones
+      const playTone = (frequency: number, startTime: number, duration: number, volume: number) => {
+        const oscillator = audioCtx.createOscillator();
+        const gainNode = audioCtx.createGain();
+        
+        oscillator.connect(gainNode);
+        gainNode.connect(audioCtx.destination);
+        
+        oscillator.frequency.value = frequency;
+        oscillator.type = 'sine';
+        
+        // Envelope for smooth sound
+        gainNode.gain.setValueAtTime(0, audioCtx.currentTime + startTime);
+        gainNode.gain.linearRampToValueAtTime(volume, audioCtx.currentTime + startTime + 0.02);
+        gainNode.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + startTime + duration);
+        
+        oscillator.start(audioCtx.currentTime + startTime);
+        oscillator.stop(audioCtx.currentTime + startTime + duration);
+      };
+      
+      // Play a loud pleasant chime - LOUDER volumes and longer duration
+      // First chime
+      playTone(880, 0, 0.2, 0.8);        // A5 - loud
+      playTone(1108.73, 0.1, 0.25, 0.7); // C#6
+      playTone(1318.51, 0.2, 0.3, 0.6);  // E6
+      
+      // Second chime (repeat for emphasis)
+      playTone(880, 0.4, 0.2, 0.7);        // A5
+      playTone(1108.73, 0.5, 0.25, 0.6);   // C#6
+      playTone(1318.51, 0.6, 0.3, 0.5);    // E6
+      
+      // Clean up after sound plays
+      setTimeout(() => {
+        audioCtx.close();
+      }, 1200);
+    } catch (error) {
+      console.log("Could not play notification sound");
+    }
+  };
 
   // Authentication
   useEffect(() => {
@@ -241,6 +318,101 @@ export default function DashboardPage() {
       unsubServices?.();
     };
   }, [ownerUid]);
+
+  // Listen for new booking requests (Pending bookings) and trigger notifications
+  useEffect(() => {
+    if (!ownerUid || isSuperAdmin) return;
+
+    let unsubPending: (() => void) | undefined;
+
+    (async () => {
+      const { db } = await import("@/lib/firebase");
+
+      // Subscribe to pending bookings
+      const pendingQuery = query(
+        collection(db, "bookings"), 
+        where("ownerUid", "==", ownerUid),
+        where("status", "==", "Pending")
+      );
+      
+      unsubPending = onSnapshot(
+        pendingQuery,
+        (snapshot) => {
+          const pendingBookings = snapshot.docs.map(doc => ({
+            id: doc.id,
+            ...doc.data(),
+          }));
+
+          // Get current pending IDs
+          const currentPendingIds = new Set(pendingBookings.map((b: any) => b.id));
+          
+          // Find new bookings (IDs that weren't in previous snapshot)
+          const newBookings = pendingBookings.filter(
+            (b: any) => !previousPendingIdsRef.current.has(b.id)
+          );
+
+          // Only play sound and show notification after initial load
+          if (!isInitialLoadRef.current && newBookings.length > 0) {
+            // Play notification sound
+            playNotificationSound();
+
+            // Show toast notifications for each new booking
+            newBookings.forEach((booking: any) => {
+              showToastNotification(booking);
+            });
+
+            // Add new notifications
+            const newNotifs = newBookings.map((booking: any) => ({
+              id: `notif-${booking.id}-${Date.now()}`,
+              bookingId: booking.id,
+              type: 'booking_request',
+              title: 'New Booking Request',
+              message: `${booking.customerName || booking.clientName || 'A customer'} requested a booking`,
+              serviceName: booking.serviceName || booking.services?.[0]?.name || 'Service',
+              branchName: booking.branchName || '',
+              date: booking.date,
+              time: booking.time,
+              price: booking.price || booking.totalPrice,
+              createdAt: new Date(),
+              read: false,
+            }));
+
+            setNotifications(prev => [...newNotifs, ...prev].slice(0, 50));
+            setUnreadCount(prev => prev + newBookings.length);
+          }
+
+          // Update previous IDs ref
+          previousPendingIdsRef.current = currentPendingIds;
+          
+          // Mark initial load as complete
+          if (isInitialLoadRef.current) {
+            isInitialLoadRef.current = false;
+          }
+        },
+        (error) => {
+          console.error("Error listening to pending bookings:", error);
+        }
+      );
+    })();
+
+    return () => {
+      unsubPending?.();
+    };
+  }, [ownerUid, isSuperAdmin]);
+
+  // Mark notification as read
+  const markAsRead = (notifId: string) => {
+    setNotifications(prev => 
+      prev.map(n => n.id === notifId ? { ...n, read: true } : n)
+    );
+    setUnreadCount(prev => Math.max(0, prev - 1));
+  };
+
+  // Mark all as read
+  const markAllAsRead = () => {
+    setNotifications(prev => prev.map(n => ({ ...n, read: true })));
+    setUnreadCount(0);
+  };
 
   // Fetch recent activity (tenants for super admin, booking activities for salon owners)
   useEffect(() => {
@@ -543,14 +715,19 @@ export default function DashboardPage() {
                 {/* Right side - Notification icon */}
                 <div className="flex items-center gap-3">
                   <button 
-                    className="relative w-12 h-12 rounded-xl bg-white/20 hover:bg-white/30 flex items-center justify-center transition-all backdrop-blur-sm group"
+                    onClick={() => setNotificationPanelOpen(!notificationPanelOpen)}
+                    className={`relative w-12 h-12 rounded-xl flex items-center justify-center transition-all backdrop-blur-sm group ${
+                      notificationPanelOpen ? 'bg-white/40' : 'bg-white/20 hover:bg-white/30'
+                    }`}
                     title="Notifications"
                   >
-                    <i className="fas fa-bell text-lg group-hover:animate-wiggle" />
+                    <i className={`fas fa-bell text-lg ${unreadCount > 0 ? 'animate-pulse' : ''} group-hover:animate-wiggle`} />
                     {/* Notification badge - show if there are unread notifications */}
-                    <span className="absolute -top-1 -right-1 w-5 h-5 bg-red-500 text-white text-xs font-bold rounded-full flex items-center justify-center shadow-lg border-2 border-white/20">
-                      3
-                    </span>
+                    {unreadCount > 0 && (
+                      <span className="absolute -top-1 -right-1 w-5 h-5 bg-red-500 text-white text-xs font-bold rounded-full flex items-center justify-center shadow-lg border-2 border-white/20 animate-bounce">
+                        {unreadCount > 9 ? '9+' : unreadCount}
+                      </span>
+                    )}
                   </button>
                 </div>
               </div>
@@ -940,7 +1117,209 @@ export default function DashboardPage() {
         onLoad={buildCharts}
       />
 
-      {/* Animation for notification bell */}
+      {/* Notification Panel - Fixed position */}
+      {notificationPanelOpen && (
+        <>
+          {/* Backdrop - no blur */}
+          <div 
+            className="fixed inset-0 z-40 bg-black/30" 
+            onClick={() => setNotificationPanelOpen(false)}
+          />
+          
+          {/* Panel - wider and lower */}
+          <div className="fixed top-20 right-4 sm:top-24 sm:right-6 lg:right-8 w-[calc(100%-2rem)] sm:w-[480px] md:w-[550px] lg:w-[600px] max-h-[80vh] bg-white rounded-2xl shadow-2xl border border-slate-200 overflow-hidden z-50 animate-slideDown">
+            {/* Panel Header */}
+            <div className="px-5 py-4 bg-gradient-to-r from-slate-900 to-slate-800 text-white">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-xl bg-pink-500 flex items-center justify-center">
+                    <i className="fas fa-bell" />
+                  </div>
+                  <div>
+                    <h3 className="font-bold text-lg">Notifications</h3>
+                    {unreadCount > 0 && (
+                      <p className="text-xs text-slate-400">{unreadCount} unread</p>
+                    )}
+                  </div>
+                </div>
+                <div className="flex items-center gap-2">
+                  {unreadCount > 0 && (
+                    <button 
+                      onClick={markAllAsRead}
+                      className="px-3 py-1.5 text-xs bg-white/10 hover:bg-white/20 rounded-lg transition font-medium"
+                    >
+                      Mark all read
+                    </button>
+                  )}
+                  <button 
+                    onClick={() => setNotificationPanelOpen(false)}
+                    className="w-8 h-8 rounded-lg bg-white/10 hover:bg-white/20 flex items-center justify-center transition"
+                  >
+                    <i className="fas fa-times" />
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            {/* Notifications List */}
+            <div className="max-h-[60vh] overflow-y-auto bg-slate-50">
+              {notifications.length === 0 ? (
+                <div className="px-6 py-16 text-center bg-white">
+                  <div className="w-20 h-20 mx-auto mb-4 rounded-2xl bg-gradient-to-br from-slate-100 to-slate-200 flex items-center justify-center">
+                    <i className="fas fa-bell-slash text-3xl text-slate-400" />
+                  </div>
+                  <p className="text-slate-700 font-semibold text-lg">No notifications yet</p>
+                  <p className="text-sm text-slate-500 mt-2 max-w-xs mx-auto">
+                    When you receive new booking requests, they'll appear here
+                  </p>
+                </div>
+              ) : (
+                <div className="p-3 space-y-2">
+                  {notifications.map((notif) => {
+                    const timeAgo = (() => {
+                      const now = new Date();
+                      const created = new Date(notif.createdAt);
+                      const diffMs = now.getTime() - created.getTime();
+                      const diffMins = Math.floor(diffMs / (1000 * 60));
+                      const diffHours = Math.floor(diffMs / (1000 * 60 * 60));
+                      const diffDays = Math.floor(diffHours / 24);
+                      
+                      if (diffMins < 1) return 'Just now';
+                      if (diffMins < 60) return `${diffMins}m ago`;
+                      if (diffHours < 24) return `${diffHours}h ago`;
+                      return `${diffDays}d ago`;
+                    })();
+
+                    return (
+                      <div 
+                        key={notif.id}
+                        onClick={() => {
+                          markAsRead(notif.id);
+                          router.push('/bookings/pending');
+                          setNotificationPanelOpen(false);
+                        }}
+                        className={`p-4 rounded-xl cursor-pointer transition-all hover:scale-[1.02] ${
+                          !notif.read 
+                            ? 'bg-white shadow-md border-l-4 border-pink-500' 
+                            : 'bg-white/60 hover:bg-white'
+                        }`}
+                      >
+                        <div className="flex items-start gap-3">
+                          <div className={`w-11 h-11 rounded-xl flex items-center justify-center flex-shrink-0 ${
+                            notif.type === 'booking_request' 
+                              ? 'bg-gradient-to-br from-amber-400 to-orange-500 text-white'
+                              : 'bg-gradient-to-br from-pink-400 to-pink-600 text-white'
+                          }`}>
+                            <i className={`fas ${
+                              notif.type === 'booking_request' ? 'fa-calendar-plus' : 'fa-bell'
+                            } text-lg`} />
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center justify-between gap-2">
+                              <div className="flex items-center gap-2">
+                                <p className="font-bold text-slate-900">{notif.title}</p>
+                                {!notif.read && (
+                                  <span className="px-2 py-0.5 bg-pink-500 text-white text-[10px] font-bold rounded-full uppercase">New</span>
+                                )}
+                              </div>
+                              <span className="text-xs text-slate-400 flex-shrink-0">{timeAgo}</span>
+                            </div>
+                            <p className="text-sm text-slate-600 mt-1">{notif.message}</p>
+                            <div className="flex items-center flex-wrap gap-2 mt-3">
+                              <span className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-slate-100 rounded-lg text-xs text-slate-600">
+                                <i className="fas fa-tag text-pink-500" />
+                                {notif.serviceName}
+                              </span>
+                              {notif.date && (
+                                <span className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-slate-100 rounded-lg text-xs text-slate-600">
+                                  <i className="fas fa-calendar text-blue-500" />
+                                  {new Date(notif.date).toLocaleDateString('en-AU', { day: 'numeric', month: 'short' })}
+                                </span>
+                              )}
+                              {notif.price && (
+                                <span className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-emerald-50 rounded-lg text-xs text-emerald-700 font-semibold">
+                                  <i className="fas fa-dollar-sign" />
+                                  AU${Number(notif.price).toLocaleString()}
+                                </span>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+
+            {/* Panel Footer */}
+            <div className="p-4 bg-white border-t border-slate-200">
+              <button 
+                onClick={() => {
+                  router.push('/bookings/pending');
+                  setNotificationPanelOpen(false);
+                }}
+                className="w-full py-3 bg-gradient-to-r from-pink-500 to-fuchsia-600 hover:from-pink-600 hover:to-fuchsia-700 text-white rounded-xl font-semibold transition flex items-center justify-center gap-2 shadow-lg shadow-pink-500/25"
+              >
+                <i className="fas fa-calendar-check" />
+                View All Booking Requests
+              </button>
+            </div>
+          </div>
+        </>
+      )}
+
+      {/* Toast Notifications - Bottom right corner */}
+      <div className="fixed bottom-5 right-5 z-50 space-y-3">
+        {toastNotifications.map((toast) => (
+          <div 
+            key={toast.id}
+            className="bg-slate-900 text-white px-5 py-4 rounded-2xl shadow-2xl border border-slate-700 max-w-sm animate-slideIn"
+          >
+            <div className="flex items-start gap-4">
+              <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-pink-500 to-fuchsia-600 flex items-center justify-center flex-shrink-0 animate-pulse">
+                <i className="fas fa-bell text-xl" />
+              </div>
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center gap-2 mb-1">
+                  <span className="font-bold text-white">{toast.title}</span>
+                  <span className="px-2 py-0.5 bg-pink-500 text-white text-xs font-semibold rounded-full">NEW</span>
+                </div>
+                <p className="text-sm text-slate-300">{toast.message}</p>
+                <div className="flex items-center gap-3 mt-2 text-xs">
+                  <span className="text-slate-400 flex items-center gap-1">
+                    <i className="fas fa-tag" />
+                    {toast.serviceName}
+                  </span>
+                  {toast.price && (
+                    <span className="text-emerald-400 font-semibold">
+                      AU${Number(toast.price).toLocaleString()}
+                    </span>
+                  )}
+                </div>
+              </div>
+              <button 
+                onClick={() => setToastNotifications(prev => prev.filter(t => t.id !== toast.id))}
+                className="text-slate-500 hover:text-white transition"
+              >
+                <i className="fas fa-times" />
+              </button>
+            </div>
+            <button 
+              onClick={() => {
+                router.push('/bookings/pending');
+                setToastNotifications(prev => prev.filter(t => t.id !== toast.id));
+              }}
+              className="w-full mt-3 py-2 bg-gradient-to-r from-pink-500 to-fuchsia-600 hover:from-pink-600 hover:to-fuchsia-700 rounded-xl text-sm font-semibold transition flex items-center justify-center gap-2"
+            >
+              <i className="fas fa-eye" />
+              View Request
+            </button>
+          </div>
+        ))}
+      </div>
+
+      {/* Animation for notification bell and panel */}
       <style>{`
         @keyframes wiggle {
           0%, 100% { transform: rotate(0deg); }
@@ -952,6 +1331,39 @@ export default function DashboardPage() {
         }
         .group:hover .group-hover\\:animate-wiggle {
           animation: wiggle 0.5s ease-in-out;
+        }
+        @keyframes slideDown {
+          from {
+            opacity: 0;
+            transform: translateY(-10px);
+          }
+          to {
+            opacity: 1;
+            transform: translateY(0);
+          }
+        }
+        .animate-slideDown {
+          animation: slideDown 0.2s ease-out;
+        }
+        @keyframes pulse {
+          0%, 100% { opacity: 1; }
+          50% { opacity: 0.6; }
+        }
+        .animate-pulse {
+          animation: pulse 2s ease-in-out infinite;
+        }
+        @keyframes slideIn {
+          from {
+            opacity: 0;
+            transform: translateX(100px);
+          }
+          to {
+            opacity: 1;
+            transform: translateX(0);
+          }
+        }
+        .animate-slideIn {
+          animation: slideIn 0.4s cubic-bezier(0.16, 1, 0.3, 1);
         }
       `}</style>
     </div>
