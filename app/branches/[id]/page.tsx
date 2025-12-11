@@ -56,6 +56,336 @@ type Branch = {
   adminStaffId?: string;
 };
 
+// Analytics Tab Component
+function AnalyticsTab({ 
+  branchBookings, 
+  serviceCount, 
+  allServices,
+  branchId 
+}: { 
+  branchBookings: any[]; 
+  serviceCount: number;
+  allServices: Array<{ id: string; name: string; branches?: string[] }>;
+  branchId: string;
+}) {
+  const [period, setPeriod] = useState<"daily" | "weekly" | "monthly">("weekly");
+
+  // Calculate date ranges based on period
+  const getDateRange = () => {
+    const now = new Date();
+    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    
+    if (period === "daily") {
+      return { start: today, end: today };
+    } else if (period === "weekly") {
+      const dayOfWeek = today.getDay();
+      const monday = new Date(today);
+      monday.setDate(today.getDate() - (dayOfWeek === 0 ? 6 : dayOfWeek - 1));
+      const sunday = new Date(monday);
+      sunday.setDate(monday.getDate() + 6);
+      return { start: monday, end: sunday };
+    } else {
+      // Monthly
+      const firstDay = new Date(today.getFullYear(), today.getMonth(), 1);
+      const lastDay = new Date(today.getFullYear(), today.getMonth() + 1, 0);
+      return { start: firstDay, end: lastDay };
+    }
+  };
+
+  const dateRange = getDateRange();
+
+  // Filter bookings by period
+  const filteredBookings = useMemo(() => {
+    return branchBookings.filter((b) => {
+      if (!b.date) return false;
+      const bookingDate = new Date(b.date);
+      return bookingDate >= dateRange.start && bookingDate <= dateRange.end;
+    });
+  }, [branchBookings, dateRange.start, dateRange.end]);
+
+  // Calculate total revenue from filtered bookings
+  const totalRevenue = useMemo(() => {
+    return filteredBookings.reduce((sum, b) => {
+      const price = Number(b.price || b.totalPrice || 0);
+      return sum + price;
+    }, 0);
+  }, [filteredBookings]);
+
+  // Calculate completed bookings revenue
+  const completedRevenue = useMemo(() => {
+    return filteredBookings
+      .filter(b => b.status === "Completed")
+      .reduce((sum, b) => sum + Number(b.price || b.totalPrice || 0), 0);
+  }, [filteredBookings]);
+
+  // Count bookings by status
+  const bookingsByStatus = useMemo(() => {
+    const counts = { Pending: 0, Confirmed: 0, Completed: 0, Cancelled: 0 };
+    filteredBookings.forEach((b) => {
+      const status = b.status || "Pending";
+      if (counts[status as keyof typeof counts] !== undefined) {
+        counts[status as keyof typeof counts]++;
+      }
+    });
+    return counts;
+  }, [filteredBookings]);
+
+  // Calculate appointments by day of week
+  const appointmentsByDay = useMemo(() => {
+    const days = { Mon: 0, Tue: 0, Wed: 0, Thu: 0, Fri: 0, Sat: 0, Sun: 0 };
+    const dayNames = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+    
+    filteredBookings.forEach((b) => {
+      if (!b.date) return;
+      const date = new Date(b.date);
+      const dayName = dayNames[date.getDay()] as keyof typeof days;
+      days[dayName]++;
+    });
+    
+    return days;
+  }, [filteredBookings]);
+
+  // Get max appointments for scaling
+  const maxAppointments = Math.max(...Object.values(appointmentsByDay), 1);
+
+  // Calculate top services from bookings
+  const topServices = useMemo(() => {
+    const serviceCounts: Record<string, { name: string; count: number; revenue: number }> = {};
+    
+    filteredBookings.forEach((b) => {
+      // Handle multi-service bookings
+      if (Array.isArray(b.services) && b.services.length > 0) {
+        b.services.forEach((s: any) => {
+          const serviceId = s.serviceId || s.id;
+          const serviceName = s.serviceName || s.name || "Unknown Service";
+          const servicePrice = Number(s.price || 0);
+          
+          if (!serviceCounts[serviceId]) {
+            serviceCounts[serviceId] = { name: serviceName, count: 0, revenue: 0 };
+          }
+          serviceCounts[serviceId].count++;
+          serviceCounts[serviceId].revenue += servicePrice;
+        });
+      } else {
+        // Single service booking
+        const serviceId = b.serviceId || "unknown";
+        const serviceName = b.serviceName || "Unknown Service";
+        const servicePrice = Number(b.price || 0);
+        
+        if (!serviceCounts[serviceId]) {
+          serviceCounts[serviceId] = { name: serviceName, count: 0, revenue: 0 };
+        }
+        serviceCounts[serviceId].count++;
+        serviceCounts[serviceId].revenue += servicePrice;
+      }
+    });
+    
+    // Sort by count and take top 5
+    return Object.entries(serviceCounts)
+      .map(([id, data]) => ({ id, ...data }))
+      .sort((a, b) => b.count - a.count)
+      .slice(0, 5);
+  }, [filteredBookings]);
+
+  const totalServiceBookings = topServices.reduce((sum, s) => sum + s.count, 0) || 1;
+
+  const periodLabels = {
+    daily: "Today",
+    weekly: "This Week",
+    monthly: "This Month"
+  };
+
+  const colors = ["bg-pink-500", "bg-purple-500", "bg-indigo-500", "bg-blue-500", "bg-emerald-500"];
+
+  return (
+    <div className="space-y-6">
+      {/* Header with Period Selector */}
+      <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-4">
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-slate-50 pb-4 mb-4">
+          <div>
+            <h3 className="font-bold text-lg text-slate-800">Branch Performance</h3>
+            <p className="text-xs text-slate-500 mt-1">{periodLabels[period]} Analytics</p>
+          </div>
+          <div className="flex items-center gap-2 bg-slate-50 p-1 rounded-lg border border-slate-200">
+            {(["daily", "weekly", "monthly"] as const).map((p) => (
+              <button
+                key={p}
+                onClick={() => setPeriod(p)}
+                className={`px-3 py-1.5 text-xs font-medium rounded-md transition ${
+                  period === p 
+                    ? "bg-white shadow-sm text-slate-800" 
+                    : "text-slate-500 hover:text-slate-800"
+                }`}
+              >
+                {p.charAt(0).toUpperCase() + p.slice(1)}
+              </button>
+            ))}
+          </div>
+        </div>
+        
+        {/* Stats Cards */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+          <div className="bg-gradient-to-br from-emerald-50 to-green-50 p-5 rounded-xl border border-emerald-100">
+            <div className="flex justify-between items-start">
+              <div>
+                <p className="text-xs text-emerald-600 font-medium">Total Revenue</p>
+                <h4 className="text-2xl font-bold text-emerald-700 mt-1">${totalRevenue.toLocaleString()}</h4>
+                <p className="text-xs text-emerald-500 mt-1">
+                  ${completedRevenue.toLocaleString()} completed
+                </p>
+              </div>
+              <div className="w-10 h-10 rounded-full bg-emerald-100 text-emerald-600 flex items-center justify-center">
+                <i className="fas fa-dollar-sign" />
+              </div>
+            </div>
+          </div>
+          
+          <div className="bg-gradient-to-br from-blue-50 to-indigo-50 p-5 rounded-xl border border-blue-100">
+            <div className="flex justify-between items-start">
+              <div>
+                <p className="text-xs text-blue-600 font-medium">Total Appointments</p>
+                <h4 className="text-2xl font-bold text-blue-700 mt-1">{filteredBookings.length}</h4>
+                <p className="text-xs text-blue-500 mt-1">
+                  {bookingsByStatus.Completed} completed
+                </p>
+              </div>
+              <div className="w-10 h-10 rounded-full bg-blue-100 text-blue-600 flex items-center justify-center">
+                <i className="fas fa-calendar-check" />
+              </div>
+            </div>
+          </div>
+          
+          <div className="bg-gradient-to-br from-amber-50 to-yellow-50 p-5 rounded-xl border border-amber-100">
+            <div className="flex justify-between items-start">
+              <div>
+                <p className="text-xs text-amber-600 font-medium">Pending</p>
+                <h4 className="text-2xl font-bold text-amber-700 mt-1">{bookingsByStatus.Pending}</h4>
+                <p className="text-xs text-amber-500 mt-1">
+                  {bookingsByStatus.Confirmed} confirmed
+                </p>
+              </div>
+              <div className="w-10 h-10 rounded-full bg-amber-100 text-amber-600 flex items-center justify-center">
+                <i className="fas fa-clock" />
+              </div>
+            </div>
+          </div>
+          
+          <div className="bg-gradient-to-br from-pink-50 to-rose-50 p-5 rounded-xl border border-pink-100">
+            <div className="flex justify-between items-start">
+              <div>
+                <p className="text-xs text-pink-600 font-medium">Active Services</p>
+                <h4 className="text-2xl font-bold text-pink-700 mt-1">{serviceCount}</h4>
+                <p className="text-xs text-pink-500 mt-1">
+                  At this branch
+                </p>
+              </div>
+              <div className="w-10 h-10 rounded-full bg-pink-100 text-pink-600 flex items-center justify-center">
+                <i className="fas fa-tags" />
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+      
+      {/* Charts Row */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        {/* Appointments by Day Chart */}
+        <div className="lg:col-span-2 bg-white rounded-2xl shadow-sm border border-slate-100 p-6">
+          <h4 className="font-bold text-slate-800 mb-6">Appointments by Day ({periodLabels[period]})</h4>
+          <div className="flex items-end gap-2 sm:gap-4 h-48 border-b border-slate-200 pb-2">
+            {(["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"] as const).map((day, i) => {
+              const count = appointmentsByDay[day];
+              const heightPercent = maxAppointments > 0 ? (count / maxAppointments) * 100 : 0;
+              const isHighest = count === maxAppointments && count > 0;
+              
+              return (
+                <div key={day} className="flex-1 flex flex-col items-center gap-1">
+                  <span className="text-xs font-semibold text-slate-600">{count}</span>
+                  <div 
+                    className={`w-full rounded-t transition-all duration-500 ${
+                      isHighest 
+                        ? "bg-pink-500 shadow-lg shadow-pink-200" 
+                        : count > 0 
+                          ? "bg-pink-300 hover:bg-pink-400" 
+                          : "bg-slate-100"
+                    }`} 
+                    style={{ height: `${Math.max(heightPercent, 4)}%` }} 
+                  />
+                </div>
+              );
+            })}
+          </div>
+          <div className="flex justify-between text-xs text-slate-400 mt-2 px-1">
+            <span>Mon</span><span>Tue</span><span>Wed</span><span>Thu</span><span>Fri</span><span>Sat</span><span>Sun</span>
+          </div>
+          
+          {filteredBookings.length === 0 && (
+            <div className="text-center py-8 text-slate-400">
+              <i className="fas fa-chart-bar text-3xl mb-2" />
+              <p className="text-sm">No appointments {periodLabels[period].toLowerCase()}</p>
+            </div>
+          )}
+        </div>
+        
+        {/* Top Services */}
+        <div className="bg-white rounded-2xl shadow-sm border border-slate-100 p-6">
+          <h4 className="font-bold text-slate-800 mb-4">Top Services</h4>
+          {topServices.length === 0 ? (
+            <div className="text-center py-8 text-slate-400">
+              <i className="fas fa-tags text-3xl mb-2" />
+              <p className="text-sm">No service data yet</p>
+            </div>
+          ) : (
+            <div className="space-y-4">
+              {topServices.map((service, idx) => {
+                const percentage = Math.round((service.count / totalServiceBookings) * 100);
+                return (
+                  <div key={service.id}>
+                    <div className="flex justify-between text-sm mb-1">
+                      <span className="text-slate-600 truncate flex-1">{service.name}</span>
+                      <span className="font-semibold text-slate-800 ml-2">{service.count} ({percentage}%)</span>
+                    </div>
+                    <div className="h-2 w-full bg-slate-100 rounded-full overflow-hidden">
+                      <div 
+                        className={`h-full ${colors[idx % colors.length]} transition-all duration-500`} 
+                        style={{ width: `${percentage}%` }} 
+                      />
+                    </div>
+                    <p className="text-xs text-slate-400 mt-1">${service.revenue.toLocaleString()} revenue</p>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      </div>
+      
+      {/* Booking Status Overview */}
+      <div className="bg-white rounded-2xl shadow-sm border border-slate-100 p-6">
+        <h4 className="font-bold text-slate-800 mb-4">Booking Status Overview</h4>
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+          <div className="text-center p-4 rounded-xl bg-amber-50 border border-amber-100">
+            <div className="text-3xl font-bold text-amber-600">{bookingsByStatus.Pending}</div>
+            <div className="text-xs text-amber-500 mt-1 font-medium">Pending</div>
+          </div>
+          <div className="text-center p-4 rounded-xl bg-blue-50 border border-blue-100">
+            <div className="text-3xl font-bold text-blue-600">{bookingsByStatus.Confirmed}</div>
+            <div className="text-xs text-blue-500 mt-1 font-medium">Confirmed</div>
+          </div>
+          <div className="text-center p-4 rounded-xl bg-emerald-50 border border-emerald-100">
+            <div className="text-3xl font-bold text-emerald-600">{bookingsByStatus.Completed}</div>
+            <div className="text-xs text-emerald-500 mt-1 font-medium">Completed</div>
+          </div>
+          <div className="text-center p-4 rounded-xl bg-rose-50 border border-rose-100">
+            <div className="text-3xl font-bold text-rose-600">{bookingsByStatus.Cancelled}</div>
+            <div className="text-xs text-rose-500 mt-1 font-medium">Cancelled</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function BranchDetailsPage() {
   const router = useRouter();
   const params = useParams() as { id?: string | string[] };
@@ -658,82 +988,12 @@ export default function BranchDetailsPage() {
                   </div>
                 )}
                 {activeTab === "analytics" && (
-                  <div className="space-y-6">
-                    <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-4">
-                      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-slate-50 pb-4 mb-4">
-                        <h3 className="font-bold text-lg text-slate-800">Branch Performance</h3>
-                        <div className="flex items-center gap-2 bg-slate-50 p-1 rounded-lg border border-slate-200">
-                          <button className="px-3 py-1.5 text-xs font-medium rounded-md bg-white shadow-sm text-slate-800">Daily</button>
-                          <button className="px-3 py-1.5 text-xs font-medium rounded-md text-slate-500 hover:text-slate-800">Weekly</button>
-                          <button className="px-3 py-1.5 text-xs font-medium rounded-md text-slate-500 hover:text-slate-800">Monthly</button>
-                        </div>
-                      </div>
-                      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                        <div className="bg-white p-5 rounded-xl border border-slate-100">
-                          <div className="flex justify-between items-start">
-                            <div>
-                              <p className="text-xs text-slate-500 font-medium">Total Revenue</p>
-                              <h4 className="text-2xl font-bold text-slate-800 mt-1">${(branch?.revenue || 0).toLocaleString()}</h4>
-                            </div>
-                            <div className="w-10 h-10 rounded-full bg-green-50 text-green-600 flex items-center justify-center">
-                              <i className="fas fa-dollar-sign" />
-                            </div>
-                          </div>
-                        </div>
-                        <div className="bg-white p-5 rounded-xl border border-slate-100">
-                          <div className="flex justify-between items-start">
-                            <div>
-                              <p className="text-xs text-slate-500 font-medium">Total Appointments</p>
-                              <h4 className="text-2xl font-bold text-slate-800 mt-1">{branchBookings.length}</h4>
-                            </div>
-                            <div className="w-10 h-10 rounded-full bg-blue-50 text-blue-600 flex items-center justify-center">
-                              <i className="fas fa-calendar-check" />
-                            </div>
-                          </div>
-                        </div>
-                        <div className="bg-white p-5 rounded-xl border border-slate-100">
-                          <div className="flex justify-between items-start">
-                            <div>
-                              <p className="text-xs text-slate-500 font-medium">Active Services</p>
-                              <h4 className="text-2xl font-bold text-slate-800 mt-1">{serviceCount}</h4>
-                            </div>
-                            <div className="w-10 h-10 rounded-full bg-pink-50 text-pink-600 flex items-center justify-center">
-                              <i className="fas fa-tags" />
-                            </div>
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-                    <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-                      <div className="lg:col-span-2 bg-white rounded-2xl shadow-sm border border-slate-100 p-6">
-                        <h4 className="font-bold text-slate-800 mb-6">Appointments by Date (sample)</h4>
-                        <div className="flex items-end gap-2 sm:gap-4 h-48 border-b border-slate-200 pb-2">
-                          {[40, 65, 80, 55, 90, 70, 30].map((h, i) => (
-                            <div key={i} className={`flex-1 rounded-t bg-pink-${i === 4 ? "500" : "300"} ${i === 4 ? "shadow-lg shadow-pink-200" : ""}`} style={{ height: `${h}%` }} />
-                          ))}
-                        </div>
-                        <div className="flex justify-between text-xs text-slate-400 mt-2 px-1">
-                          <span>Mon</span><span>Tue</span><span>Wed</span><span>Thu</span><span>Fri</span><span>Sat</span><span>Sun</span>
-                        </div>
-                      </div>
-                      <div className="bg-white rounded-2xl shadow-sm border border-slate-100 p-6">
-                        <h4 className="font-bold text-slate-800 mb-4">Top Services</h4>
-                        <div className="space-y-4">
-                          {["Hair", "Facial", "Manicure", "Others"].map((label, idx) => (
-                            <div key={label}>
-                              <div className="flex justify-between text-sm mb-1">
-                                <span className="text-slate-600">{label}</span>
-                                <span className="font-semibold text-slate-800">{[45, 30, 15, 10][idx]}%</span>
-                              </div>
-                              <div className="h-2 w-full bg-slate-100 rounded-full overflow-hidden">
-                                <div className={`h-full ${["bg-purple-500","bg-pink-500","bg-indigo-500","bg-slate-400"][idx]}`} style={{ width: `${[45,30,15,10][idx]}%` }} />
-                              </div>
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-                    </div>
-                  </div>
+                  <AnalyticsTab 
+                    branchBookings={branchBookings} 
+                    serviceCount={serviceCount}
+                    allServices={allServices}
+                    branchId={branch.id}
+                  />
                 )}
 
                 {activeTab === "appointments" && (
