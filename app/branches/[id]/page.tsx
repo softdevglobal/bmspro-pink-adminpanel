@@ -70,7 +70,7 @@ export default function BranchDetailsPage() {
   const [activeTab, setActiveTab] = useState<
     "overview" | "analytics" | "appointments" | "services" | "staff" | "customers" | "schedule"
   >("overview");
-  const [allServices, setAllServices] = useState<Array<{ id: string; name: string; icon?: string; price?: number; duration?: number; branches?: string[] }>>([]);
+  const [allServices, setAllServices] = useState<Array<{ id: string; name: string; icon?: string; price?: number; duration?: number; branches?: string[]; imageUrl?: string }>>([]);
   const [allStaff, setAllStaff] = useState<Array<{ id: string; name: string; status?: string; branch?: string; staffRole?: string; weeklySchedule?: WeeklySchedule }>>([]);
   const [branchBookings, setBranchBookings] = useState<Array<any>>([]);
   const [monthYear, setMonthYear] = useState<{ month: number; year: number }>(() => {
@@ -208,6 +208,7 @@ export default function BranchDetailsPage() {
           price: typeof s.price === "number" ? s.price : undefined,
           duration: typeof s.duration === "number" ? s.duration : undefined,
           branches: Array.isArray(s.branches) ? s.branches.map(String) : undefined,
+          imageUrl: s.imageUrl || undefined,
         }))
       );
     });
@@ -823,7 +824,7 @@ export default function BranchDetailsPage() {
                     {(branch.serviceIds || []).length === 0 ? (
                       <div className="text-sm text-slate-400">No services assigned.</div>
                     ) : (
-                      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-5">
                         {allServices
                           .filter((s) => {
                             // Prefer canonical service.branches; fallback to legacy branch.serviceIds
@@ -831,17 +832,49 @@ export default function BranchDetailsPage() {
                             return (branch.serviceIds || []).includes(s.id);
                           })
                           .map((s) => (
-                            <div key={s.id} className="border border-slate-200 rounded-xl p-4 hover:shadow-sm transition bg-white">
-                              <div className="flex items-start gap-3">
-                                <div className="w-10 h-10 rounded-lg bg-pink-100 text-pink-600 flex items-center justify-center">
-                                  <i className={`fas ${s.icon || "fa-scissors"}`} />
-                                </div>
-                                <div className="min-w-0">
-                                  <div className="text-sm font-semibold text-slate-800 truncate">{s.name}</div>
-                                  <div className="text-xs text-slate-500 mt-1 flex items-center gap-2">
-                                    {typeof s.duration === "number" && <span className="px-2 py-0.5 rounded-full bg-slate-100">⏱ {s.duration} mins</span>}
-                                    {typeof s.price === "number" && <span className="px-2 py-0.5 rounded-full bg-slate-100">$ {s.price}</span>}
+                            <div 
+                              key={s.id} 
+                              className="group bg-white rounded-2xl border border-slate-100 overflow-hidden hover:shadow-xl hover:border-pink-200 transition-all duration-300 hover:-translate-y-1"
+                            >
+                              {/* Service Image */}
+                              <div className="relative h-40 bg-gradient-to-br from-pink-100 via-purple-50 to-indigo-100 overflow-hidden">
+                                {s.imageUrl ? (
+                                  <img 
+                                    src={s.imageUrl} 
+                                    alt={s.name}
+                                    className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-500"
+                                  />
+                                ) : (
+                                  <div className="absolute inset-0 flex items-center justify-center">
+                                    <div className="w-16 h-16 rounded-2xl bg-white/60 backdrop-blur-sm flex items-center justify-center shadow-lg">
+                                      <i className={`fas ${s.icon || "fa-scissors"} text-2xl text-pink-500`} />
+                                    </div>
                                   </div>
+                                )}
+                                {/* Price Badge */}
+                                {typeof s.price === "number" && (
+                                  <div className="absolute top-3 right-3 px-3 py-1.5 bg-gradient-to-r from-pink-500 to-purple-600 text-white text-sm font-bold rounded-full shadow-lg">
+                                    ${s.price}
+                                  </div>
+                                )}
+                              </div>
+                              
+                              {/* Service Info */}
+                              <div className="p-4">
+                                <h3 className="font-bold text-slate-800 text-base mb-2 truncate group-hover:text-pink-600 transition-colors">
+                                  {s.name}
+                                </h3>
+                                <div className="flex items-center gap-2 flex-wrap">
+                                  {typeof s.duration === "number" && (
+                                    <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-indigo-50 text-indigo-600 text-xs font-medium">
+                                      <i className="fas fa-clock" />
+                                      {s.duration} mins
+                                    </span>
+                                  )}
+                                  <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-emerald-50 text-emerald-600 text-xs font-medium">
+                                    <i className="fas fa-check-circle" />
+                                    Available
+                                  </span>
                                 </div>
                               </div>
                             </div>
