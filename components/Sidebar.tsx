@@ -1,6 +1,6 @@
 "use client";
 import Link from "next/link";
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useState, useRef } from "react";
 import { usePathname } from "next/navigation";
 import { useRouter } from "next/navigation";
 import { onAuthStateChanged, signOut } from "firebase/auth";
@@ -15,6 +15,7 @@ type SidebarProps = {
 export default function Sidebar({ mobile = false, onClose }: SidebarProps) {
   const pathname = usePathname();
   const router = useRouter();
+  const scrollContainerRef = useRef<HTMLDivElement>(null);
   const isDashboard = pathname === "/dashboard" || pathname === "/";
   const isBookings = pathname?.startsWith("/bookings");
   const isBookingsDashboard = pathname === "/bookings/dashboard";
@@ -91,11 +92,56 @@ export default function Sidebar({ mobile = false, onClose }: SidebarProps) {
         if (ob === "1" || ob === "0") setOpenBookings(ob === "1");
         const os = localStorage.getItem("sidebarOpenStaff"); // Staff Toggle Hydration
         if (os === "1" || os === "0") setOpenStaff(os === "1");
+        
+        // Restore sidebar scroll position after mount
+        const savedScrollTop = sessionStorage.getItem("sidebarScrollTop");
+        if (savedScrollTop && scrollContainerRef.current) {
+          requestAnimationFrame(() => {
+            if (scrollContainerRef.current) {
+              scrollContainerRef.current.scrollTop = parseInt(savedScrollTop, 10);
+            }
+          });
+        }
       }
     } catch {}
   }, []);
 
-  const toggleBookings = () => {
+  // Save scroll position whenever user scrolls the sidebar
+  useEffect(() => {
+    const container = scrollContainerRef.current;
+    if (!container) return;
+    
+    const handleScroll = () => {
+      try {
+        sessionStorage.setItem("sidebarScrollTop", container.scrollTop.toString());
+      } catch {}
+    };
+    
+    container.addEventListener("scroll", handleScroll, { passive: true });
+    return () => container.removeEventListener("scroll", handleScroll);
+  }, [mounted]);
+
+  // Restore scroll position after role-based menu items render
+  useEffect(() => {
+    if (mounted && role) {
+      try {
+        const savedScrollTop = sessionStorage.getItem("sidebarScrollTop");
+        if (savedScrollTop && scrollContainerRef.current) {
+          // Use setTimeout to ensure DOM has fully rendered
+          setTimeout(() => {
+            if (scrollContainerRef.current) {
+              scrollContainerRef.current.scrollTop = parseInt(savedScrollTop, 10);
+            }
+          }, 50);
+        }
+      } catch {}
+    }
+  }, [mounted, role]);
+
+  const toggleBookings = (e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    const scrollTop = scrollContainerRef.current?.scrollTop || 0;
     setOpenBookings((v) => {
       const nv = !v;
       try {
@@ -103,11 +149,20 @@ export default function Sidebar({ mobile = false, onClose }: SidebarProps) {
           localStorage.setItem("sidebarOpenBookings", nv ? "1" : "0");
         }
       } catch {}
+      // Restore scroll position after state update
+      requestAnimationFrame(() => {
+        if (scrollContainerRef.current) {
+          scrollContainerRef.current.scrollTop = scrollTop;
+        }
+      });
       return nv;
     });
   };
 
-  const toggleStaff = () => {
+  const toggleStaff = (e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    const scrollTop = scrollContainerRef.current?.scrollTop || 0;
     setOpenStaff((v) => {
       const nv = !v;
       try {
@@ -115,6 +170,12 @@ export default function Sidebar({ mobile = false, onClose }: SidebarProps) {
           localStorage.setItem("sidebarOpenStaff", nv ? "1" : "0");
         }
       } catch {}
+      // Restore scroll position after state update
+      requestAnimationFrame(() => {
+        if (scrollContainerRef.current) {
+          scrollContainerRef.current.scrollTop = scrollTop;
+        }
+      });
       return nv;
     });
   };
@@ -165,7 +226,7 @@ export default function Sidebar({ mobile = false, onClose }: SidebarProps) {
           </button>
         )}
       </div>
-      <div className="flex-1 p-4 space-y-1 overflow-y-auto sidebar-scroll bg-slate-900">
+      <div ref={scrollContainerRef} className="flex-1 p-4 space-y-1 overflow-y-auto sidebar-scroll bg-slate-900" style={{ overflowAnchor: 'none' }}>
         {mounted && role !== "salon_branch_admin" && (
           <Link
             href="/dashboard"
@@ -183,8 +244,10 @@ export default function Sidebar({ mobile = false, onClose }: SidebarProps) {
           <>
             <div
               role="button"
-              onClick={toggleBookings}
-              className={`flex items-center space-x-3 px-4 py-3 rounded-xl text-sm transition cursor-pointer ${
+              tabIndex={0}
+              onClick={(e) => toggleBookings(e)}
+              onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') toggleBookings(e as unknown as React.MouseEvent); }}
+              className={`flex items-center space-x-3 px-4 py-3 rounded-xl text-sm transition cursor-pointer select-none ${
                 isBookings ? "bg-pink-500 text-white shadow-lg" : "hover:bg-slate-800 text-slate-400 hover:text-white"
               }`}
             >
@@ -295,8 +358,10 @@ export default function Sidebar({ mobile = false, onClose }: SidebarProps) {
           <>
             <div
               role="button"
-              onClick={toggleStaff}
-              className={`flex items-center space-x-3 px-4 py-3 rounded-xl text-sm transition cursor-pointer ${
+              tabIndex={0}
+              onClick={(e) => toggleStaff(e)}
+              onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') toggleStaff(e as unknown as React.MouseEvent); }}
+              className={`flex items-center space-x-3 px-4 py-3 rounded-xl text-sm transition cursor-pointer select-none ${
                 isStaff ? "bg-pink-500 text-white shadow-lg" : "hover:bg-slate-800 text-slate-400 hover:text-white"
               }`}
             >
