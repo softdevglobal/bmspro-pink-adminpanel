@@ -56,7 +56,7 @@ export default function DashboardPage() {
   const chartsRef = useRef<{ revenue?: any; status?: any }>({});
   const builtRef = useRef(false);
 
-  // Play notification sound using Web Audio API
+  // Play Shopify-style "Ka-Ching" sale notification sound using Web Audio API
   const playNotificationSound = () => {
     if (typeof window === "undefined") return;
     
@@ -65,42 +65,90 @@ export default function DashboardPage() {
       if (!AudioContext) return;
       
       const audioCtx = new AudioContext();
+      const now = audioCtx.currentTime;
       
-      // Create a pleasant notification chime with multiple tones
-      const playTone = (frequency: number, startTime: number, duration: number, volume: number) => {
-        const oscillator = audioCtx.createOscillator();
-        const gainNode = audioCtx.createGain();
+      // Create the iconic "Ka-Ching" cash register sound
+      
+      // Helper to create a tone with envelope
+      const createTone = (freq: number, type: OscillatorType, startTime: number, duration: number, volume: number) => {
+        const osc = audioCtx.createOscillator();
+        const gain = audioCtx.createGain();
         
-        oscillator.connect(gainNode);
-        gainNode.connect(audioCtx.destination);
+        osc.connect(gain);
+        gain.connect(audioCtx.destination);
         
-        oscillator.frequency.value = frequency;
-        oscillator.type = 'sine';
+        osc.frequency.value = freq;
+        osc.type = type;
         
-        // Envelope for smooth sound
-        gainNode.gain.setValueAtTime(0, audioCtx.currentTime + startTime);
-        gainNode.gain.linearRampToValueAtTime(volume, audioCtx.currentTime + startTime + 0.02);
-        gainNode.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + startTime + duration);
+        // Sharp attack, quick decay for that metallic cash register feel
+        gain.gain.setValueAtTime(0, now + startTime);
+        gain.gain.linearRampToValueAtTime(volume, now + startTime + 0.005);
+        gain.gain.exponentialRampToValueAtTime(0.001, now + startTime + duration);
         
-        oscillator.start(audioCtx.currentTime + startTime);
-        oscillator.stop(audioCtx.currentTime + startTime + duration);
+        osc.start(now + startTime);
+        osc.stop(now + startTime + duration);
       };
       
-      // Play a loud pleasant chime - LOUDER volumes and longer duration
-      // First chime
-      playTone(880, 0, 0.2, 0.8);        // A5 - loud
-      playTone(1108.73, 0.1, 0.25, 0.7); // C#6
-      playTone(1318.51, 0.2, 0.3, 0.6);  // E6
+      // Helper to create noise burst (for the "ching" metallic sound)
+      const createNoiseBurst = (startTime: number, duration: number, volume: number) => {
+        const bufferSize = audioCtx.sampleRate * duration;
+        const buffer = audioCtx.createBuffer(1, bufferSize, audioCtx.sampleRate);
+        const data = buffer.getChannelData(0);
+        
+        for (let i = 0; i < bufferSize; i++) {
+          data[i] = (Math.random() * 2 - 1) * Math.exp(-i / (bufferSize * 0.1));
+        }
+        
+        const noise = audioCtx.createBufferSource();
+        const noiseGain = audioCtx.createGain();
+        const filter = audioCtx.createBiquadFilter();
+        
+        noise.buffer = buffer;
+        filter.type = 'highpass';
+        filter.frequency.value = 8000;
+        
+        noise.connect(filter);
+        filter.connect(noiseGain);
+        noiseGain.connect(audioCtx.destination);
+        
+        noiseGain.gain.setValueAtTime(volume, now + startTime);
+        noiseGain.gain.exponentialRampToValueAtTime(0.001, now + startTime + duration);
+        
+        noise.start(now + startTime);
+      };
       
-      // Second chime (repeat for emphasis)
-      playTone(880, 0.4, 0.2, 0.7);        // A5
-      playTone(1108.73, 0.5, 0.25, 0.6);   // C#6
-      playTone(1318.51, 0.6, 0.3, 0.5);    // E6
+      // === KA-CHING SOUND SEQUENCE ===
+      
+      // Part 1: "Ka" - Initial click/tap sound
+      createTone(800, 'square', 0, 0.03, 0.3);
+      createTone(600, 'square', 0.01, 0.02, 0.2);
+      
+      // Part 2: "CHING!" - The bright metallic bell/register sound
+      // Main bell tones (bright, metallic)
+      createTone(2637, 'sine', 0.05, 0.4, 0.5);    // E7 - main high ping
+      createTone(3520, 'sine', 0.05, 0.3, 0.35);   // A7 - shimmer
+      createTone(4186, 'sine', 0.055, 0.25, 0.25); // C8 - sparkle
+      createTone(2093, 'sine', 0.06, 0.35, 0.4);   // C7 - body
+      
+      // Add harmonics for richness
+      createTone(5274, 'sine', 0.055, 0.15, 0.15); // E8 - high harmonic
+      createTone(1760, 'sine', 0.07, 0.3, 0.3);    // A6 - lower support
+      
+      // Metallic shimmer noise
+      createNoiseBurst(0.05, 0.15, 0.2);
+      
+      // Part 3: Coin/register settling sound
+      createTone(1318, 'sine', 0.2, 0.15, 0.15);   // E6
+      createTone(1047, 'sine', 0.25, 0.12, 0.1);   // C6
+      
+      // Second subtle "ching" echo for that authentic feel
+      createTone(2637, 'sine', 0.35, 0.2, 0.15);   // E7 echo
+      createTone(3520, 'sine', 0.35, 0.15, 0.1);   // A7 echo
       
       // Clean up after sound plays
       setTimeout(() => {
         audioCtx.close();
-      }, 1200);
+      }, 800);
     } catch (error) {
       console.log("Could not play notification sound");
     }
