@@ -1,4 +1,7 @@
 import { NextResponse } from "next/server";
+import { adminAuth } from "@/lib/firebaseAdmin";
+
+export const runtime = "nodejs";
 
 export async function POST(request: Request) {
   try {
@@ -8,15 +11,8 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "Missing uid" }, { status: 400 });
     }
 
-    // Import Firebase Admin SDK
-    const { getAuth } = await import("firebase-admin/auth");
-    const { initAdmin } = await import("@/lib/firebase-admin");
-    
-    initAdmin();
-    const auth = getAuth();
-
     // Update the user's disabled status
-    await auth.updateUser(uid, {
+    await adminAuth().updateUser(uid, {
       disabled: Boolean(disabled),
     });
 
