@@ -30,6 +30,8 @@ export default function SettingsPage() {
   const [deleteTarget, setDeleteTarget] = useState<Staff | null>(null);
   const [deleting, setDeleting] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
+  const [suspendTarget, setSuspendTarget] = useState<Staff | null>(null);
+  const [suspending, setSuspending] = useState(false);
   const [weeklySchedule, setWeeklySchedule] = useState<WeeklySchedule>({});
   const [selectedSystemRole, setSelectedSystemRole] = useState<string>("salon_staff");
 
@@ -143,7 +145,48 @@ export default function SettingsPage() {
     }, 3000);
   };
 
-  // Suspension toggling removed – staff status changes are not exposed in UI.
+  // Toggle staff suspension status
+  const handleSuspendStaff = (staff: Staff) => {
+    setSuspendTarget(staff);
+  };
+
+  const confirmSuspendStaff = async () => {
+    if (!suspendTarget || !ownerUid) return;
+    setSuspending(true);
+    try {
+      const newStatus = suspendTarget.status === "Active" ? "Suspended" : "Active";
+      
+      // Update staff record in Firestore
+      await updateSalonStaff(suspendTarget.id, { status: newStatus });
+      
+      // If suspending, also disable their Firebase Auth account
+      if (suspendTarget.authUid) {
+        try {
+          await fetch("/api/staff/auth/suspend", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ 
+              uid: suspendTarget.authUid, 
+              disabled: newStatus === "Suspended" 
+            }),
+          });
+        } catch (err) {
+          console.error("Failed to update auth status", err);
+        }
+      }
+      
+      setSuspendTarget(null);
+      showToast(newStatus === "Suspended" 
+        ? `${suspendTarget.name} has been suspended` 
+        : `${suspendTarget.name} has been reactivated`
+      );
+    } catch (err) {
+      console.error("Failed to update staff status", err);
+      showToast("Failed to update staff status");
+    } finally {
+      setSuspending(false);
+    }
+  };
 
   const resetData = () => {
     // Optional: remove bulk reset for Firestore-backed data; keeping button but disabling action
@@ -595,31 +638,51 @@ export default function SettingsPage() {
                             )}
                           </div>
                           <p className="text-xs text-slate-500">
-                            {s.role} • {s.branch}
+                            {s.role}{s.branch ? ` • ${s.branch}` : ""}
                           </p>
                           {s.email && (
                             <p className="text-[11px] text-slate-400 mt-0.5">{s.email}</p>
                           )}
                         </div>
-                        <div className="text-right mr-4">
-                          <div className={`text-sm font-bold ${isSuspended ? "text-red-500" : "text-green-600"}`}>{s.status}</div>
-                          <div className="mt-1 flex items-center justify-end gap-3 text-slate-400">
+                        <div className="flex items-center gap-3">
+                          {/* Status Badge */}
+                          <div className={`px-3 py-1 rounded-full text-xs font-bold ${
+                            isSuspended 
+                              ? "bg-red-100 text-red-600" 
+                              : "bg-green-100 text-green-600"
+                          }`}>
+                            {s.status}
+                          </div>
+                          
+                          {/* Action Buttons */}
+                          <div className="flex items-center gap-1">
                             <button
-                              className="hover:text-slate-600"
+                              className="w-8 h-8 rounded-lg hover:bg-slate-100 flex items-center justify-center text-slate-400 hover:text-slate-600 transition"
                               title="Preview"
                               onClick={() => router.push(`/staff/${s.id}`)}
                             >
                               <i className="fa-solid fa-eye" />
                             </button>
                             <button
-                              className="text-blue-600 hover:text-blue-700"
+                              className="w-8 h-8 rounded-lg hover:bg-blue-50 flex items-center justify-center text-blue-500 hover:text-blue-600 transition"
                               title="Edit"
                               onClick={() => openEditStaff(s)}
                             >
                               <i className="fa-solid fa-pen" />
                             </button>
                             <button
-                              className="text-rose-600 hover:text-rose-700"
+                              className={`w-8 h-8 rounded-lg flex items-center justify-center transition ${
+                                isSuspended 
+                                  ? "hover:bg-emerald-50 text-emerald-500 hover:text-emerald-600" 
+                                  : "hover:bg-amber-50 text-amber-500 hover:text-amber-600"
+                              }`}
+                              title={isSuspended ? "Reactivate Account" : "Suspend Account"}
+                              onClick={() => handleSuspendStaff(s)}
+                            >
+                              <i className={`fa-solid ${isSuspended ? "fa-user-check" : "fa-user-slash"}`} />
+                            </button>
+                            <button
+                              className="w-8 h-8 rounded-lg hover:bg-rose-50 flex items-center justify-center text-rose-500 hover:text-rose-600 transition"
                               title="Delete"
                               onClick={() => handleDeleteStaff(s.id)}
                             >
@@ -633,7 +696,7 @@ export default function SettingsPage() {
                 </div>
                 <div className="bg-slate-900 text-white rounded-xl p-4 border-none h-fit">
                   <h3 className="font-bold mb-4">Staff Quick Stats</h3>
-                  <div className="space-y-4">
+                  <div className="space-y-3">
                     <div className="bg-white/10 p-3 rounded-lg flex justify-between">
                       <span>Total Staff</span>
                       <span className="font-bold">{data.staff.length}</span>
@@ -641,6 +704,30 @@ export default function SettingsPage() {
                     <div className="bg-white/10 p-3 rounded-lg flex justify-between">
                       <span>Active</span>
                       <span className="font-bold text-green-400">{data.staff.filter((s) => s.status === "Active").length}</span>
+                    </div>
+                    {data.staff.filter((s) => s.status === "Suspended").length > 0 && (
+                      <div className="bg-amber-500/20 p-3 rounded-lg flex justify-between">
+                        <span className="text-amber-200">Suspended</span>
+                        <span className="font-bold text-amber-400">{data.staff.filter((s) => s.status === "Suspended").length}</span>
+                      </div>
+                    )}
+                  </div>
+                  
+                  {/* Quick Actions */}
+                  <div className="mt-4 pt-4 border-t border-white/10">
+                    <h4 className="text-xs font-semibold text-slate-400 uppercase mb-2">Quick Actions</h4>
+                    <div className="space-y-2">
+                      <button
+                        onClick={() => {
+                          setIsStaffModalOpen(true);
+                          setSelectedSystemRole("salon_staff");
+                          setWeeklySchedule({});
+                        }}
+                        className="w-full py-2 px-3 bg-pink-600 hover:bg-pink-700 rounded-lg text-sm font-medium transition flex items-center justify-center gap-2"
+                      >
+                        <i className="fa-solid fa-user-plus" />
+                        Add New Staff
+                      </button>
                     </div>
                   </div>
                 </div>
@@ -1271,6 +1358,109 @@ export default function SettingsPage() {
                   </span>
                 ) : (
                   "Delete"
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Suspend/Reactivate Confirm Modal */}
+      {suspendTarget && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center">
+          <div className="bg-white rounded-xl shadow-2xl w-full max-w-md mx-4 sm:mx-0 overflow-hidden">
+            <div className={`p-5 border-b ${suspendTarget.status === "Active" ? "bg-amber-50 border-amber-100" : "bg-emerald-50 border-emerald-100"}`}>
+              <div className="flex items-center gap-3">
+                <div className={`w-12 h-12 rounded-xl ${suspendTarget.status === "Active" ? "bg-amber-100 text-amber-600" : "bg-emerald-100 text-emerald-600"} flex items-center justify-center`}>
+                  <i className={`fa-solid ${suspendTarget.status === "Active" ? "fa-user-slash" : "fa-user-check"} text-xl`} />
+                </div>
+                <div>
+                  <h3 className="font-bold text-slate-900">
+                    {suspendTarget.status === "Active" ? "Suspend Staff Account?" : "Reactivate Staff Account?"}
+                  </h3>
+                  <p className="text-sm text-slate-600">{suspendTarget.name}</p>
+                </div>
+              </div>
+            </div>
+            <div className="p-5">
+              {suspendTarget.status === "Active" ? (
+                <div className="space-y-4">
+                  <p className="text-sm text-slate-600">
+                    Suspending this account will:
+                  </p>
+                  <ul className="space-y-2 text-sm">
+                    <li className="flex items-start gap-2">
+                      <i className="fa-solid fa-ban text-amber-500 mt-0.5" />
+                      <span className="text-slate-600">Prevent <strong>{suspendTarget.name}</strong> from logging into the system</span>
+                    </li>
+                    <li className="flex items-start gap-2">
+                      <i className="fa-solid fa-calendar-xmark text-amber-500 mt-0.5" />
+                      <span className="text-slate-600">Hide them from booking availability</span>
+                    </li>
+                    <li className="flex items-start gap-2">
+                      <i className="fa-solid fa-clock-rotate-left text-amber-500 mt-0.5" />
+                      <span className="text-slate-600">Can be reactivated anytime</span>
+                    </li>
+                  </ul>
+                  <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 text-xs text-amber-800">
+                    <i className="fa-solid fa-info-circle mr-1" />
+                    Existing bookings with this staff member will remain unchanged.
+                  </div>
+                </div>
+              ) : (
+                <div className="space-y-4">
+                  <p className="text-sm text-slate-600">
+                    Reactivating this account will:
+                  </p>
+                  <ul className="space-y-2 text-sm">
+                    <li className="flex items-start gap-2">
+                      <i className="fa-solid fa-check text-emerald-500 mt-0.5" />
+                      <span className="text-slate-600">Allow <strong>{suspendTarget.name}</strong> to login again</span>
+                    </li>
+                    <li className="flex items-start gap-2">
+                      <i className="fa-solid fa-calendar-check text-emerald-500 mt-0.5" />
+                      <span className="text-slate-600">Show them in booking availability</span>
+                    </li>
+                    <li className="flex items-start gap-2">
+                      <i className="fa-solid fa-user-check text-emerald-500 mt-0.5" />
+                      <span className="text-slate-600">Restore full staff access</span>
+                    </li>
+                  </ul>
+                </div>
+              )}
+            </div>
+            <div className="px-5 pb-5 flex items-center justify-end gap-3">
+              <button
+                onClick={() => setSuspendTarget(null)}
+                disabled={suspending}
+                className="px-4 py-2 rounded-lg border border-slate-300 text-slate-700 hover:bg-slate-50 disabled:opacity-60 font-medium"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={confirmSuspendStaff}
+                disabled={suspending}
+                className={`px-5 py-2 rounded-lg text-white font-semibold disabled:opacity-60 flex items-center gap-2 ${
+                  suspendTarget.status === "Active" 
+                    ? "bg-amber-500 hover:bg-amber-600" 
+                    : "bg-emerald-500 hover:bg-emerald-600"
+                }`}
+              >
+                {suspending ? (
+                  <>
+                    <i className="fa-solid fa-circle-notch fa-spin" />
+                    Processing...
+                  </>
+                ) : suspendTarget.status === "Active" ? (
+                  <>
+                    <i className="fa-solid fa-user-slash" />
+                    Suspend Account
+                  </>
+                ) : (
+                  <>
+                    <i className="fa-solid fa-user-check" />
+                    Reactivate Account
+                  </>
                 )}
               </button>
             </div>
