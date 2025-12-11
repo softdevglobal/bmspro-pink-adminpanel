@@ -23,10 +23,7 @@ type UserData = {
   price?: string;
   role: string;
   logoUrl?: string;
-  appointmentReminders?: boolean;
-  marketingEmails?: boolean;
-  minimumLeadTime?: string;
-  cancellationWindow?: string;
+  termsAndConditions?: string;
 };
 
 export default function OwnerSettingsPage() {
@@ -42,9 +39,8 @@ export default function OwnerSettingsPage() {
   const [abn, setAbn] = useState("");
   const [address, setAddress] = useState("");
   const [phone, setPhone] = useState("");
-  const [minimumLeadTime, setMinimumLeadTime] = useState("1 hour");
-  const [cancellationWindow, setCancellationWindow] = useState("2 hours");
   const [logoUrl, setLogoUrl] = useState("");
+  const [termsAndConditions, setTermsAndConditions] = useState("");
   const [uploadingLogo, setUploadingLogo] = useState(false);
   const [showRemoveLogoModal, setShowRemoveLogoModal] = useState(false);
   const logoInputRef = useRef<HTMLInputElement>(null);
@@ -101,10 +97,7 @@ export default function OwnerSettingsPage() {
           price: data?.price || "",
           role: role,
           logoUrl: data?.logoUrl || "",
-          appointmentReminders: data?.appointmentReminders ?? true,
-          marketingEmails: data?.marketingEmails ?? false,
-          minimumLeadTime: data?.minimumLeadTime || "1 hour",
-          cancellationWindow: data?.cancellationWindow || "2 hours",
+          termsAndConditions: data?.termsAndConditions || "",
         };
         
         setUserData(userData);
@@ -114,9 +107,8 @@ export default function OwnerSettingsPage() {
         setAbn(userData.abn || "");
         setAddress(userData.locationText || userData.address || "");
         setPhone(userData.contactPhone || userData.phone || "");
-        setMinimumLeadTime(userData.minimumLeadTime || "1 hour");
-        setCancellationWindow(userData.cancellationWindow || "2 hours");
         setLogoUrl(userData.logoUrl || "");
+        setTermsAndConditions(userData.termsAndConditions || "");
         
         setMounted(true);
         setLoading(false);
@@ -150,20 +142,19 @@ export default function OwnerSettingsPage() {
     }
   };
 
-  const handleSaveRules = async () => {
+  const handleSaveTerms = async () => {
     if (!userData) return;
-    setSaving("rules");
+    setSaving("terms");
     try {
       await updateDoc(doc(db, "users", userData.uid), {
-        minimumLeadTime,
-        cancellationWindow,
+        termsAndConditions: termsAndConditions,
         updatedAt: serverTimestamp(),
       });
-      setUserData({ ...userData, minimumLeadTime, cancellationWindow });
-      showToast("Booking rules saved successfully!");
+      setUserData({ ...userData, termsAndConditions });
+      showToast("Terms & Conditions saved successfully!");
     } catch (error) {
-      console.error("Error saving rules:", error);
-      showToast("Failed to save rules. Please try again.", "error");
+      console.error("Error saving terms:", error);
+      showToast("Failed to save terms. Please try again.", "error");
     } finally {
       setSaving(null);
     }
@@ -372,50 +363,63 @@ export default function OwnerSettingsPage() {
                     </div>
                   </div>
 
-                  {/* Booking Rules */}
+                  {/* Terms and Conditions */}
                   <div className="bg-white border border-slate-200 rounded-2xl p-6">
-                    <h2 className="text-lg font-semibold text-slate-900 mb-4">Booking Rules</h2>
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                      <div>
-                        <label className="block text-sm font-medium text-slate-700 mb-2">Minimum Lead Time</label>
-                        <select 
-                          className="w-full px-4 py-3 border border-slate-300 rounded-lg bg-white focus:ring-2 focus:ring-pink-500"
-                          value={minimumLeadTime}
-                          onChange={(e) => setMinimumLeadTime(e.target.value)}
-                        >
-                          <option value="30 minutes">30 minutes</option>
-                          <option value="1 hour">1 hour</option>
-                          <option value="2 hours">2 hours</option>
-                          <option value="3 hours">3 hours</option>
-                          <option value="6 hours">6 hours</option>
-                          <option value="12 hours">12 hours</option>
-                          <option value="24 hours">24 hours</option>
-                        </select>
+                    <div className="flex items-center gap-3 mb-4">
+                      <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-indigo-500 to-purple-600 text-white flex items-center justify-center">
+                        <i className="fas fa-file-contract" />
                       </div>
                       <div>
-                        <label className="block text-sm font-medium text-slate-700 mb-2">Cancellation Window</label>
-                        <select 
-                          className="w-full px-4 py-3 border border-slate-300 rounded-lg bg-white focus:ring-2 focus:ring-pink-500"
-                          value={cancellationWindow}
-                          onChange={(e) => setCancellationWindow(e.target.value)}
-                        >
-                          <option value="1 hour">1 hour</option>
-                          <option value="2 hours">2 hours</option>
-                          <option value="4 hours">4 hours</option>
-                          <option value="6 hours">6 hours</option>
-                          <option value="12 hours">12 hours</option>
-                          <option value="24 hours">24 hours</option>
-                          <option value="48 hours">48 hours</option>
-                        </select>
+                        <h2 className="text-lg font-semibold text-slate-900">Terms & Conditions</h2>
+                        <p className="text-sm text-slate-500">Set your booking terms that customers must agree to</p>
                       </div>
                     </div>
+                    
+                    <div className="space-y-4">
+                      <div>
+                        <label className="block text-sm font-medium text-slate-700 mb-2">
+                          Terms & Conditions Text
+                        </label>
+                        <textarea 
+                          rows={8} 
+                          className="w-full px-4 py-3 border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent text-sm"
+                          placeholder="Enter your salon's terms and conditions here...
+
+Example:
+• Cancellations must be made at least 24 hours in advance
+• Late arrivals may result in shortened service time
+• A deposit may be required for certain services
+• We reserve the right to refuse service
+• All prices are subject to change without notice"
+                          value={termsAndConditions}
+                          onChange={(e) => setTermsAndConditions(e.target.value)}
+                        />
+                        <p className="mt-2 text-xs text-slate-500">
+                          <i className="fas fa-info-circle mr-1" />
+                          These terms will be shown to customers during the booking process
+                        </p>
+                      </div>
+                      
+                      {termsAndConditions && (
+                        <div className="bg-slate-50 border border-slate-200 rounded-xl p-4">
+                          <h4 className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-2 flex items-center gap-2">
+                            <i className="fas fa-eye" />
+                            Preview
+                          </h4>
+                          <div className="text-sm text-slate-700 whitespace-pre-wrap max-h-40 overflow-y-auto">
+                            {termsAndConditions}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                    
                     <div className="mt-4 flex justify-end">
                       <button 
-                        onClick={handleSaveRules}
-                        disabled={saving === "rules"}
-                        className="px-5 py-2.5 bg-pink-600 text-white rounded-lg font-semibold hover:bg-pink-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+                        onClick={handleSaveTerms}
+                        disabled={saving === "terms"}
+                        className="px-5 py-2.5 bg-indigo-600 text-white rounded-lg font-semibold hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
                       >
-                        {saving === "rules" ? (
+                        {saving === "terms" ? (
                           <>
                             <i className="fas fa-spinner fa-spin" />
                             Saving...
@@ -423,12 +427,13 @@ export default function OwnerSettingsPage() {
                         ) : (
                           <>
                             <i className="fas fa-save" />
-                            Save Rules
+                            Save Terms
                           </>
                         )}
                       </button>
                     </div>
                   </div>
+
                 </section>
 
                 <aside className="space-y-6">

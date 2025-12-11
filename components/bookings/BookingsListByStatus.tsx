@@ -699,21 +699,12 @@ export default function BookingsListByStatus({ status, title }: { status: Bookin
                           <p className="font-medium text-slate-700">{previewRow.duration} mins</p>
                         </div>
                       </div>
-                      <div className="grid grid-cols-2 gap-3">
-                        <div>
-                          <p className="text-slate-400">Staff</p>
-                          <p className="font-medium text-slate-700 flex items-center gap-2">
-                            <i className="fas fa-user text-slate-400" />
-                            {previewRow.staffName || "-"}
-                          </p>
-                        </div>
-                        <div>
-                          <p className="text-slate-400">Branch</p>
-                          <p className="font-medium text-slate-700 flex items-center gap-2">
-                            <i className="fas fa-store text-slate-400" />
-                            {previewRow.branchName || "-"}
-                          </p>
-                        </div>
+                      <div>
+                        <p className="text-slate-400">Branch</p>
+                        <p className="font-medium text-slate-700 flex items-center gap-2">
+                          <i className="fas fa-store text-slate-400" />
+                          {previewRow.branchName || "-"}
+                        </p>
                       </div>
                       <div>
                         <p className="text-slate-400">Status</p>

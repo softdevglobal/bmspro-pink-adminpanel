@@ -322,10 +322,10 @@ function BookingsPageContent() {
           
           // If dev no-op, also update locally
           if (json?.devNoop) {
-            const { doc, updateDoc } = await import("firebase/firestore");
-            const { db } = await import("@/lib/firebase");
-            const bookingRef = doc(db, "bookings", id);
-            await updateDoc(bookingRef, { status: newStatus });
+          const { doc, updateDoc } = await import("firebase/firestore");
+          const { db } = await import("@/lib/firebase");
+          const bookingRef = doc(db, "bookings", id);
+          await updateDoc(bookingRef, { status: newStatus });
           }
 
           // Optimistically update local state (though Firestore listener will also catch it)

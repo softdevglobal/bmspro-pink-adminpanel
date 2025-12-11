@@ -1466,14 +1466,14 @@ export default function BranchDetailsPage() {
                                   <div className="absolute inset-0 flex items-center justify-center">
                                     <div className="w-16 h-16 rounded-2xl bg-white/60 backdrop-blur-sm flex items-center justify-center shadow-lg">
                                       <i className={`fas ${s.icon || "fa-scissors"} text-2xl text-pink-500`} />
-                                    </div>
+                                </div>
                                   </div>
                                 )}
                                 {/* Price Badge */}
                                 {typeof s.price === "number" && (
                                   <div className="absolute top-3 right-3 px-3 py-1.5 bg-gradient-to-r from-pink-500 to-purple-600 text-white text-sm font-bold rounded-full shadow-lg">
                                     ${s.price}
-                                  </div>
+                                </div>
                                 )}
                               </div>
                               
