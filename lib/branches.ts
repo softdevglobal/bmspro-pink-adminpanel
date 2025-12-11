@@ -61,8 +61,18 @@ export async function createBranchForOwner(ownerUid: string, data: BranchInput) 
     updatedAt: serverTimestamp(),
   });
 
+  // If admin is assigned, promote them and set their schedule to match branch hours
   if (data.adminStaffId) {
-    await promoteStaffToBranchAdmin(data.adminStaffId);
+    const { weeklySchedule } = await promoteStaffToBranchAdmin(data.adminStaffId, {
+      branchId: ref.id,
+      branchName: data.name,
+      branchHours: data.hours,
+    });
+    
+    // Sync the branch's staffByDay with the admin's new schedule
+    if (weeklySchedule) {
+      await syncBranchStaffFromSchedule(data.adminStaffId, weeklySchedule, null, ownerUid);
+    }
   }
 
   return ref.id;
@@ -75,6 +85,7 @@ export async function updateBranch(branchId: string, data: Partial<BranchInput>)
   const snap = await getDoc(branchRef);
   const currentData = snap.data();
   const oldAdminId = currentData?.adminStaffId;
+  const ownerUid = currentData?.ownerUid;
 
   await updateDoc(branchRef, {
     ...data,
@@ -88,9 +99,22 @@ export async function updateBranch(branchId: string, data: Partial<BranchInput>)
     await demoteStaffFromBranchAdmin(oldAdminId);
   }
 
-  // 2. If there is a new admin, promote them
+  // 2. If there is a new admin, promote them and update their schedule to match branch hours
   if (newAdminId) {
-    await promoteStaffToBranchAdmin(newAdminId);
+    // Get the branch name and hours (either from new data or existing)
+    const branchName = data.name || currentData?.name || "";
+    const branchHours = data.hours || currentData?.hours;
+    
+    const { weeklySchedule } = await promoteStaffToBranchAdmin(newAdminId, {
+      branchId,
+      branchName,
+      branchHours,
+    });
+    
+    // Sync the branch's staffByDay with the admin's new schedule
+    if (weeklySchedule && ownerUid) {
+      await syncBranchStaffFromSchedule(newAdminId, weeklySchedule, null, ownerUid);
+    }
   }
 }
 

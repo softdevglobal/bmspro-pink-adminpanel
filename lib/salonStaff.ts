@@ -140,13 +140,75 @@ export function subscribeSalonStaffForOwner(
   );
 }
 
-export async function promoteStaffToBranchAdmin(staffId: string) {
+type BranchHours = {
+  Monday?: { open?: string; close?: string; closed?: boolean };
+  Tuesday?: { open?: string; close?: string; closed?: boolean };
+  Wednesday?: { open?: string; close?: string; closed?: boolean };
+  Thursday?: { open?: string; close?: string; closed?: boolean };
+  Friday?: { open?: string; close?: string; closed?: boolean };
+  Saturday?: { open?: string; close?: string; closed?: boolean };
+  Sunday?: { open?: string; close?: string; closed?: boolean };
+};
+
+type PromoteOptions = {
+  branchId: string;
+  branchName: string;
+  branchHours?: string | BranchHours;
+};
+
+const DAYS_OF_WEEK = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"] as const;
+
+export async function promoteStaffToBranchAdmin(staffId: string, options?: PromoteOptions): Promise<{ weeklySchedule: WeeklySchedule | null }> {
   const userRef = doc(db, "users", staffId);
-  await updateDoc(userRef, {
+  
+  // Build the weekly schedule based on branch hours (work all days the branch is open)
+  let weeklySchedule: WeeklySchedule | null = null;
+  
+  if (options) {
+    weeklySchedule = {};
+    const { branchId, branchName, branchHours } = options;
+    
+    // If branchHours is an object, use it to determine open days
+    if (branchHours && typeof branchHours === "object") {
+      for (const day of DAYS_OF_WEEK) {
+        const dayHours = branchHours[day];
+        // If the day is not closed, assign the staff to work at this branch on that day
+        if (dayHours && !dayHours.closed) {
+          weeklySchedule[day] = { branchId, branchName };
+        } else {
+          weeklySchedule[day] = null; // Off day
+        }
+      }
+    } else {
+      // If no hours object, default to working all weekdays
+      for (const day of DAYS_OF_WEEK) {
+        if (day === "Sunday") {
+          weeklySchedule[day] = null; // Default Sunday off
+        } else {
+          weeklySchedule[day] = { branchId, branchName };
+        }
+      }
+    }
+  }
+  
+  const updatePayload: any = {
     role: "salon_branch_admin",
-    systemRole: "salon_branch_admin", // update both for consistency
+    systemRole: "salon_branch_admin",
     updatedAt: serverTimestamp(),
-  });
+  };
+  
+  // Update branch assignment and schedule if provided
+  if (options) {
+    updatePayload.branchId = options.branchId;
+    updatePayload.branchName = options.branchName;
+    if (weeklySchedule) {
+      updatePayload.weeklySchedule = weeklySchedule;
+    }
+  }
+  
+  await updateDoc(userRef, updatePayload);
+  
+  return { weeklySchedule };
 }
 
 export async function demoteStaffFromBranchAdmin(staffId: string) {
