@@ -46,6 +46,7 @@ export default function OwnerSettingsPage() {
   const [cancellationWindow, setCancellationWindow] = useState("2 hours");
   const [logoUrl, setLogoUrl] = useState("");
   const [uploadingLogo, setUploadingLogo] = useState(false);
+  const [showRemoveLogoModal, setShowRemoveLogoModal] = useState(false);
   const logoInputRef = useRef<HTMLInputElement>(null);
 
   // Toast notifications
@@ -219,10 +220,14 @@ export default function OwnerSettingsPage() {
     }
   };
 
-  const handleRemoveLogo = async () => {
+  const handleRemoveLogo = () => {
     if (!userData) return;
-    if (!confirm("Are you sure you want to remove the logo?")) return;
+    setShowRemoveLogoModal(true);
+  };
 
+  const confirmRemoveLogo = async () => {
+    if (!userData) return;
+    setShowRemoveLogoModal(false);
     setUploadingLogo(true);
     try {
       await updateDoc(doc(db, "users", userData.uid), {
@@ -578,6 +583,63 @@ export default function OwnerSettingsPage() {
           )}
         </main>
       </div>
+
+      {/* Remove Logo Confirmation Modal */}
+      {showRemoveLogoModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center">
+          <div className="absolute inset-0 bg-black/40" onClick={() => setShowRemoveLogoModal(false)} />
+          <div className="relative bg-white rounded-2xl shadow-2xl w-full max-w-md mx-4 overflow-hidden animate-slide-in">
+            {/* Header */}
+            <div className="bg-gradient-to-r from-rose-500 to-pink-600 p-5">
+              <div className="flex items-center gap-3">
+                <div className="w-12 h-12 rounded-xl bg-white/20 flex items-center justify-center">
+                  <i className="fas fa-trash-alt text-white text-xl" />
+                </div>
+                <div>
+                  <h3 className="font-bold text-white text-lg">Remove Logo</h3>
+                  <p className="text-white/80 text-sm">This action cannot be undone</p>
+                </div>
+              </div>
+            </div>
+            
+            {/* Content */}
+            <div className="p-6">
+              <div className="flex items-center gap-4 mb-4">
+                {logoUrl && (
+                  <div className="w-16 h-16 rounded-xl border-2 border-slate-200 overflow-hidden bg-slate-50 flex-shrink-0">
+                    <img src={logoUrl} alt="Current Logo" className="w-full h-full object-contain p-1" />
+                  </div>
+                )}
+                <p className="text-slate-600">
+                  Are you sure you want to remove your salon logo? Your profile will display default initials instead.
+                </p>
+              </div>
+              
+              <div className="bg-amber-50 border border-amber-200 rounded-xl p-3 text-sm text-amber-800 flex items-start gap-2">
+                <i className="fas fa-exclamation-triangle mt-0.5" />
+                <span>This will remove the logo from your profile and all public-facing pages.</span>
+              </div>
+            </div>
+            
+            {/* Actions */}
+            <div className="px-6 pb-6 flex items-center justify-end gap-3">
+              <button
+                onClick={() => setShowRemoveLogoModal(false)}
+                className="px-5 py-2.5 rounded-xl border border-slate-300 text-slate-700 font-medium hover:bg-slate-50 transition"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={confirmRemoveLogo}
+                className="px-5 py-2.5 rounded-xl bg-rose-600 text-white font-semibold hover:bg-rose-700 transition flex items-center gap-2"
+              >
+                <i className="fas fa-trash-alt" />
+                Remove Logo
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Toast notifications */}
       <div className="fixed bottom-5 right-5 z-50 space-y-2">
