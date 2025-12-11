@@ -386,6 +386,364 @@ function AnalyticsTab({
   );
 }
 
+// Schedule Tab Component
+function ScheduleTab({
+  branch,
+  branchBookings,
+  allStaff,
+  monthYear,
+  selectedDate,
+  setSelectedDate,
+  goPrevMonth,
+  goNextMonth,
+  monthName,
+  getHoursForWeekday,
+}: {
+  branch: Branch;
+  branchBookings: any[];
+  allStaff: Array<{ id: string; name: string; status?: string; staffRole?: string; weeklySchedule?: WeeklySchedule }>;
+  monthYear: { month: number; year: number };
+  selectedDate: Date;
+  setSelectedDate: (d: Date) => void;
+  goPrevMonth: () => void;
+  goNextMonth: () => void;
+  monthName: string;
+  getHoursForWeekday: (weekdayIndex: number) => HoursDay | undefined;
+}) {
+  const DAYS = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"] as const;
+  const SHORT_DAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+
+  // Get bookings for the selected date
+  const selectedDateStr = selectedDate.toISOString().slice(0, 10);
+  const dayBookings = branchBookings.filter((b) => b.date === selectedDateStr);
+  
+  // Sort by time
+  const sortedBookings = [...dayBookings].sort((a, b) => {
+    const aTime = a.time || "00:00";
+    const bTime = b.time || "00:00";
+    return aTime.localeCompare(bTime);
+  });
+
+  // Get staff working on selected day
+  const selectedDayName = DAYS[selectedDate.getDay()];
+  const workingStaff = allStaff.filter((st) => {
+    const schedule = st.weeklySchedule || {};
+    const daySchedule = schedule[selectedDayName as keyof typeof schedule];
+    return daySchedule && daySchedule.branchId === branch.id;
+  });
+
+  // Get hours for selected day
+  const selectedDayHours = getHoursForWeekday(selectedDate.getDay());
+  const isClosed = selectedDayHours?.closed;
+  const openTime = selectedDayHours?.open || "—";
+  const closeTime = selectedDayHours?.close || "—";
+
+  // Count bookings per day for the calendar
+  const bookingsPerDay = useMemo(() => {
+    const counts: Record<string, number> = {};
+    branchBookings.forEach((b) => {
+      if (b.date) {
+        counts[b.date] = (counts[b.date] || 0) + 1;
+      }
+    });
+    return counts;
+  }, [branchBookings]);
+
+  // Build calendar cells
+  const buildMonthCells = () => {
+    const firstDayWeekIdx = new Date(monthYear.year, monthYear.month, 1).getDay();
+    const numDays = new Date(monthYear.year, monthYear.month + 1, 0).getDate();
+    const cells: Array<{ label?: number; date?: Date; dateStr?: string; closed?: boolean; bookingCount?: number }> = [];
+    
+    for (let i = 0; i < firstDayWeekIdx; i++) cells.push({});
+    
+    for (let d = 1; d <= numDays; d++) {
+      const dt = new Date(monthYear.year, monthYear.month, d);
+      const dateStr = dt.toISOString().slice(0, 10);
+      const h = getHoursForWeekday(dt.getDay());
+      const closed = Boolean(h?.closed);
+      const bookingCount = bookingsPerDay[dateStr] || 0;
+      cells.push({ label: d, date: dt, dateStr, closed, bookingCount });
+    }
+    
+    while (cells.length % 7 !== 0) cells.push({});
+    return cells;
+  };
+
+  // Calculate daily stats
+  const dayRevenue = sortedBookings.reduce((sum, b) => sum + Number(b.price || b.totalPrice || 0), 0);
+  const completedCount = sortedBookings.filter(b => b.status === "Completed").length;
+  const pendingCount = sortedBookings.filter(b => b.status === "Pending").length;
+  const confirmedCount = sortedBookings.filter(b => b.status === "Confirmed").length;
+
+  const isToday = selectedDate.toDateString() === new Date().toDateString();
+
+  return (
+    <div className="grid grid-cols-1 lg:grid-cols-5 gap-6">
+      {/* Calendar - Left Side */}
+      <div className="lg:col-span-2 bg-white rounded-2xl border border-slate-200 shadow-sm p-6">
+        <div className="flex items-center justify-between mb-4">
+          <div>
+            <div className="text-sm font-bold text-slate-700">Branch Schedule</div>
+            <p className="text-xs text-slate-500 mt-1">Click a date to view details</p>
+          </div>
+          <div className="flex items-center gap-2">
+            <button onClick={goPrevMonth} className="w-8 h-8 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 transition">
+              <i className="fas fa-chevron-left" />
+            </button>
+            <div className="text-sm font-semibold text-slate-800 px-3 min-w-[140px] text-center">{monthName}</div>
+            <button onClick={goNextMonth} className="w-8 h-8 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 transition">
+              <i className="fas fa-chevron-right" />
+            </button>
+          </div>
+        </div>
+        
+        {/* Legend */}
+        <div className="flex items-center gap-4 mb-3 text-xs text-slate-500">
+          <div className="flex items-center gap-1">
+            <div className="w-2 h-2 rounded-full bg-emerald-400" />
+            <span>Open</span>
+          </div>
+          <div className="flex items-center gap-1">
+            <div className="w-2 h-2 rounded-full bg-rose-400" />
+            <span>Closed</span>
+          </div>
+          <div className="flex items-center gap-1">
+            <div className="w-4 h-4 rounded bg-pink-100 text-pink-600 text-[10px] flex items-center justify-center font-bold">3</div>
+            <span>Bookings</span>
+          </div>
+        </div>
+
+        <div className="rounded-xl border border-slate-200 overflow-hidden">
+          <div className="grid grid-cols-7 text-xs font-semibold bg-slate-50 text-slate-600">
+            {SHORT_DAYS.map((d) => (
+              <div key={d} className="px-2 py-2.5 text-center border-b border-slate-100">
+                {d}
+              </div>
+            ))}
+          </div>
+          <div className="grid grid-cols-7">
+            {buildMonthCells().map((c, idx) => {
+              const isSelected = c.date && selectedDate.toDateString() === c.date.toDateString();
+              const isPast = c.date && c.date < new Date(new Date().setHours(0, 0, 0, 0));
+              const isTodayCell = c.date && c.date.toDateString() === new Date().toDateString();
+              
+              return (
+                <div
+                  key={idx}
+                  className={`min-h-[70px] border-b border-r border-slate-100 p-1.5 text-sm transition-all cursor-pointer ${
+                    !c.date ? "bg-slate-50/50" : ""
+                  } ${isSelected ? "bg-pink-50 ring-2 ring-pink-400 ring-inset" : "hover:bg-slate-50"} ${
+                    isPast && !isSelected ? "opacity-60" : ""
+                  }`}
+                  onClick={() => c.date && setSelectedDate(c.date)}
+                >
+                  {c.date && (
+                    <>
+                      <div className="flex items-start justify-between">
+                        <span className={`text-xs font-medium ${
+                          isSelected ? "text-pink-700" : isTodayCell ? "text-pink-600 font-bold" : "text-slate-700"
+                        }`}>
+                          {c.label}
+                          {isTodayCell && <span className="ml-1 text-[9px] text-pink-500">Today</span>}
+                        </span>
+                        <span
+                          className={`w-2 h-2 rounded-full ${c.closed ? "bg-rose-400" : "bg-emerald-400"}`}
+                          title={c.closed ? "Closed" : "Open"}
+                        />
+                      </div>
+                      {c.bookingCount! > 0 && (
+                        <div className="mt-1">
+                          <div className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-pink-100 text-pink-700 text-[10px] font-semibold">
+                            <i className="fas fa-calendar-check" />
+                            {c.bookingCount}
+                          </div>
+                        </div>
+                      )}
+                    </>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      </div>
+
+      {/* Day Details - Right Side */}
+      <div className="lg:col-span-3 space-y-4">
+        {/* Date Header Card */}
+        <div className={`rounded-2xl p-5 ${isClosed ? "bg-rose-50 border border-rose-200" : "bg-gradient-to-r from-pink-500 to-purple-600 text-white"}`}>
+          <div className="flex items-center justify-between">
+            <div>
+              <div className={`text-lg font-bold ${isClosed ? "text-rose-700" : ""}`}>
+                {selectedDate.toLocaleDateString(undefined, { weekday: "long", month: "long", day: "numeric", year: "numeric" })}
+                {isToday && <span className="ml-2 text-xs bg-white/20 px-2 py-0.5 rounded-full">Today</span>}
+              </div>
+              <div className={`text-sm mt-1 ${isClosed ? "text-rose-600" : "text-white/80"}`}>
+                {isClosed ? (
+                  <span className="flex items-center gap-2">
+                    <i className="fas fa-door-closed" /> Branch Closed
+                  </span>
+                ) : (
+                  <span className="flex items-center gap-2">
+                    <i className="fas fa-clock" /> {openTime} - {closeTime}
+                  </span>
+                )}
+              </div>
+            </div>
+            <div className={`text-right ${isClosed ? "text-rose-600" : ""}`}>
+              <div className="text-2xl font-bold">{sortedBookings.length}</div>
+              <div className={`text-xs ${isClosed ? "" : "text-white/80"}`}>Appointments</div>
+            </div>
+          </div>
+        </div>
+
+        {/* Quick Stats */}
+        {!isClosed && (
+          <div className="grid grid-cols-4 gap-3">
+            <div className="bg-white rounded-xl border border-slate-200 p-3 text-center">
+              <div className="text-xl font-bold text-emerald-600">${dayRevenue}</div>
+              <div className="text-xs text-slate-500">Revenue</div>
+            </div>
+            <div className="bg-white rounded-xl border border-slate-200 p-3 text-center">
+              <div className="text-xl font-bold text-amber-600">{pendingCount}</div>
+              <div className="text-xs text-slate-500">Pending</div>
+            </div>
+            <div className="bg-white rounded-xl border border-slate-200 p-3 text-center">
+              <div className="text-xl font-bold text-blue-600">{confirmedCount}</div>
+              <div className="text-xs text-slate-500">Confirmed</div>
+            </div>
+            <div className="bg-white rounded-xl border border-slate-200 p-3 text-center">
+              <div className="text-xl font-bold text-emerald-600">{completedCount}</div>
+              <div className="text-xs text-slate-500">Completed</div>
+            </div>
+          </div>
+        )}
+
+        {/* Working Staff */}
+        {!isClosed && (
+          <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-4">
+            <div className="flex items-center justify-between mb-3">
+              <div className="text-sm font-bold text-slate-700 flex items-center gap-2">
+                <i className="fas fa-users text-indigo-500" />
+                Staff Working Today
+              </div>
+              <span className="text-xs text-slate-500">{workingStaff.length} staff</span>
+            </div>
+            {workingStaff.length === 0 ? (
+              <div className="text-sm text-slate-400 py-2">No staff scheduled for this day</div>
+            ) : (
+              <div className="flex flex-wrap gap-2">
+                {workingStaff.map((st) => (
+                  <div key={st.id} className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-indigo-50 border border-indigo-100">
+                    <div className="w-6 h-6 rounded-full bg-indigo-200 text-indigo-700 text-xs flex items-center justify-center font-semibold">
+                      {st.name.substring(0, 2).toUpperCase()}
+                    </div>
+                    <span className="text-sm font-medium text-indigo-700">{st.name}</span>
+                    {st.staffRole && <span className="text-xs text-indigo-500">• {st.staffRole}</span>}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Appointments List */}
+        <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-4">
+          <div className="flex items-center justify-between mb-3">
+            <div className="text-sm font-bold text-slate-700 flex items-center gap-2">
+              <i className="fas fa-calendar-check text-pink-500" />
+              Appointments
+            </div>
+          </div>
+          
+          {isClosed ? (
+            <div className="text-center py-8 text-slate-400">
+              <i className="fas fa-door-closed text-3xl mb-2" />
+              <p className="text-sm">Branch is closed on this day</p>
+            </div>
+          ) : sortedBookings.length === 0 ? (
+            <div className="text-center py-8 text-slate-400">
+              <i className="fas fa-calendar-xmark text-3xl mb-2" />
+              <p className="text-sm">No appointments scheduled</p>
+            </div>
+          ) : (
+            <div className="space-y-3 max-h-[400px] overflow-y-auto pr-1">
+              {sortedBookings.map((b, idx) => {
+                const statusColors: Record<string, string> = {
+                  Pending: "bg-amber-50 border-amber-200 text-amber-700",
+                  Confirmed: "bg-blue-50 border-blue-200 text-blue-700",
+                  Completed: "bg-emerald-50 border-emerald-200 text-emerald-700",
+                  Cancelled: "bg-rose-50 border-rose-200 text-rose-700",
+                };
+                const statusColor = statusColors[b.status] || "bg-slate-50 border-slate-200 text-slate-700";
+                
+                // Get staff name
+                let staffName = "—";
+                if (Array.isArray(b.services) && b.services.length > 0) {
+                  const names = b.services
+                    .map((s: any) => s.staffName)
+                    .filter((n: string) => n && n !== "Any Available" && n !== "Any Staff");
+                  if (names.length > 0) staffName = [...new Set(names)].join(", ");
+                } else if (b.staffName && b.staffName !== "Any Available" && b.staffName !== "Any Staff") {
+                  staffName = b.staffName;
+                }
+
+                return (
+                  <div key={b.id || idx} className="border border-slate-200 rounded-xl p-4 hover:shadow-md transition bg-white">
+                    <div className="flex items-start justify-between gap-4">
+                      <div className="flex items-start gap-3">
+                        {/* Time */}
+                        <div className="text-center shrink-0">
+                          <div className="text-lg font-bold text-slate-800">{b.time || "—"}</div>
+                          <div className="text-xs text-slate-400">
+                            {b.duration ? `${b.duration} min` : "—"}
+                          </div>
+                        </div>
+                        
+                        {/* Divider */}
+                        <div className="w-px h-12 bg-slate-200 shrink-0" />
+                        
+                        {/* Details */}
+                        <div className="min-w-0">
+                          <div className="flex items-center gap-2 mb-1">
+                            <div className="w-8 h-8 rounded-full bg-pink-100 text-pink-600 flex items-center justify-center text-xs font-semibold">
+                              {(b.client || "U").toString().slice(0, 1).toUpperCase()}
+                            </div>
+                            <div>
+                              <div className="text-sm font-semibold text-slate-800">{b.client || "Unknown"}</div>
+                              <div className="text-xs text-slate-500">{b.serviceName || "Service"}</div>
+                            </div>
+                          </div>
+                          <div className="flex items-center gap-3 text-xs text-slate-500 mt-2">
+                            <span className="flex items-center gap-1">
+                              <i className="fas fa-user" />
+                              {staffName}
+                            </span>
+                            <span className="flex items-center gap-1 font-semibold text-slate-700">
+                              <i className="fas fa-dollar-sign" />
+                              {Number(b.price || 0).toFixed(0)}
+                            </span>
+                          </div>
+                        </div>
+                      </div>
+                      
+                      {/* Status Badge */}
+                      <div className={`shrink-0 px-2.5 py-1 rounded-full text-xs font-medium border ${statusColor}`}>
+                        {b.status || "Pending"}
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function BranchDetailsPage() {
   const router = useRouter();
   const params = useParams() as { id?: string | string[] };
@@ -1320,76 +1678,18 @@ export default function BranchDetailsPage() {
                 )}
 
                 {activeTab === "schedule" && (
-                  <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                    {/* Calendar */}
-                    <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-6">
-                      <div className="flex items-center justify-between mb-3">
-                        <div className="text-sm font-bold text-slate-700">Branch Schedule Calendar</div>
-                        <div className="flex items-center gap-2">
-                          <button onClick={goPrevMonth} className="w-8 h-8 rounded bg-slate-100 hover:bg-slate-200 text-slate-700">
-                            <i className="fas fa-chevron-left" />
-                          </button>
-                          <div className="text-sm font-semibold text-slate-800 px-2">{monthName}</div>
-                          <button onClick={goNextMonth} className="w-8 h-8 rounded bg-slate-100 hover:bg-slate-200 text-slate-700">
-                            <i className="fas fa-chevron-right" />
-                          </button>
-                        </div>
-                      </div>
-                      <div className="rounded-lg border border-slate-200 overflow-hidden">
-                        <div className="grid grid-cols-7 text-xs font-semibold bg-slate-50 text-slate-600">
-                          {["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].map((d) => (
-                            <div key={d} className="px-2 py-2 text-center">
-                              {d}
-                            </div>
-                          ))}
-                        </div>
-                        <div className="grid grid-cols-7">
-                          {buildMonthCells().map((c, idx) => {
-                            const isSelected =
-                              c.date &&
-                              selectedDate.getFullYear() === c.date.getFullYear() &&
-                              selectedDate.getMonth() === c.date.getMonth() &&
-                              selectedDate.getDate() === c.date.getDate();
-                            return (
-                              <div
-                                key={idx}
-                                className={`h-16 border border-slate-100 p-2 text-sm ${c.date ? "cursor-pointer hover:bg-slate-50" : "bg-slate-50/40"}`}
-                                onClick={() => c.date && setSelectedDate(c.date)}
-                              >
-                                <div className="flex items-start justify-between">
-                                  <span className={`text-slate-700 ${!c.date ? "opacity-0" : ""}`}>{c.label}</span>
-                                  {c.date && (
-                                    <span
-                                      className={`w-2 h-2 rounded-full mt-1 ${c.closed ? "bg-rose-400" : "bg-emerald-400"}`}
-                                      title={c.closed ? "Closed" : "Open"}
-                                    />
-                                  )}
-                                </div>
-                                {isSelected && <div className="mt-2 text-[10px] inline-block px-2 py-0.5 rounded bg-slate-900 text-white">Selected</div>}
-                              </div>
-                            );
-                          })}
-                        </div>
-                      </div>
-                    </div>
-
-                    {/* Day details */}
-                    <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-6">
-                      <div className="text-sm font-bold text-slate-700 mb-1">
-                        {selectedDate.toLocaleDateString(undefined, { weekday: "long", month: "long", day: "numeric", year: "numeric" })}
-                      </div>
-                      <div className="text-sm text-slate-600 mb-4">{getSelectedDateText()}</div>
-                      <div className="rounded-lg border border-slate-200 p-4 bg-slate-50">
-                        <div className="text-sm text-slate-500">
-                          Placeholder for booking/assignment list. Hook this panel to your booking data to show time slots or assigned staff for the selected date.
-                        </div>
-                        <button className="mt-4 px-4 py-2 bg-pink-600 text-white rounded-lg text-sm hover:bg-pink-700">
-                          <i className="fas fa-user-plus mr-2" />
-                          Assign Staff to This Date
-                        </button>
-                      </div>
-                    </div>
-                  </div>
+                  <ScheduleTab
+                    branch={branch}
+                    branchBookings={branchBookings}
+                    allStaff={allStaff}
+                    monthYear={monthYear}
+                    selectedDate={selectedDate}
+                    setSelectedDate={setSelectedDate}
+                    goPrevMonth={goPrevMonth}
+                    goNextMonth={goNextMonth}
+                    monthName={monthName}
+                    getHoursForWeekday={getHoursForWeekday}
+                  />
                 )}
               </>
             )}
