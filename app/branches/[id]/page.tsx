@@ -53,6 +53,7 @@ type Branch = {
   capacity?: number;
   manager?: string;
   status?: "Active" | "Pending" | "Closed";
+  adminStaffId?: string;
 };
 
 export default function BranchDetailsPage() {
@@ -144,6 +145,7 @@ export default function BranchDetailsPage() {
           staffIds: Array.isArray(data.staffIds) ? data.staffIds.map(String) : [],
           staffByDay: data.staffByDay as StaffByDay | undefined,
           serviceIds: Array.isArray(data.serviceIds) ? data.serviceIds.map(String) : [],
+          adminStaffId: data.adminStaffId || undefined,
         };
         setBranch(b);
         setLoading(false);
@@ -881,10 +883,20 @@ export default function BranchDetailsPage() {
                       const DAYS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"] as const;
                       const SHORT_DAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 
+                      // Sort: admin first, then others
+                      const sortedStaff = [...branchStaff].sort((a, b) => {
+                        const aIsAdmin = a.id === branch.adminStaffId;
+                        const bIsAdmin = b.id === branch.adminStaffId;
+                        if (aIsAdmin && !bIsAdmin) return -1;
+                        if (!aIsAdmin && bIsAdmin) return 1;
+                        return 0;
+                      });
+
                       return (
                         <div className="space-y-3">
-                          {branchStaff.map((st) => {
+                          {sortedStaff.map((st) => {
                             const schedule = st.weeklySchedule || {};
+                            const isAdmin = st.id === branch.adminStaffId;
                             const statusColor =
                               st.status === "Active" ? "bg-emerald-100 text-emerald-700" : st.status === "Suspended" ? "bg-rose-100 text-rose-700" : "bg-slate-100 text-slate-600";
                             
@@ -894,15 +906,37 @@ export default function BranchDetailsPage() {
                             );
 
                             return (
-                              <div key={st.id} className="border border-slate-200 rounded-xl p-4 hover:shadow-md transition bg-white">
+                              <div 
+                                key={st.id} 
+                                className={`rounded-xl p-4 hover:shadow-md transition ${
+                                  isAdmin 
+                                    ? "bg-gradient-to-r from-violet-50 to-purple-50 border-2 border-violet-300 shadow-sm" 
+                                    : "bg-white border border-slate-200"
+                                }`}
+                              >
+                                {/* Admin badge */}
+                                {isAdmin && (
+                                  <div className="mb-3">
+                                    <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-gradient-to-r from-violet-500 to-purple-600 text-white text-xs font-semibold">
+                                      <i className="fas fa-crown" />
+                                      Branch Admin
+                                    </div>
+                                  </div>
+                                )}
                                 <div className="flex flex-col sm:flex-row sm:items-center gap-4">
                                   {/* Staff info */}
                                   <div className="flex items-center gap-3 min-w-[200px]">
-                                    <div className="w-10 h-10 rounded-full bg-gradient-to-br from-pink-100 to-purple-100 text-pink-600 flex items-center justify-center font-semibold text-sm">
+                                    <div className={`w-10 h-10 rounded-full flex items-center justify-center font-semibold text-sm ${
+                                      isAdmin 
+                                        ? "bg-gradient-to-br from-violet-500 to-purple-600 text-white" 
+                                        : "bg-gradient-to-br from-pink-100 to-purple-100 text-pink-600"
+                                    }`}>
                                       {st.name.substring(0, 2).toUpperCase()}
                                     </div>
                                     <div className="min-w-0 flex-1">
-                                      <div className="text-sm font-semibold text-slate-800 truncate">{st.name}</div>
+                                      <div className={`text-sm font-semibold truncate ${isAdmin ? "text-violet-700" : "text-slate-800"}`}>
+                                        {st.name}
+                                      </div>
                                       <div className="text-xs text-slate-500 truncate">{st.staffRole}</div>
                                     </div>
                                   </div>
