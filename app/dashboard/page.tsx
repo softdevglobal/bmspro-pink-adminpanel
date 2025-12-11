@@ -508,12 +508,16 @@ export default function DashboardPage() {
     };
   }, [ownerUid, isSuperAdmin]);
 
+  // Track if charts have been initially built
+  const chartsInitializedRef = useRef(false);
+  const dataHashRef = useRef<string>("");
+
   // Initialize charts with Chart.js (loaded via CDN Script)
-  const buildCharts = () => {
+  const buildCharts = (animate: boolean = true) => {
     // @ts-ignore
     const Chart = (window as any)?.Chart;
-    if (!Chart) return;
-    if (!revCanvasRef.current || !statusCanvasRef.current) return;
+    if (!Chart) return false;
+    if (!revCanvasRef.current || !statusCanvasRef.current) return false;
 
     // Destroy existing instances to avoid duplicates
     try {
@@ -553,6 +557,7 @@ export default function DashboardPage() {
       options: {
         responsive: true,
         maintainAspectRatio: false,
+        animation: animate ? { duration: 750 } : false,
         plugins: { legend: { display: false } },
         scales: {
           x: { grid: { display: false }, ticks: { color: "#94a3b8" } },
@@ -622,6 +627,7 @@ export default function DashboardPage() {
       options: {
         responsive: true,
         maintainAspectRatio: false,
+        animation: animate ? { duration: 750 } : false,
         cutout: "70%",
         plugins: {
           legend: { display: true, position: "right", labels: { color: "#64748b" } },
@@ -631,19 +637,52 @@ export default function DashboardPage() {
 
     chartsRef.current = { revenue, status };
     builtRef.current = true;
+    return true;
   };
 
   // Build charts when data changes
   useEffect(() => {
+    // Create a hash of the data to detect actual changes
+    const currentDataHash = JSON.stringify({ revenueData, revenueLabels, statusData });
+    const dataChanged = dataHashRef.current !== currentDataHash;
+    
+    // Only animate on first build, not on subsequent data updates
+    const shouldAnimate = !chartsInitializedRef.current;
+    
     const tryBuild = () => {
       // @ts-ignore
       const Chart = (window as any)?.Chart;
       if (Chart && revCanvasRef.current && statusCanvasRef.current) {
-        buildCharts();
+        const success = buildCharts(shouldAnimate);
+        if (success) {
+          chartsInitializedRef.current = true;
+          dataHashRef.current = currentDataHash;
+          return true;
+        }
       }
+      return false;
     };
-    tryBuild();
-    const id = setInterval(tryBuild, 200);
+
+    // If charts are already built and data hasn't changed, skip
+    if (chartsInitializedRef.current && !dataChanged) {
+      return;
+    }
+
+    // Try to build immediately
+    if (tryBuild()) {
+      return;
+    }
+
+    // If Chart.js isn't loaded yet, poll until it is (but stop after success)
+    let attempts = 0;
+    const maxAttempts = 50; // 10 seconds max
+    const id = setInterval(() => {
+      attempts++;
+      if (tryBuild() || attempts >= maxAttempts) {
+        clearInterval(id);
+      }
+    }, 200);
+
     return () => {
       clearInterval(id);
     };
