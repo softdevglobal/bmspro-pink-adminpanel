@@ -916,15 +916,13 @@ export default function SettingsPage() {
                                 const isBranchAdmin = s.systemRole === "salon_branch_admin";
                                 
                                 // For branch admins, check if the branch is actually open on this day
-                                let isWorking = assignment && assignment.branchId;
-                                let isBranchClosed = false;
+                                let isWorking: boolean = Boolean(assignment && assignment.branchId);
                                 
                                 if (isBranchAdmin && assignment?.branchId) {
                                   const adminBranch = data.branches.find(b => b.id === assignment.branchId);
                                   if (adminBranch?.hours) {
                                     const dayHours = adminBranch.hours[day];
                                     if (dayHours?.closed === true) {
-                                      isBranchClosed = true;
                                       isWorking = false; // Branch is closed, so admin is off
                                     }
                                   }
@@ -941,7 +939,7 @@ export default function SettingsPage() {
                                         : "bg-slate-50 hover:bg-slate-100"
                                     }`}
                                   >
-                                    {isWorking ? (
+                                    {isWorking && assignment ? (
                                       <div className="space-y-1">
                                         <div className={`font-semibold text-xs ${isBranchAdmin ? "text-indigo-800" : "text-emerald-800"}`}>
                                           {assignment.branchName}
