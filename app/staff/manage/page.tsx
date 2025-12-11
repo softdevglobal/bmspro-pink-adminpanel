@@ -214,19 +214,23 @@ export default function SettingsPage() {
     
     const branchRow = data.branches.find((b) => b.id === branchId);
     
-    // For Branch Admins, create a schedule with the same branch for all 7 days
+    // For Branch Admins, create a schedule ONLY for days when the branch is open
     let finalSchedule: WeeklySchedule = {};
     if (systemRole === "salon_branch_admin" && branchRow) {
       const branchAssignment = { branchId: branchRow.id, branchName: branchRow.name };
-      finalSchedule = {
-        Monday: branchAssignment,
-        Tuesday: branchAssignment,
-        Wednesday: branchAssignment,
-        Thursday: branchAssignment,
-        Friday: branchAssignment,
-        Saturday: branchAssignment,
-        Sunday: branchAssignment,
-      };
+      const branchHrs = branchRow.hours || {};
+      const daysOfWeek: Array<keyof HoursMap> = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
+      
+      daysOfWeek.forEach((day) => {
+        const dayHours = branchHrs[day];
+        const isClosed = dayHours?.closed === true;
+        // Only assign admin to days when branch is open
+        if (!isClosed) {
+          finalSchedule[day] = branchAssignment;
+        } else {
+          finalSchedule[day] = null;
+        }
+      });
     } else {
       // For regular staff, use the weekly schedule they configured
       finalSchedule = weeklySchedule;
@@ -909,8 +913,23 @@ export default function SettingsPage() {
                               </td>
                               {days.map((day) => {
                                 const assignment = schedule[day];
-                                const isWorking = assignment && assignment.branchId;
                                 const isBranchAdmin = s.systemRole === "salon_branch_admin";
+                                
+                                // For branch admins, check if the branch is actually open on this day
+                                let isWorking = assignment && assignment.branchId;
+                                let isBranchClosed = false;
+                                
+                                if (isBranchAdmin && assignment?.branchId) {
+                                  const adminBranch = data.branches.find(b => b.id === assignment.branchId);
+                                  if (adminBranch?.hours) {
+                                    const dayHours = adminBranch.hours[day];
+                                    if (dayHours?.closed === true) {
+                                      isBranchClosed = true;
+                                      isWorking = false; // Branch is closed, so admin is off
+                                    }
+                                  }
+                                }
+                                
                                 return (
                                   <td
                                     key={day}
@@ -960,7 +979,20 @@ export default function SettingsPage() {
                         <div className="text-2xl font-bold text-emerald-900">
                           {data.staff.reduce((acc, s) => {
                             const schedule = s.weeklySchedule || {};
-                            return acc + Object.values(schedule).filter(v => v !== null && v !== undefined).length;
+                            const isBranchAdmin = s.systemRole === "salon_branch_admin";
+                            const days: Array<keyof WeeklySchedule> = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
+                            
+                            return acc + days.filter(day => {
+                              const assignment = schedule[day];
+                              if (!assignment?.branchId) return false;
+                              
+                              // For branch admins, check if branch is open
+                              if (isBranchAdmin) {
+                                const adminBranch = data.branches.find(b => b.id === assignment.branchId);
+                                if (adminBranch?.hours?.[day]?.closed) return false;
+                              }
+                              return true;
+                            }).length;
                           }, 0)}
                         </div>
                         <div className="text-xs text-emerald-700">Total Shifts This Week</div>
@@ -1161,7 +1193,7 @@ export default function SettingsPage() {
                       </select>
                       <p className="text-[10px] text-indigo-600 mt-1 font-medium">
                         <i className="fas fa-info-circle mr-1" />
-                        This admin will manage this branch for all 7 days.
+                        This admin will manage this branch on all opening days.
                       </p>
                     </div>
                   )}
@@ -1223,12 +1255,12 @@ export default function SettingsPage() {
                         Branch Admin Schedule
                       </h4>
                       <p className="text-[10px] sm:text-xs text-indigo-700 leading-relaxed">
-                        As a <strong>Branch Admin</strong>, this staff member will be assigned to their selected branch for all 7 days. Full management access to bookings, staff, and operations.
+                        As a <strong>Branch Admin</strong>, this staff member will be assigned to their selected branch on all <strong>opening days</strong>. Full management access to bookings, staff, and operations.
                       </p>
                       <div className="mt-2 sm:mt-3 flex flex-wrap items-center gap-1.5 sm:gap-2 text-[10px] sm:text-xs">
                         <div className="flex items-center gap-1 px-1.5 sm:px-2 py-0.5 sm:py-1 bg-white/60 rounded-md">
                           <i className="fas fa-calendar-week text-indigo-600" />
-                          <span className="font-medium text-indigo-800 whitespace-nowrap">Mon-Sun</span>
+                          <span className="font-medium text-indigo-800 whitespace-nowrap">Open Days Only</span>
                         </div>
                         <div className="flex items-center gap-1 px-1.5 sm:px-2 py-0.5 sm:py-1 bg-white/60 rounded-md">
                           <i className="fas fa-crown text-indigo-600" />
