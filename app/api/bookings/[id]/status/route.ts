@@ -13,6 +13,7 @@ import {
 function getActivityType(status: string): string {
   const s = status.toLowerCase().replace(/[_\s-]/g, "");
   if (s === "awaitingstaffapproval") return "booking_sent_to_staff";
+  if (s === "partiallyapproved") return "booking_partially_approved";
   if (s === "staffrejected") return "booking_staff_rejected";
   if (s === "confirmed") return "booking_confirmed";
   if (s === "completed") return "booking_completed";
@@ -144,7 +145,20 @@ export async function PATCH(req: NextRequest, context: { params: Promise<{ id: s
 
     // Add services update if provided (for multi-service staff assignment)
     if (body.services && Array.isArray(body.services) && body.services.length > 0) {
-      updateData.services = body.services;
+      // Initialize approvalStatus to "pending" for each service when sending to staff
+      if (isAdminConfirmingPending || actualNextStatus === "AwaitingStaffApproval") {
+        updateData.services = body.services.map((service: any) => ({
+          ...service,
+          approvalStatus: "pending", // Initialize approval status
+          acceptedAt: null,
+          rejectedAt: null,
+          rejectionReason: null,
+          respondedByStaffUid: null,
+          respondedByStaffName: null,
+        }));
+      } else {
+        updateData.services = body.services;
+      }
       
       // If we have services, we don't need top-level staff info
       if (!isBookingRequest) {

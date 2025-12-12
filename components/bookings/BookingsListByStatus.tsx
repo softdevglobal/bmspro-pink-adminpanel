@@ -8,6 +8,25 @@ import { normalizeBookingStatus, getStatusLabel, getStatusColor } from "@/lib/bo
 import Sidebar from "@/components/Sidebar";
 import { updateBookingStatus } from "@/lib/bookings";
 
+type ServiceApprovalStatus = "pending" | "accepted" | "rejected";
+
+type ServiceRow = {
+  id: string | number;
+  name?: string;
+  price?: number;
+  duration?: number;
+  time?: string;
+  staffId?: string | null;
+  staffName?: string | null;
+  // Per-service approval tracking
+  approvalStatus?: ServiceApprovalStatus;
+  acceptedAt?: any;
+  rejectedAt?: any;
+  rejectionReason?: string;
+  respondedByStaffUid?: string;
+  respondedByStaffName?: string;
+};
+
 type Row = {
   id: string;
   client: string;
@@ -31,15 +50,10 @@ type Row = {
   rejectionReason?: string | null;
   rejectedByStaffName?: string | null;
   rejectedByStaffUid?: string | null;
-  services?: Array<{
-    id: string | number;
-    name?: string;
-    price?: number;
-    duration?: number;
-    time?: string;
-    staffId?: string | null;
-    staffName?: string | null;
-  }> | null;
+  // Multi-rejection info
+  lastRejectedByStaffName?: string | null;
+  lastRejectionReason?: string | null;
+  services?: ServiceRow[] | null;
 };
 
 function useBookingsByStatus(statuses: BookingStatus | BookingStatus[]) {
@@ -130,7 +144,24 @@ function useBookingsByStatus(statuses: BookingStatus | BookingStatus[]) {
               rejectionReason: d.rejectionReason || null,
               rejectedByStaffName: d.rejectedByStaffName || null,
               rejectedByStaffUid: d.rejectedByStaffUid || null,
-              services: d.services || null,
+              // Multi-rejection info
+              lastRejectedByStaffName: d.lastRejectedByStaffName || null,
+              lastRejectionReason: d.lastRejectionReason || null,
+              services: d.services?.map((s: any) => ({
+                id: s.id,
+                name: s.name,
+                price: s.price,
+                duration: s.duration,
+                time: s.time,
+                staffId: s.staffId,
+                staffName: s.staffName,
+                approvalStatus: s.approvalStatus || "pending",
+                acceptedAt: s.acceptedAt,
+                rejectedAt: s.rejectedAt,
+                rejectionReason: s.rejectionReason,
+                respondedByStaffUid: s.respondedByStaffUid,
+                respondedByStaffName: s.respondedByStaffName,
+              })) || null,
             });
           }
         });
@@ -182,7 +213,8 @@ export default function BookingsListByStatus({ status, title }: { status: Bookin
     const normalizedStatus = normalizeBookingStatus(rowStatus ?? null);
     if (normalizedStatus === "Pending") return ["Confirm", "Cancel"];
     if (normalizedStatus === "AwaitingStaffApproval") return ["Cancel"]; // Admin can only cancel, waiting for staff action
-    if (normalizedStatus === "StaffRejected") return ["Reassign", "Cancel"]; // Admin must reassign or cancel
+    if (normalizedStatus === "PartiallyApproved") return ["Cancel"]; // Waiting for remaining staff to respond
+    if (normalizedStatus === "StaffRejected") return ["Reassign", "Cancel"]; // Admin must reassign rejected service(s) or cancel
     if (normalizedStatus === "Confirmed") return ["Complete", "Cancel"];
     return [];
   };
@@ -192,6 +224,7 @@ export default function BookingsListByStatus({ status, title }: { status: Bookin
     const statusArray = Array.isArray(status) ? status : [status];
     if (statusArray.includes("Pending")) return ["Confirm", "Cancel"];
     if (statusArray.includes("AwaitingStaffApproval")) return ["Cancel"];
+    if (statusArray.includes("PartiallyApproved")) return ["Cancel"];
     if (statusArray.includes("StaffRejected")) return ["Reassign", "Cancel"];
     if (statusArray.includes("Confirmed")) return ["Complete", "Cancel"];
     return [];
@@ -936,18 +969,49 @@ export default function BookingsListByStatus({ status, title }: { status: Bookin
                             staffName: previewRow.staffName,
                             time: previewRow.time,
                             duration: previewRow.duration,
-                            price: previewRow.price
-                          }]).map((svc, idx) => (
-                            <div key={idx} className="group relative overflow-hidden rounded-xl border border-slate-200 bg-white p-3 shadow-sm hover:shadow-md hover:border-pink-200 transition-all duration-200">
-                              <div className="absolute left-0 top-0 bottom-0 w-1 bg-gradient-to-b from-pink-500 to-purple-500 opacity-0 group-hover:opacity-100 transition-opacity" />
+                            price: previewRow.price,
+                            approvalStatus: undefined
+                          }]).map((svc, idx) => {
+                            // Determine approval status badge colors
+                            const approvalStatus = (svc as any).approvalStatus || "pending";
+                            const approvalBadge = {
+                              pending: { bg: "bg-amber-100", text: "text-amber-700", icon: "fa-clock", label: "Pending", border: "border-amber-200" },
+                              accepted: { bg: "bg-emerald-100", text: "text-emerald-700", icon: "fa-check", label: "Accepted", border: "border-emerald-200" },
+                              rejected: { bg: "bg-rose-100", text: "text-rose-700", icon: "fa-times", label: "Rejected", border: "border-rose-200" },
+                            }[approvalStatus] || { bg: "bg-slate-100", text: "text-slate-700", icon: "fa-circle", label: "", border: "border-slate-200" };
+
+                            return (
+                            <div key={idx} className={`group relative overflow-hidden rounded-xl border bg-white p-3 shadow-sm hover:shadow-md transition-all duration-200 ${
+                              approvalStatus === "rejected" ? "border-rose-200 hover:border-rose-300" : 
+                              approvalStatus === "accepted" ? "border-emerald-200 hover:border-emerald-300" : 
+                              "border-slate-200 hover:border-pink-200"
+                            }`}>
+                              <div className={`absolute left-0 top-0 bottom-0 w-1 ${
+                                approvalStatus === "rejected" ? "bg-gradient-to-b from-rose-500 to-red-500" :
+                                approvalStatus === "accepted" ? "bg-gradient-to-b from-emerald-500 to-green-500" :
+                                "bg-gradient-to-b from-pink-500 to-purple-500 opacity-0 group-hover:opacity-100"
+                              } transition-opacity`} />
                               <div className="flex justify-between items-start mb-1.5">
                                 <div className="font-bold text-slate-800 text-sm flex items-center gap-2">
-                                   <div className="w-5 h-5 rounded-full bg-pink-50 flex items-center justify-center text-pink-500 shrink-0">
+                                   <div className={`w-5 h-5 rounded-full flex items-center justify-center shrink-0 ${
+                                     approvalStatus === "rejected" ? "bg-rose-50 text-rose-500" :
+                                     approvalStatus === "accepted" ? "bg-emerald-50 text-emerald-500" :
+                                     "bg-pink-50 text-pink-500"
+                                   }`}>
                                      <i className="fas fa-magic text-[10px]" />
                                    </div>
                                    {svc.name || "Service"}
                                 </div>
-                                {svc.price !== undefined && <div className="font-bold text-slate-900 text-sm">${svc.price}</div>}
+                                <div className="flex items-center gap-2">
+                                  {/* Show approval status badge for multi-service bookings */}
+                                  {previewRow.services && previewRow.services.length > 0 && (previewRow.status === "AwaitingStaffApproval" || previewRow.status === "PartiallyApproved" || previewRow.status === "StaffRejected") && (
+                                    <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold ${approvalBadge.bg} ${approvalBadge.text}`}>
+                                      <i className={`fas ${approvalBadge.icon} text-[8px]`} />
+                                      {approvalBadge.label}
+                                    </span>
+                                  )}
+                                  {svc.price !== undefined && <div className="font-bold text-slate-900 text-sm">${svc.price}</div>}
+                                </div>
                               </div>
                               <div className="flex flex-wrap items-center gap-x-4 gap-y-2 text-xs text-slate-500 pl-7">
                                  <div className="flex items-center gap-1.5 bg-slate-50 px-2 py-1 rounded-md">
@@ -960,8 +1024,23 @@ export default function BookingsListByStatus({ status, title }: { status: Bookin
                                     <span className="font-medium text-slate-700">{svc.staffName || previewRow.staffName || "Any Staff"}</span>
                                  </div>
                               </div>
+                              {/* Show rejection reason if service was rejected */}
+                              {approvalStatus === "rejected" && (svc as any).rejectionReason && (
+                                <div className="mt-2 p-2 bg-rose-50 rounded-lg border border-rose-100 pl-7">
+                                  <p className="text-xs text-rose-700 flex items-start gap-1.5">
+                                    <i className="fas fa-exclamation-circle mt-0.5 shrink-0" />
+                                    <span><strong>Rejected:</strong> {(svc as any).rejectionReason}</span>
+                                  </p>
+                                  {(svc as any).respondedByStaffName && (
+                                    <p className="text-[10px] text-rose-500 mt-1 pl-5">
+                                      by {(svc as any).respondedByStaffName}
+                                    </p>
+                                  )}
+                                </div>
+                              )}
                             </div>
-                          ))}
+                            );
+                          })}
                         </div>
                       </div>
                       
@@ -1137,18 +1216,41 @@ export default function BookingsListByStatus({ status, title }: { status: Bookin
                             <div className="mt-1">
                               {r.services && r.services.length > 0 ? (
                                 <div className="flex flex-col gap-1">
-                                  {r.services.map((svc, idx) => (
-                                    <div key={idx} className="flex items-center gap-2">
-                                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-slate-100 text-slate-700 border border-slate-200">
-                                        <i className="fas fa-sparkles text-[10px] text-pink-500" />
-                                        <span className="text-xs font-medium">{svc.name || "Service"}</span>
-                                      </span>
-                                      <span className="text-[10px] text-slate-500 flex items-center gap-1">
-                                        <i className="fas fa-user-tie text-[9px]" />
-                                        {svc.staffName || "Any Staff"}
-                                      </span>
-                                    </div>
-                                  ))}
+                                  {r.services.map((svc, idx) => {
+                                    // Determine approval status badge
+                                    const approvalStatus = svc.approvalStatus || "pending";
+                                    const approvalBadge = {
+                                      pending: { bg: "bg-amber-100", text: "text-amber-700", icon: "fa-clock", label: "Pending" },
+                                      accepted: { bg: "bg-emerald-100", text: "text-emerald-700", icon: "fa-check", label: "Accepted" },
+                                      rejected: { bg: "bg-rose-100", text: "text-rose-700", icon: "fa-times", label: "Rejected" },
+                                    }[approvalStatus];
+                                    
+                                    return (
+                                      <div key={idx} className="flex items-center gap-2 flex-wrap">
+                                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-slate-100 text-slate-700 border border-slate-200">
+                                          <i className="fas fa-sparkles text-[10px] text-pink-500" />
+                                          <span className="text-xs font-medium">{svc.name || "Service"}</span>
+                                        </span>
+                                        <span className="text-[10px] text-slate-500 flex items-center gap-1">
+                                          <i className="fas fa-user-tie text-[9px]" />
+                                          {svc.staffName || "Any Staff"}
+                                        </span>
+                                        {/* Show approval status badge for multi-service bookings in AwaitingStaffApproval, PartiallyApproved, or StaffRejected status */}
+                                        {(r.status === "AwaitingStaffApproval" || r.status === "PartiallyApproved" || r.status === "StaffRejected") && (
+                                          <span className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[9px] font-semibold ${approvalBadge.bg} ${approvalBadge.text}`}>
+                                            <i className={`fas ${approvalBadge.icon} text-[8px]`} />
+                                            {approvalBadge.label}
+                                          </span>
+                                        )}
+                                        {/* Show rejection reason if rejected */}
+                                        {approvalStatus === "rejected" && svc.rejectionReason && (
+                                          <span className="text-[9px] text-rose-600 italic" title={svc.rejectionReason}>
+                                            "{svc.rejectionReason.substring(0, 20)}{svc.rejectionReason.length > 20 ? "..." : ""}"
+                                          </span>
+                                        )}
+                                      </div>
+                                    );
+                                  })}
                                 </div>
                               ) : (
                               <div className="text-xs mt-0.5">

@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { adminAuth, adminDb } from "@/lib/firebaseAdmin";
 import { FieldValue } from "firebase-admin/firestore";
-import { normalizeBookingStatus } from "@/lib/bookingTypes";
+import { normalizeBookingStatus, type BookingService, type ServiceApprovalStatus } from "@/lib/bookingTypes";
 import { 
   createCustomerConfirmationNotification, 
   createAdminRejectionNotification 
@@ -22,8 +22,26 @@ export async function OPTIONS() {
 }
 
 /**
+ * Calculate booking status based on service approval statuses
+ */
+function calculateBookingStatus(services: BookingService[]): string {
+  if (!services || services.length === 0) return "AwaitingStaffApproval";
+  
+  const statuses = services.map(s => s.approvalStatus || "pending");
+  const allAccepted = statuses.every(s => s === "accepted");
+  const anyRejected = statuses.some(s => s === "rejected");
+  const anyAccepted = statuses.some(s => s === "accepted");
+  const allPending = statuses.every(s => s === "pending");
+  
+  if (allAccepted) return "Confirmed";
+  if (anyRejected) return "StaffRejected";
+  if (anyAccepted && !allPending) return "PartiallyApproved";
+  return "AwaitingStaffApproval";
+}
+
+/**
  * API endpoint for staff to accept or reject a booking assignment
- * This is specifically for the mobile app workflow
+ * Supports per-service accept/reject for multi-service bookings
  */
 export async function POST(req: NextRequest, context: { params: Promise<{ id: string }> }) {
   try {
@@ -47,6 +65,7 @@ export async function POST(req: NextRequest, context: { params: Promise<{ id: st
     const body = (await req.json().catch(() => ({}))) as { 
       action: "accept" | "reject";
       rejectionReason?: string;
+      serviceId?: string | number; // Optional: specify which service to accept/reject
     };
 
     if (!body.action || !["accept", "reject"].includes(body.action)) {
@@ -76,42 +95,223 @@ export async function POST(req: NextRequest, context: { params: Promise<{ id: st
     const bookingData = bookingSnap.data() as any;
     const currentStatus = normalizeBookingStatus(bookingData.status);
 
-    // Verify booking is in AwaitingStaffApproval status
-    if (currentStatus !== "AwaitingStaffApproval") {
+    // Verify booking is in a state that allows staff response
+    const allowedStatuses = ["AwaitingStaffApproval", "PartiallyApproved"];
+    if (!allowedStatuses.includes(currentStatus)) {
       return NextResponse.json({ 
-        error: `Cannot ${body.action} booking. Current status is ${currentStatus}. Only bookings awaiting staff approval can be accepted or rejected.` 
+        error: `Cannot ${body.action} booking. Current status is ${currentStatus}. Only bookings awaiting staff approval or partially approved can be responded to.` 
       }, { status: 400, headers: corsHeaders });
     }
 
-    // Verify this staff member is assigned to this booking
-    let isAssigned = false;
+    // Check if this is a multi-service booking
+    const hasMultipleServices = bookingData.services && Array.isArray(bookingData.services) && bookingData.services.length > 0;
     
-    // Check top-level staffId
-    if (bookingData.staffId === staffUid) {
-      isAssigned = true;
-    }
-    
-    // Check services array
-    if (bookingData.services && Array.isArray(bookingData.services)) {
-      for (const service of bookingData.services) {
-        if (service.staffId === staffUid) {
-          isAssigned = true;
-          break;
+    const clientName = bookingData.client || bookingData.clientName || "Customer";
+    const finalBookingDate = bookingData.date || null;
+    const finalBookingTime = bookingData.time || null;
+
+    if (hasMultipleServices) {
+      // Multi-service booking - handle per-service accept/reject
+      const services: BookingService[] = bookingData.services;
+      
+      // Find services assigned to this staff member
+      const staffServices = services.filter(s => s.staffId === staffUid);
+      
+      if (staffServices.length === 0) {
+        return NextResponse.json({ 
+          error: "You are not assigned to any services in this booking" 
+        }, { status: 403, headers: corsHeaders });
+      }
+
+      // If serviceId is provided, only respond to that specific service
+      // Otherwise, respond to all services assigned to this staff
+      let servicesToUpdate: BookingService[];
+      
+      if (body.serviceId !== undefined) {
+        const targetService = staffServices.find(s => String(s.id) === String(body.serviceId));
+        if (!targetService) {
+          return NextResponse.json({ 
+            error: "You are not assigned to this service" 
+          }, { status: 403, headers: corsHeaders });
+        }
+        servicesToUpdate = [targetService];
+      } else {
+        // Respond to all services assigned to this staff that are still pending
+        servicesToUpdate = staffServices.filter(s => !s.approvalStatus || s.approvalStatus === "pending");
+        
+        if (servicesToUpdate.length === 0) {
+          return NextResponse.json({ 
+            error: "You have already responded to all your assigned services" 
+          }, { status: 400, headers: corsHeaders });
         }
       }
-    }
 
-    if (!isAssigned) {
+      // Update the services array with the staff's response
+      const now = FieldValue.serverTimestamp();
+      const updatedServices = services.map(service => {
+        const shouldUpdate = servicesToUpdate.some(s => String(s.id) === String(service.id));
+        
+        if (shouldUpdate) {
+          if (body.action === "accept") {
+            return {
+              ...service,
+              approvalStatus: "accepted" as ServiceApprovalStatus,
+              acceptedAt: now,
+              respondedByStaffUid: staffUid,
+              respondedByStaffName: staffName,
+            };
+          } else {
+            return {
+              ...service,
+              approvalStatus: "rejected" as ServiceApprovalStatus,
+              rejectedAt: now,
+              rejectionReason: body.rejectionReason,
+              respondedByStaffUid: staffUid,
+              respondedByStaffName: staffName,
+            };
+          }
+        }
+        return service;
+      });
+
+      // Calculate new booking status based on all service approvals
+      const newBookingStatus = calculateBookingStatus(updatedServices);
+      
+      // Prepare update data
+      const updateData: any = {
+        services: updatedServices,
+        status: newBookingStatus,
+        updatedAt: now,
+      };
+
+      // If all accepted, add acceptance metadata
+      if (newBookingStatus === "Confirmed") {
+        updateData.confirmedAt = now;
+      }
+
+      // If any rejected, add rejection metadata (for the most recent rejection)
+      if (body.action === "reject") {
+        updateData.lastRejectedByStaffUid = staffUid;
+        updateData.lastRejectedByStaffName = staffName;
+        updateData.lastRejectionReason = body.rejectionReason;
+        updateData.lastRejectedAt = now;
+      }
+
+      await bookingRef.update(updateData);
+
+      // Create activity log
+      try {
+        const serviceNames = servicesToUpdate.map(s => s.name || "Service").join(", ");
+        await db.collection("bookingActivities").add({
+          ownerUid: ownerUid,
+          bookingId: id,
+          bookingCode: bookingData.bookingCode || null,
+          activityType: body.action === "accept" ? "booking_service_accepted" : "booking_service_rejected",
+          clientName: clientName,
+          serviceName: serviceNames,
+          branchName: bookingData.branchName || null,
+          staffName: staffName,
+          staffUid: staffUid,
+          price: bookingData.price || null,
+          date: finalBookingDate,
+          time: finalBookingTime,
+          previousStatus: currentStatus,
+          newStatus: newBookingStatus,
+          servicesUpdated: servicesToUpdate.map(s => ({ id: s.id, name: s.name })),
+          ...(body.action === "reject" ? { rejectionReason: body.rejectionReason } : {}),
+          createdAt: now,
+        });
+      } catch (e) {
+        console.error("Failed to create activity log:", e);
+      }
+
+      // Send notifications based on new status
+      if (newBookingStatus === "Confirmed") {
+        // All services accepted - send confirmation to customer
+        try {
+          await createCustomerConfirmationNotification({
+            bookingId: id,
+            bookingCode: bookingData.bookingCode,
+            customerUid: bookingData.customerUid,
+            customerEmail: bookingData.clientEmail,
+            customerPhone: bookingData.clientPhone,
+            clientName: clientName,
+            staffName: staffName,
+            serviceName: bookingData.serviceName,
+            services: updatedServices.map((s: any) => ({
+              name: s.name || "Service",
+              staffName: s.staffName,
+            })),
+            branchName: bookingData.branchName,
+            bookingDate: finalBookingDate,
+            bookingTime: finalBookingTime,
+            ownerUid: ownerUid,
+          });
+          console.log("Sent customer confirmation notification - all services accepted");
+        } catch (e) {
+          console.error("Failed to send customer notification:", e);
+        }
+      } else if (body.action === "reject") {
+        // A service was rejected - notify admin for reassignment
+        try {
+          const rejectedServices = updatedServices.filter((s: any) => s.approvalStatus === "rejected");
+          await createAdminRejectionNotification({
+            bookingId: id,
+            bookingCode: bookingData.bookingCode,
+            ownerUid: ownerUid,
+            rejectedByStaffUid: staffUid,
+            rejectedByStaffName: staffName,
+            rejectionReason: body.rejectionReason || "No reason provided",
+            clientName: clientName,
+            serviceName: servicesToUpdate.map(s => s.name).join(", "),
+            services: rejectedServices.map((s: any) => ({
+              name: s.name || "Service",
+              staffName: s.staffName,
+              staffId: s.staffId,
+            })),
+            branchName: bookingData.branchName,
+            bookingDate: finalBookingDate,
+            bookingTime: finalBookingTime,
+          });
+          console.log("Sent admin rejection notification for service(s)");
+        } catch (e) {
+          console.error("Failed to send admin notification:", e);
+        }
+      }
+
+      // Determine response message
+      let message = "";
+      if (body.action === "accept") {
+        if (newBookingStatus === "Confirmed") {
+          message = "All services accepted! Booking is now confirmed. Customer has been notified.";
+        } else {
+          message = `Service(s) accepted. Waiting for other staff to respond. (${updatedServices.filter((s: any) => s.approvalStatus === "accepted").length}/${updatedServices.length} accepted)`;
+        }
+      } else {
+        message = "Service(s) rejected. Admin has been notified for reassignment.";
+      }
+
+      return NextResponse.json({ 
+        ok: true, 
+        status: newBookingStatus,
+        message: message,
+        servicesUpdated: servicesToUpdate.length,
+        allServicesCount: services.length,
+        acceptedCount: updatedServices.filter((s: any) => s.approvalStatus === "accepted").length,
+        rejectedCount: updatedServices.filter((s: any) => s.approvalStatus === "rejected").length,
+        pendingCount: updatedServices.filter((s: any) => !s.approvalStatus || s.approvalStatus === "pending").length,
+      }, { headers: corsHeaders });
+
+    } else {
+      // Single service booking - original logic
+      // Verify this staff member is assigned to this booking
+      if (bookingData.staffId !== staffUid) {
       return NextResponse.json({ 
         error: "You are not assigned to this booking" 
       }, { status: 403, headers: corsHeaders });
     }
 
-    const clientName = bookingData.client || bookingData.clientName || "Customer";
-    const finalServices = bookingData.services || null;
     const finalServiceName = bookingData.serviceName || null;
-    const finalBookingDate = bookingData.date || null;
-    const finalBookingTime = bookingData.time || null;
 
     if (body.action === "accept") {
       // Staff accepts the booking
@@ -159,10 +359,7 @@ export async function POST(req: NextRequest, context: { params: Promise<{ id: st
           clientName: clientName,
           staffName: staffName,
           serviceName: finalServiceName,
-          services: finalServices?.map((s: any) => ({
-            name: s.name || "Service",
-            staffName: s.staffName,
-          })),
+            services: null,
           branchName: bookingData.branchName,
           bookingDate: finalBookingDate,
           bookingTime: finalBookingTime,
@@ -227,11 +424,7 @@ export async function POST(req: NextRequest, context: { params: Promise<{ id: st
           rejectionReason: body.rejectionReason || "No reason provided",
           clientName: clientName,
           serviceName: finalServiceName,
-          services: finalServices?.map((s: any) => ({
-            name: s.name || "Service",
-            staffName: s.staffName,
-            staffId: s.staffId,
-          })),
+            services: null,
           branchName: bookingData.branchName,
           bookingDate: finalBookingDate,
           bookingTime: finalBookingTime,
@@ -246,6 +439,7 @@ export async function POST(req: NextRequest, context: { params: Promise<{ id: st
         status: "StaffRejected",
         message: "Booking rejected. Admin has been notified for reassignment."
       }, { headers: corsHeaders });
+      }
     }
 
   } catch (e: any) {
