@@ -60,9 +60,16 @@ export async function POST(req: NextRequest, context: { params: Promise<{ id: st
         name?: string;
         staffId: string;
         staffName: string;
+        staffAuthUid?: string;
         duration?: number;
         price?: number;
         time?: string;
+        approvalStatus?: "pending" | "accepted" | "rejected";
+        acceptedAt?: string;
+        rejectedAt?: string;
+        rejectionReason?: string | null;
+        respondedByStaffUid?: string | null;
+        respondedByStaffName?: string | null;
       }>;
     };
 
@@ -176,10 +183,15 @@ export async function POST(req: NextRequest, context: { params: Promise<{ id: st
       });
 
     } else if (hasNewServicesProvided) {
-      // Full multi-service reassignment with new staff for each service
-      // Reset all services with new staff and pending status
+      // Multi-service reassignment
+      // Preserve accepted services and only update rejected/pending ones
       updateData.services = body.services!.map((service: any) => {
-        // Create clean service object (Firestore doesn't accept undefined)
+        // If this service was already accepted, keep it as-is
+        if (service.approvalStatus === "accepted") {
+          return service;
+        }
+        
+        // For rejected/pending services, reset with new staff
         const cleanService: any = {
           ...service,
           approvalStatus: "pending",
@@ -193,11 +205,14 @@ export async function POST(req: NextRequest, context: { params: Promise<{ id: st
         return cleanService;
       });
       
-      updateData.status = "AwaitingStaffApproval";
+      // Calculate new status - may still be PartiallyApproved if some services are already accepted
+      const newStatus = calculateBookingStatus(updateData.services);
+      updateData.status = newStatus;
+      
       updateData.staffId = FieldValue.delete();
       updateData.staffName = FieldValue.delete();
       
-      // Clear previous rejection info
+      // Clear previous booking-level rejection info
       updateData.rejectionReason = FieldValue.delete();
       updateData.rejectedByStaffUid = FieldValue.delete();
       updateData.rejectedByStaffName = FieldValue.delete();
@@ -207,12 +222,13 @@ export async function POST(req: NextRequest, context: { params: Promise<{ id: st
       updateData.lastRejectionReason = FieldValue.delete();
       updateData.lastRejectedAt = FieldValue.delete();
       
-      // Collect unique staff to notify
+      // Only notify staff for services that were just reassigned (not accepted ones)
       for (const svc of body.services!) {
-        if (svc.staffId && svc.staffId !== "null") {
+        // Only notify if service is pending (was reassigned) and has a valid staff
+        if (svc.approvalStatus !== "accepted" && svc.staffId && svc.staffId !== "null") {
           const existing = staffToNotify.find(s => s.uid === svc.staffId);
           if (!existing) {
-            staffToNotify.push({ uid: svc.staffId, name: svc.staffName || "Staff" });
+            staffToNotify.push({ uid: svc.staffId, name: svc.staffName || "Staff", serviceName: svc.name });
           }
         }
       }
