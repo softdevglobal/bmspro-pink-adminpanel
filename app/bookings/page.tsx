@@ -52,7 +52,7 @@ function BookingsPageContent() {
   const [userRole, setUserRole] = useState<string | null>(null);
   const [branches, setBranches] = useState<Array<{ id: string; name: string; address?: string }>>([]);
   const [servicesList, setServicesList] = useState<Array<{ id: string | number; name: string; price?: number; duration?: number; icon?: string; branches?: string[]; staffIds?: string[]; imageUrl?: string }>>([]);
-  const [staffList, setStaffList] = useState<Array<{ id: string; name: string; role?: string; status?: string; avatar?: string; branchId?: string; branch?: string }>>([]);
+  const [staffList, setStaffList] = useState<Array<{ id: string; name: string; role?: string; status?: string; avatar?: string; branchId?: string; branch?: string; weeklySchedule?: Record<string, { branchId: string; branchName: string } | null> | null }>>([]);
 
   useEffect(() => {
     (async () => {
@@ -654,17 +654,20 @@ function BookingsPageContent() {
       if (userRole === "salon_branch_admin" && userBranchId) {
         filteredStaff = rows.filter((r: any) => String(r.branchId) === String(userBranchId));
       }
-      setStaffList(
-        filteredStaff.map((r: any) => ({
-          id: String(r.id),
-          name: String(r.name || ""),
-          role: r.role,
-          status: r.status,
-          avatar: r.avatar || r.name,
-          branchId: r.branchId,
-          branch: r.branchName,
-        }))
-      );
+      
+      const mappedStaff = filteredStaff.map((r: any) => ({
+        id: String(r.id),
+        name: String(r.name || r.displayName || "Staff"),
+        role: r.staffRole || r.role,
+        status: r.status || "Active", // Default to Active if not set
+        avatar: r.avatar || r.name || r.displayName,
+        branchId: r.branchId ? String(r.branchId) : undefined,
+        branch: r.branchName ? String(r.branchName) : undefined,
+        weeklySchedule: r.weeklySchedule || null, // Include weekly schedule for day-based filtering
+      }));
+      
+      console.log('[Booking] Loaded staff:', mappedStaff.length, mappedStaff);
+      setStaffList(mappedStaff);
     });
     return () => {
       unsubBranches();
@@ -1555,17 +1558,84 @@ function BookingsPageContent() {
                         const selectedTime = bkServiceTimes[String(serviceId)];
                         const selectedStaffId = bkServiceStaff[String(serviceId)];
                         
-                        // Inline staff filtering
-                        const availableStaffForService = staffList.filter(st => {
-                           if (st.status !== "Active") return false;
-                           // Basic branch check - staff must be in selected branch
-                           if (bkBranchId && st.branchId !== bkBranchId && st.branch !== branches.find((b: any) => b.id === bkBranchId)?.name) return false;
-                           // Service check
+                        // Inline staff filtering - checks service capability, branch, AND schedule for selected day
+                        const selectedBranchName = branches.find((b: any) => b.id === bkBranchId)?.name;
+                        
+                        // Get day of week from selected date
+                        const dayNames = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+                        const selectedDayName = bkDate ? dayNames[bkDate.getDay()] : null;
+                        
+                        // Primary filter: staff scheduled to work at selected branch on selected day
+                        let availableStaffForService = staffList.filter(st => {
+                           // Only filter out if explicitly suspended
+                           if (st.status === "Suspended" || st.status === "suspended") return false;
+                           
+                           // Service capability check - if service has specific staff assigned, only show those
                            if (service?.staffIds && service.staffIds.length > 0) {
                               const sIds = service.staffIds.map(String);
                               if (!sIds.includes(String(st.id))) return false;
                            }
+                           
+                           // Schedule check - staff must be scheduled at the selected branch on the selected day
+                           if (bkBranchId && selectedDayName && st.weeklySchedule) {
+                              const daySchedule = st.weeklySchedule[selectedDayName];
+                              // If no schedule for this day, staff is off
+                              if (!daySchedule) return false;
+                              // Check if scheduled at the selected branch
+                              if (daySchedule.branchId !== bkBranchId && daySchedule.branchName !== selectedBranchName) {
+                                 return false;
+                              }
+                           } else if (bkBranchId && !st.weeklySchedule) {
+                              // No weekly schedule defined - fall back to home branch check
+                              const staffBranchId = String(st.branchId || "");
+                              const staffBranchName = String(st.branch || "");
+                              const hasBranchMatch = 
+                                staffBranchId === bkBranchId || 
+                                staffBranchName === selectedBranchName ||
+                                (!staffBranchId && !staffBranchName);
+                              if (!hasBranchMatch) return false;
+                           }
+                           
                            return true;
+                        });
+                        
+                        // Fallback: if no staff found with strict schedule check, try without schedule check
+                        if (availableStaffForService.length === 0) {
+                           availableStaffForService = staffList.filter(st => {
+                              if (st.status === "Suspended" || st.status === "suspended") return false;
+                              // Service capability check only
+                              if (service?.staffIds && service.staffIds.length > 0) {
+                                 const sIds = service.staffIds.map(String);
+                                 if (!sIds.includes(String(st.id))) return false;
+                              }
+                              // Basic branch check (without schedule)
+                              if (bkBranchId) {
+                                 const staffBranchId = String(st.branchId || "");
+                                 const staffBranchName = String(st.branch || "");
+                                 const hasBranchMatch = 
+                                   staffBranchId === bkBranchId || 
+                                   staffBranchName === selectedBranchName ||
+                                   (!staffBranchId && !staffBranchName);
+                                 if (!hasBranchMatch) return false;
+                              }
+                              return true;
+                           });
+                        }
+                        
+                        // Final fallback: if still no staff, show all non-suspended staff
+                        if (availableStaffForService.length === 0) {
+                           availableStaffForService = staffList.filter(st => 
+                              st.status !== "Suspended" && st.status !== "suspended"
+                           );
+                        }
+                        
+                        // Debug log
+                        console.log('[Booking] Staff filtering:', {
+                           selectedDay: selectedDayName,
+                           selectedBranch: { id: bkBranchId, name: selectedBranchName },
+                           serviceStaffIds: service?.staffIds,
+                           filteredCount: availableStaffForService.length,
+                           filteredNames: availableStaffForService.map(s => s.name),
                         });
                         
                         return (
