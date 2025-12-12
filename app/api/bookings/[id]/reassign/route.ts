@@ -150,11 +150,11 @@ export async function POST(req: NextRequest, context: { params: Promise<{ id: st
             staffId: body.staffId,
             staffName: body.staffName || "Staff",
             approvalStatus: "pending" as const,
-            acceptedAt: null,
-            rejectedAt: null,
-            rejectionReason: null,
-            respondedByStaffUid: null,
-            respondedByStaffName: null,
+            acceptedAt: undefined,
+            rejectedAt: undefined,
+            rejectionReason: undefined,
+            respondedByStaffUid: undefined,
+            respondedByStaffName: undefined,
           };
         }
         return service;
@@ -178,11 +178,11 @@ export async function POST(req: NextRequest, context: { params: Promise<{ id: st
       updateData.services = body.services!.map((service: any) => ({
         ...service,
         approvalStatus: "pending",
-        acceptedAt: null,
-        rejectedAt: null,
-        rejectionReason: null,
-        respondedByStaffUid: null,
-        respondedByStaffName: null,
+        acceptedAt: undefined,
+        rejectedAt: undefined,
+        rejectionReason: undefined,
+        respondedByStaffUid: undefined,
+        respondedByStaffName: undefined,
       }));
       
       updateData.status = "AwaitingStaffApproval";

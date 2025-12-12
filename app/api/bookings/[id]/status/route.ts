@@ -150,11 +150,11 @@ export async function PATCH(req: NextRequest, context: { params: Promise<{ id: s
         updateData.services = body.services.map((service: any) => ({
           ...service,
           approvalStatus: "pending", // Initialize approval status
-          acceptedAt: null,
-          rejectedAt: null,
-          rejectionReason: null,
-          respondedByStaffUid: null,
-          respondedByStaffName: null,
+          acceptedAt: undefined,
+          rejectedAt: undefined,
+          rejectionReason: undefined,
+          respondedByStaffUid: undefined,
+          respondedByStaffName: undefined,
         }));
       } else {
         updateData.services = body.services;
