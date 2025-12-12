@@ -687,8 +687,10 @@ function BookingsPageContent() {
       const initialStaffSelection: Record<string, string> = {};
       if (Array.isArray(booking.services) && booking.services.length > 0) {
         booking.services.forEach((s: any) => {
+          // Use consistent key format: id || serviceId || name
+          const serviceKey = String(s.id || s.serviceId || s.name);
           if (s.staffId && s.staffId !== "null" && s.staffName !== "Any Available" && s.staffName !== "Any Staff") {
-            initialStaffSelection[String(s.id)] = s.staffId;
+            initialStaffSelection[serviceKey] = s.staffId;
           }
         });
       }

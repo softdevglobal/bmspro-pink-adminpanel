@@ -12,6 +12,7 @@ type ServiceApprovalStatus = "pending" | "accepted" | "rejected";
 
 type ServiceRow = {
   id: string | number;
+  serviceId?: string | number;
   name?: string;
   price?: number;
   duration?: number;
@@ -558,8 +559,10 @@ export default function BookingsListByStatus({ status, title }: { status: Bookin
         // Pre-fill staff assignments from existing data
         const initialStaffSelection: Record<string, string> = {};
         row.services!.forEach(s => {
+          // Use consistent key format: id || serviceId || name
+          const serviceKey = String(s.id || s.serviceId || s.name);
           if (s.staffId && s.staffId !== "null") {
-            initialStaffSelection[String(s.id)] = s.staffId;
+            initialStaffSelection[serviceKey] = s.staffId;
           }
         });
         setSelectedStaffPerService(initialStaffSelection);
