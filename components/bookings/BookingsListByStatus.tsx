@@ -19,6 +19,7 @@ type ServiceRow = {
   time?: string;
   staffId?: string | null;
   staffName?: string | null;
+  staffAuthUid?: string | null; // Firebase Auth UID for the assigned staff
   // Per-service approval tracking
   approvalStatus?: ServiceApprovalStatus;
   acceptedAt?: any;
@@ -444,10 +445,15 @@ export default function BookingsListByStatus({ status, title }: { status: Bookin
               let filtered = staffData.filter((s: any) => s.status === "Active");
               
               // Exclude the staff member who rejected this specific service
-              if (bookingService.respondedByStaffUid) {
-                filtered = filtered.filter((s: any) => s.id !== bookingService.respondedByStaffUid);
-              } else if (bookingToReassign.rejectedByStaffUid) {
-                filtered = filtered.filter((s: any) => s.id !== bookingToReassign.rejectedByStaffUid);
+              // Check respondedByStaffUid (who actually responded), staffId (originally assigned), and staffAuthUid
+              const rejectorUids: string[] = [];
+              if (bookingService.respondedByStaffUid) rejectorUids.push(bookingService.respondedByStaffUid);
+              if (bookingService.approvalStatus === "rejected" && bookingService.staffId) rejectorUids.push(bookingService.staffId);
+              if (bookingService.approvalStatus === "rejected" && bookingService.staffAuthUid) rejectorUids.push(bookingService.staffAuthUid);
+              if (bookingToReassign.rejectedByStaffUid) rejectorUids.push(bookingToReassign.rejectedByStaffUid);
+              
+              if (rejectorUids.length > 0) {
+                filtered = filtered.filter((s: any) => !rejectorUids.includes(s.id) && !rejectorUids.includes(s.authUid));
               }
               
               if (qualifiedStaffIds.length > 0) {
@@ -1875,7 +1881,14 @@ export default function BookingsListByStatus({ status, title }: { status: Bookin
                   const hasMultipleServices = Array.isArray(bookingToReassign.services) && bookingToReassign.services.length > 0;
                   
                   if (hasMultipleServices) {
-                    return !bookingToReassign.services!.every(s => {
+                    // Only check rejected/pending services - skip accepted ones
+                    const servicesToReassign = bookingToReassign.services!.filter(s => 
+                      s.approvalStatus === "rejected" || s.approvalStatus === "pending" || !s.approvalStatus
+                    );
+                    // If no services to reassign, allow button (edge case)
+                    if (servicesToReassign.length === 0) return false;
+                    
+                    return !servicesToReassign.every(s => {
                       const serviceKey = String(s.id || s.serviceId || s.name);
                       return selectedStaffPerService[serviceKey];
                     });
