@@ -431,7 +431,10 @@ export default function BookingsListByStatus({ status, title }: { status: Bookin
           if (hasMultipleServices) {
             const staffPerService: Record<string, Array<{ id: string; name: string; branchId?: string; avatar?: string }>> = {};
             
-            bookingToReassign.services!.forEach(bookingService => {
+            // Only process rejected/pending services - skip accepted ones
+            bookingToReassign.services!
+              .filter(bs => bs.approvalStatus === "rejected" || bs.approvalStatus === "pending" || !bs.approvalStatus)
+              .forEach(bookingService => {
               // Use consistent key format
               const serviceKey = String(bookingService.id || bookingService.serviceId || bookingService.name);
               
@@ -440,8 +443,10 @@ export default function BookingsListByStatus({ status, title }: { status: Bookin
               
               let filtered = staffData.filter((s: any) => s.status === "Active");
               
-              // Exclude the staff member who rejected
-              if (bookingToReassign.rejectedByStaffUid) {
+              // Exclude the staff member who rejected this specific service
+              if (bookingService.respondedByStaffUid) {
+                filtered = filtered.filter((s: any) => s.id !== bookingService.respondedByStaffUid);
+              } else if (bookingToReassign.rejectedByStaffUid) {
                 filtered = filtered.filter((s: any) => s.id !== bookingToReassign.rejectedByStaffUid);
               }
               
@@ -755,12 +760,17 @@ export default function BookingsListByStatus({ status, title }: { status: Bookin
     const hasMultipleServices = Array.isArray(bookingToReassign.services) && bookingToReassign.services.length > 0;
 
     if (hasMultipleServices) {
-      const allAssigned = bookingToReassign.services!.every(s => {
+      // Only check rejected/pending services - accepted ones are already done
+      const servicesToReassign = bookingToReassign.services!.filter(s => 
+        s.approvalStatus === "rejected" || s.approvalStatus === "pending" || !s.approvalStatus
+      );
+      
+      const allAssigned = servicesToReassign.every(s => {
         const serviceKey = String(s.id || s.serviceId || s.name);
         return selectedStaffPerService[serviceKey];
       });
-      if (!allAssigned) {
-        alert("Please assign staff to all services");
+      if (!allAssigned && servicesToReassign.length > 0) {
+        alert("Please assign staff to all rejected services");
         return;
       }
     } else {
@@ -794,7 +804,14 @@ export default function BookingsListByStatus({ status, title }: { status: Bookin
       let requestBody: any = {};
 
       if (hasMultipleServices) {
+        // Only update rejected/pending services, keep accepted ones as-is
         const updatedServices = bookingToReassign.services!.map(service => {
+          // Keep accepted services unchanged
+          if (service.approvalStatus === "accepted") {
+            return service;
+          }
+          
+          // Update rejected/pending services with new staff
           const serviceKey = String(service.id || service.serviceId || service.name);
           const staffId = selectedStaffPerService[serviceKey];
           if (staffId) {
@@ -803,7 +820,12 @@ export default function BookingsListByStatus({ status, title }: { status: Bookin
               ...service,
               staffId: staffId,
               staffAuthUid: (staff as any)?.authUid || (staff as any)?.uid || staffId, // Store auth UID for Flutter app
-              staffName: staff?.name || "Staff"
+              staffName: staff?.name || "Staff",
+              approvalStatus: "pending", // Reset to pending for new staff
+              rejectionReason: null, // Clear rejection reason
+              rejectedAt: null,
+              respondedByStaffUid: null,
+              respondedByStaffName: null,
             };
           }
           return service;
@@ -1669,70 +1691,114 @@ export default function BookingsListByStatus({ status, title }: { status: Bookin
                   </div>
                 ) : (
                   <>
-                    {/* Multiple Services */}
+                    {/* Multiple Services - Only show rejected services for reassignment */}
                     {Array.isArray(bookingToReassign.services) && bookingToReassign.services.length > 0 ? (
                       <div className="space-y-4 max-h-64 overflow-y-auto">
-                        {bookingToReassign.services.map((service) => {
-                          const serviceKey = String(service.id || service.serviceId || service.name);
-                          const serviceStaff = availableStaffPerService[serviceKey] || [];
-                          const selectedStaff = selectedStaffPerService[serviceKey];
-                          
-                          return (
-                            <div key={serviceKey} className="border-2 border-amber-200 rounded-xl p-4 bg-amber-50/50">
-                              <div className="mb-3 flex items-center gap-2">
-                                <i className="fas fa-spa text-amber-600"></i>
-                                <h4 className="font-bold text-slate-800">{service.name}</h4>
-                                <span className="text-xs text-slate-500 ml-auto">{service.duration} min</span>
-                              </div>
-                              
-                              {serviceStaff.length === 0 ? (
-                                <div className="p-3 bg-rose-50 border border-rose-200 rounded-lg text-rose-800 text-xs">
-                                  <i className="fas fa-exclamation-triangle mr-2"></i>
-                                  No other qualified staff available
+                        {/* First show accepted services (read-only) */}
+                        {bookingToReassign.services.filter(s => s.approvalStatus === "accepted").length > 0 && (
+                          <div className="mb-4">
+                            <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-2">
+                              <i className="fas fa-check-circle text-emerald-500 mr-1"></i>
+                              Already Accepted (No changes needed)
+                            </p>
+                            <div className="space-y-2">
+                              {bookingToReassign.services.filter(s => s.approvalStatus === "accepted").map((service) => (
+                                <div key={String(service.id || service.name)} className="flex items-center justify-between p-3 rounded-lg bg-emerald-50 border border-emerald-200">
+                                  <div className="flex items-center gap-2">
+                                    <i className="fas fa-spa text-emerald-600 text-sm"></i>
+                                    <span className="font-medium text-slate-800">{service.name}</span>
+                                  </div>
+                                  <div className="flex items-center gap-2">
+                                    <span className="text-xs text-slate-500">{service.staffName}</span>
+                                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-700 text-xs font-semibold">
+                                      <i className="fas fa-check text-[8px]"></i>
+                                      Accepted
+                                    </span>
+                                  </div>
                                 </div>
-                              ) : (
-                                <div className="space-y-2">
-                                  {serviceStaff.map((staff) => (
-                                    <button
-                                      key={staff.id}
-                                      onClick={() => setSelectedStaffPerService(prev => ({
-                                        ...prev,
-                                        [serviceKey]: staff.id
-                                      }))}
-                                      className={`w-full text-left p-2 rounded-lg border-2 transition-all ${
-                                        selectedStaff === staff.id
-                                          ? "border-amber-500 bg-amber-50 shadow-sm"
-                                          : "border-slate-200 hover:border-amber-300 hover:bg-white"
-                                      }`}
-                                    >
-                                      <div className="flex items-center gap-2">
-                                        <div className={`w-8 h-8 rounded-full overflow-hidden flex-shrink-0 border-2 ${
-                                          selectedStaff === staff.id ? "border-amber-500" : "border-slate-200"
-                                        }`}>
-                                          <img
-                                            src={`https://api.dicebear.com/7.x/avataaars/svg?seed=${encodeURIComponent(staff.avatar || staff.name)}`}
-                                            alt={staff.name}
-                                            className="w-full h-full object-cover"
-                                          />
-                                        </div>
-                                        <div className="flex-1">
-                                          <p className={`font-semibold text-sm ${
-                                            selectedStaff === staff.id ? "text-amber-900" : "text-slate-800"
-                                          }`}>
-                                            {staff.name}
-                                          </p>
-                                        </div>
-                                        {selectedStaff === staff.id && (
-                                          <i className="fas fa-check-circle text-amber-500"></i>
-                                        )}
-                                      </div>
-                                    </button>
-                                  ))}
-                                </div>
-                              )}
+                              ))}
                             </div>
-                          );
-                        })}
+                          </div>
+                        )}
+                        
+                        {/* Show rejected/pending services for reassignment */}
+                        {bookingToReassign.services.filter(s => s.approvalStatus === "rejected" || s.approvalStatus === "pending" || !s.approvalStatus).length > 0 && (
+                          <div>
+                            <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-2">
+                              <i className="fas fa-user-plus text-amber-500 mr-1"></i>
+                              Select New Staff For
+                            </p>
+                            {bookingToReassign.services
+                              .filter(s => s.approvalStatus === "rejected" || s.approvalStatus === "pending" || !s.approvalStatus)
+                              .map((service) => {
+                                const serviceKey = String(service.id || service.serviceId || service.name);
+                                const serviceStaff = availableStaffPerService[serviceKey] || [];
+                                const selectedStaff = selectedStaffPerService[serviceKey];
+                                
+                                return (
+                                  <div key={serviceKey} className="border-2 border-amber-200 rounded-xl p-4 bg-amber-50/50 mb-3">
+                                    <div className="mb-3 flex items-center gap-2">
+                                      <i className="fas fa-spa text-amber-600"></i>
+                                      <h4 className="font-bold text-slate-800">{service.name}</h4>
+                                      <span className="text-xs text-slate-500 ml-auto">{service.duration} min</span>
+                                      {service.approvalStatus === "rejected" && (
+                                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-rose-100 text-rose-700 text-xs font-semibold">
+                                          <i className="fas fa-times text-[8px]"></i>
+                                          Rejected
+                                        </span>
+                                      )}
+                                    </div>
+                                    
+                                    {serviceStaff.length === 0 ? (
+                                      <div className="p-3 bg-rose-50 border border-rose-200 rounded-lg text-rose-800 text-xs">
+                                        <i className="fas fa-exclamation-triangle mr-2"></i>
+                                        No other qualified staff available
+                                      </div>
+                                    ) : (
+                                      <div className="space-y-2">
+                                        {serviceStaff.map((staff) => (
+                                          <button
+                                            key={staff.id}
+                                            onClick={() => setSelectedStaffPerService(prev => ({
+                                              ...prev,
+                                              [serviceKey]: staff.id
+                                            }))}
+                                            className={`w-full text-left p-2 rounded-lg border-2 transition-all ${
+                                              selectedStaff === staff.id
+                                                ? "border-amber-500 bg-amber-50 shadow-sm"
+                                                : "border-slate-200 hover:border-amber-300 hover:bg-white"
+                                            }`}
+                                          >
+                                            <div className="flex items-center gap-2">
+                                              <div className={`w-8 h-8 rounded-full overflow-hidden flex-shrink-0 border-2 ${
+                                                selectedStaff === staff.id ? "border-amber-500" : "border-slate-200"
+                                              }`}>
+                                                <img
+                                                  src={`https://api.dicebear.com/7.x/avataaars/svg?seed=${encodeURIComponent(staff.avatar || staff.name)}`}
+                                                  alt={staff.name}
+                                                  className="w-full h-full object-cover"
+                                                />
+                                              </div>
+                                              <div className="flex-1">
+                                                <p className={`font-semibold text-sm ${
+                                                  selectedStaff === staff.id ? "text-amber-900" : "text-slate-800"
+                                                }`}>
+                                                  {staff.name}
+                                                </p>
+                                              </div>
+                                              {selectedStaff === staff.id && (
+                                                <i className="fas fa-check-circle text-amber-500"></i>
+                                              )}
+                                            </div>
+                                          </button>
+                                        ))}
+                                      </div>
+                                    )}
+                                  </div>
+                                );
+                              })}
+                          </div>
+                        )}
                       </div>
                     ) : (
                       /* Single Service */
