@@ -1232,10 +1232,10 @@ export default function BookingsListByStatus({ status, title }: { status: Bookin
                                 <i className="fas fa-eye text-[13px]" />
                               </button>
                             </div>
-                            {/* Service List Display */}
-                            <div className="mt-1">
+                            {/* Service List Display - Each service on its own line */}
+                            <div className="mt-1.5 space-y-1.5">
                               {r.services && r.services.length > 0 ? (
-                                <div className="flex flex-col gap-1">
+                                <>
                                   {r.services.map((svc, idx) => {
                                     // Determine approval status badge
                                     const approvalStatus = (svc.approvalStatus || "pending") as "pending" | "accepted" | "rejected";
@@ -1247,38 +1247,32 @@ export default function BookingsListByStatus({ status, title }: { status: Bookin
                                     const approvalBadge = tableBadgeMap[approvalStatus] || tableBadgeMap.pending;
                                     
                                     return (
-                                      <div key={idx} className="flex items-center gap-2 flex-wrap">
-                                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-slate-100 text-slate-700 border border-slate-200">
-                                          <i className="fas fa-sparkles text-[10px] text-pink-500" />
-                                          <span className="text-xs font-medium">{svc.name || "Service"}</span>
-                                        </span>
-                                        <span className="text-[10px] text-slate-500 flex items-center gap-1">
-                                          <i className="fas fa-user-tie text-[9px]" />
-                                          {svc.staffName || "Any Staff"}
-                                        </span>
-                                        {/* Show approval status badge for multi-service bookings in AwaitingStaffApproval, PartiallyApproved, or StaffRejected status */}
+                                      <div key={idx} className="flex items-center justify-between py-1 px-2 rounded-lg bg-slate-50 border border-slate-100">
+                                        <div className="flex items-center gap-2 min-w-0">
+                                          <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md bg-white border border-slate-200 shadow-sm">
+                                            <i className="fas fa-spa text-[10px] text-pink-500" />
+                                            <span className="text-xs font-semibold text-slate-800">{svc.name || "Service"}</span>
+                                          </span>
+                                          <i className="fas fa-user text-[9px] text-slate-400" />
+                                          <span className="text-xs font-medium text-slate-600 truncate">{svc.staffName || "Any Staff"}</span>
+                                        </div>
+                                        {/* Show approval status badge for multi-service bookings */}
                                         {(r.status === "AwaitingStaffApproval" || r.status === "PartiallyApproved" || r.status === "StaffRejected") && (
-                                          <span className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[9px] font-semibold ${approvalBadge.bg} ${approvalBadge.text}`}>
+                                          <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold shrink-0 ml-2 ${approvalBadge.bg} ${approvalBadge.text}`}>
                                             <i className={`fas ${approvalBadge.icon} text-[8px]`} />
                                             {approvalBadge.label}
-                                          </span>
-                                        )}
-                                        {/* Show rejection reason if rejected */}
-                                        {approvalStatus === "rejected" && svc.rejectionReason && (
-                                          <span className="text-[9px] text-rose-600 italic" title={svc.rejectionReason}>
-                                            "{svc.rejectionReason.substring(0, 20)}{svc.rejectionReason.length > 20 ? "..." : ""}"
                                           </span>
                                         )}
                                       </div>
                                     );
                                   })}
-                                </div>
+                                </>
                               ) : (
-                              <div className="text-xs mt-0.5">
-                                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-slate-100 text-slate-600">
-                                  <i className="fas fa-sparkles text-[10px]" />
-                                  {r.serviceName || "Unknown Service"}
-                                </span>
+                                <div className="flex items-center gap-2 py-1 px-2 rounded-lg bg-slate-50 border border-slate-100">
+                                  <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md bg-white border border-slate-200 shadow-sm">
+                                    <i className="fas fa-spa text-[10px] text-pink-500" />
+                                    <span className="text-xs font-semibold text-slate-800">{r.serviceName || "Service"}</span>
+                                  </span>
                                 </div>
                               )}
                             </div>

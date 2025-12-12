@@ -205,23 +205,38 @@ function BookingsPageContent() {
         rows.forEach((b: any) => {
           const service = this.data.services.find((s: any) => s.id === b.serviceId);
           const staff = this.data.staff.find((s: any) => s.id === b.staffId);
-          const serviceName = String(b.serviceName || (service ? service.name : "Unknown Service"));
           
-          // Handle staff name for multi-service bookings
-          let staffName = "Unassigned";
+          // Build service-staff display HTML - each service on its own line
+          let servicesHtml = "";
           if (Array.isArray(b.services) && b.services.length > 0) {
-            // Get unique staff names from services array
-            const staffNames: string[] = b.services
-              .map((s: any) => s.staffName as string)
-              .filter((name: string) => name && name !== "Any Available" && name !== "Any Staff");
-            if (staffNames.length > 0) {
-              const uniqueNames: string[] = [...new Set(staffNames)];
-              staffName = uniqueNames.length === 1 ? uniqueNames[0] : uniqueNames.join(", ");
+            servicesHtml = b.services.map((svc: any) => {
+              const svcName = svc.name || svc.serviceName || "Service";
+              const svcStaff = svc.staffName || "Any Staff";
+              return `<div class="flex items-center gap-2 py-1 px-2 rounded-lg bg-slate-50 border border-slate-100 mb-1">
+                <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-white border border-slate-200 shadow-sm">
+                  <i class="fas fa-spa text-pink-500" style="font-size:10px"></i>
+                  <span class="text-xs font-semibold text-slate-800">${svcName}</span>
+                </span>
+                <i class="fas fa-user text-slate-400" style="font-size:9px"></i>
+                <span class="text-xs font-medium text-slate-600">${svcStaff}</span>
+              </div>`;
+            }).join("");
+          } else {
+            const serviceName = String(b.serviceName || (service ? service.name : "Unknown Service"));
+            let staffName = "Unassigned";
+            if (b.staffName && b.staffName !== "Any Available" && b.staffName !== "Any Staff") {
+              staffName = b.staffName;
+            } else if (staff) {
+              staffName = staff.name;
             }
-          } else if (b.staffName && b.staffName !== "Any Available" && b.staffName !== "Any Staff") {
-            staffName = b.staffName;
-          } else if (staff) {
-            staffName = staff.name;
+            servicesHtml = `<div class="flex items-center gap-2 py-1 px-2 rounded-lg bg-slate-50 border border-slate-100">
+              <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-white border border-slate-200 shadow-sm">
+                <i class="fas fa-spa text-pink-500" style="font-size:10px"></i>
+                <span class="text-xs font-semibold text-slate-800">${serviceName}</span>
+              </span>
+              <i class="fas fa-user text-slate-400" style="font-size:9px"></i>
+              <span class="text-xs font-medium text-slate-600">${staffName}</span>
+            </div>`;
           }
           
           const endTime = this.calculateEndTime(b.time, b.duration);
@@ -250,11 +265,10 @@ function BookingsPageContent() {
             <tr class="hover:bg-slate-50 transition">
               <td class="p-4 pl-6">
                 <span class="font-bold text-slate-800">${b.client}</span>
-                <span class="block text-xs text-slate-500">${serviceName}</span>
+                <div class="mt-1.5">${servicesHtml}</div>
               </td>
               <td class="p-4">
                 <span class="font-medium text-slate-700">${b.time} - ${endTime}</span>
-                <span class="block text-xs text-slate-500">${staffName}</span>
               </td>
               <td class="p-4 text-center">
                 <span class="inline-block px-3 py-1 text-xs font-semibold rounded-full ${statusClass}">
