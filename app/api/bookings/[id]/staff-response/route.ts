@@ -147,7 +147,8 @@ export async function POST(req: NextRequest, context: { params: Promise<{ id: st
       }
 
       // Update the services array with the staff's response
-      const now = FieldValue.serverTimestamp();
+      // Note: FieldValue.serverTimestamp() can't be used in arrays, so use Date for service fields
+      const nowDate = new Date().toISOString();
       const updatedServices = services.map(service => {
         const shouldUpdate = servicesToUpdate.some(s => String(s.id) === String(service.id));
         
@@ -156,7 +157,7 @@ export async function POST(req: NextRequest, context: { params: Promise<{ id: st
             return {
               ...service,
               approvalStatus: "accepted" as ServiceApprovalStatus,
-              acceptedAt: now,
+              acceptedAt: nowDate,
               respondedByStaffUid: staffUid,
               respondedByStaffName: staffName,
             };
@@ -164,7 +165,7 @@ export async function POST(req: NextRequest, context: { params: Promise<{ id: st
             return {
               ...service,
               approvalStatus: "rejected" as ServiceApprovalStatus,
-              rejectedAt: now,
+              rejectedAt: nowDate,
               rejectionReason: body.rejectionReason,
               respondedByStaffUid: staffUid,
               respondedByStaffName: staffName,
@@ -181,12 +182,12 @@ export async function POST(req: NextRequest, context: { params: Promise<{ id: st
       const updateData: any = {
         services: updatedServices,
         status: newBookingStatus,
-        updatedAt: now,
+        updatedAt: FieldValue.serverTimestamp(),
       };
 
       // If all accepted, add acceptance metadata
       if (newBookingStatus === "Confirmed") {
-        updateData.confirmedAt = now;
+        updateData.confirmedAt = FieldValue.serverTimestamp();
       }
 
       // If any rejected, add rejection metadata (for the most recent rejection)
@@ -194,7 +195,7 @@ export async function POST(req: NextRequest, context: { params: Promise<{ id: st
         updateData.lastRejectedByStaffUid = staffUid;
         updateData.lastRejectedByStaffName = staffName;
         updateData.lastRejectionReason = body.rejectionReason;
-        updateData.lastRejectedAt = now;
+        updateData.lastRejectedAt = FieldValue.serverTimestamp();
       }
 
       await bookingRef.update(updateData);
@@ -219,7 +220,7 @@ export async function POST(req: NextRequest, context: { params: Promise<{ id: st
           newStatus: newBookingStatus,
           servicesUpdated: servicesToUpdate.map(s => ({ id: s.id, name: s.name })),
           ...(body.action === "reject" ? { rejectionReason: body.rejectionReason } : {}),
-          createdAt: now,
+          createdAt: FieldValue.serverTimestamp(),
         });
       } catch (e) {
         console.error("Failed to create activity log:", e);
