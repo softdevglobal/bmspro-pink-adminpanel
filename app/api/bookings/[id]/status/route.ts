@@ -147,15 +147,20 @@ export async function PATCH(req: NextRequest, context: { params: Promise<{ id: s
     if (body.services && Array.isArray(body.services) && body.services.length > 0) {
       // Initialize approvalStatus to "pending" for each service when sending to staff
       if (isAdminConfirmingPending || actualNextStatus === "AwaitingStaffApproval") {
-        updateData.services = body.services.map((service: any) => ({
-          ...service,
-          approvalStatus: "pending", // Initialize approval status
-          acceptedAt: undefined,
-          rejectedAt: undefined,
-          rejectionReason: undefined,
-          respondedByStaffUid: undefined,
-          respondedByStaffName: undefined,
-        }));
+        updateData.services = body.services.map((service: any) => {
+          // Create a clean service object without undefined values (Firestore doesn't accept undefined)
+          const cleanService: any = {
+            ...service,
+            approvalStatus: "pending", // Initialize approval status
+          };
+          // Remove any previous response data
+          delete cleanService.acceptedAt;
+          delete cleanService.rejectedAt;
+          delete cleanService.rejectionReason;
+          delete cleanService.respondedByStaffUid;
+          delete cleanService.respondedByStaffName;
+          return cleanService;
+        });
       } else {
         updateData.services = body.services;
       }

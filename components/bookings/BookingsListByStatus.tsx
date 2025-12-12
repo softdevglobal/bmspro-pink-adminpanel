@@ -284,8 +284,11 @@ export default function BookingsListByStatus({ status, title }: { status: Bookin
             const staffPerService: Record<string, Array<{ id: string; name: string; branchId?: string; avatar?: string }>> = {};
             
             bookingToConfirm.services!.forEach(bookingService => {
+              // Use consistent key format
+              const serviceKey = String(bookingService.id || bookingService.serviceId || bookingService.name);
+              
               // Find service details
-              const service = servicesData.find((s: any) => String(s.id) === String(bookingService.id));
+              const service = servicesData.find((s: any) => String(s.id) === String(bookingService.id || bookingService.serviceId));
               const qualifiedStaffIds = (service && Array.isArray(service.staffIds)) ? service.staffIds.map(String) : [];
               
               // Start with active staff
@@ -316,7 +319,7 @@ export default function BookingsListByStatus({ status, title }: { status: Bookin
                 });
               }
               
-              staffPerService[String(bookingService.id)] = filtered.map((s: any) => ({
+              staffPerService[serviceKey] = filtered.map((s: any) => ({
                 id: String(s.id),
                 name: String(s.name || s.displayName || "Staff"),
                 branchId: s.branchId,
@@ -429,7 +432,10 @@ export default function BookingsListByStatus({ status, title }: { status: Bookin
             const staffPerService: Record<string, Array<{ id: string; name: string; branchId?: string; avatar?: string }>> = {};
             
             bookingToReassign.services!.forEach(bookingService => {
-              const service = servicesData.find((s: any) => String(s.id) === String(bookingService.id));
+              // Use consistent key format
+              const serviceKey = String(bookingService.id || bookingService.serviceId || bookingService.name);
+              
+              const service = servicesData.find((s: any) => String(s.id) === String(bookingService.id || bookingService.serviceId));
               const qualifiedStaffIds = (service && Array.isArray(service.staffIds)) ? service.staffIds.map(String) : [];
               
               let filtered = staffData.filter((s: any) => s.status === "Active");
@@ -462,7 +468,7 @@ export default function BookingsListByStatus({ status, title }: { status: Bookin
                 });
               }
               
-              staffPerService[String(bookingService.id)] = filtered.map((s: any) => ({
+              staffPerService[serviceKey] = filtered.map((s: any) => ({
                 id: String(s.id),
                 name: String(s.name || s.displayName || "Staff"),
                 branchId: s.branchId,
@@ -595,7 +601,10 @@ export default function BookingsListByStatus({ status, title }: { status: Bookin
 
     if (hasMultipleServices) {
       // Validate all services have staff assigned
-      const allAssigned = bookingToConfirm.services!.every(s => selectedStaffPerService[String(s.id)]);
+      const allAssigned = bookingToConfirm.services!.every(s => {
+        const serviceKey = String(s.id || s.serviceId || s.name);
+        return selectedStaffPerService[serviceKey];
+      });
       
       if (!allAssigned) {
         alert("Please assign staff to all services");
@@ -636,9 +645,10 @@ export default function BookingsListByStatus({ status, title }: { status: Bookin
       if (hasMultipleServices) {
         // Update services array with selected staff
         const updatedServices = bookingToConfirm.services!.map(service => {
-          const staffId = selectedStaffPerService[String(service.id)];
+          const serviceKey = String(service.id || service.serviceId || service.name);
+          const staffId = selectedStaffPerService[serviceKey];
           if (staffId) {
-            const staff = availableStaffPerService[String(service.id)]?.find(s => s.id === staffId);
+            const staff = availableStaffPerService[serviceKey]?.find(s => s.id === staffId);
             return {
               ...service,
               staffId: staffId,
@@ -744,7 +754,10 @@ export default function BookingsListByStatus({ status, title }: { status: Bookin
     const hasMultipleServices = Array.isArray(bookingToReassign.services) && bookingToReassign.services.length > 0;
 
     if (hasMultipleServices) {
-      const allAssigned = bookingToReassign.services!.every(s => selectedStaffPerService[String(s.id)]);
+      const allAssigned = bookingToReassign.services!.every(s => {
+        const serviceKey = String(s.id || s.serviceId || s.name);
+        return selectedStaffPerService[serviceKey];
+      });
       if (!allAssigned) {
         alert("Please assign staff to all services");
         return;
@@ -781,9 +794,10 @@ export default function BookingsListByStatus({ status, title }: { status: Bookin
 
       if (hasMultipleServices) {
         const updatedServices = bookingToReassign.services!.map(service => {
-          const staffId = selectedStaffPerService[String(service.id)];
+          const serviceKey = String(service.id || service.serviceId || service.name);
+          const staffId = selectedStaffPerService[serviceKey];
           if (staffId) {
-            const staff = availableStaffPerService[String(service.id)]?.find(s => s.id === staffId);
+            const staff = availableStaffPerService[serviceKey]?.find(s => s.id === staffId);
             return {
               ...service,
               staffId: staffId,
@@ -1421,11 +1435,12 @@ export default function BookingsListByStatus({ status, title }: { status: Bookin
                       <div className="space-y-4 max-h-96 overflow-y-auto">
                         {bookingToConfirm.services
                           .map((service) => {
-                            const serviceStaff = availableStaffPerService[String(service.id)] || [];
-                            const selectedStaff = selectedStaffPerService[String(service.id)];
+                            const serviceKey = String(service.id || service.serviceId || service.name);
+                            const serviceStaff = availableStaffPerService[serviceKey] || [];
+                            const selectedStaff = selectedStaffPerService[serviceKey];
                             
                             return (
-                              <div key={String(service.id)} className="border-2 border-purple-200 rounded-xl p-4 bg-purple-50/50">
+                              <div key={serviceKey} className="border-2 border-purple-200 rounded-xl p-4 bg-purple-50/50">
                                 <div className="mb-3 flex items-center gap-2">
                                   <i className="fas fa-spa text-purple-600"></i>
                                   <h4 className="font-bold text-slate-800">{service.name}</h4>
@@ -1444,7 +1459,7 @@ export default function BookingsListByStatus({ status, title }: { status: Bookin
                                         key={staff.id}
                                         onClick={() => setSelectedStaffPerService(prev => ({
                                           ...prev,
-                                          [String(service.id)]: staff.id
+                                          [serviceKey]: staff.id
                                         }))}
                                         className={`w-full text-left p-2 rounded-lg border-2 transition-all ${
                                           selectedStaff === staff.id
@@ -1558,7 +1573,10 @@ export default function BookingsListByStatus({ status, title }: { status: Bookin
                   
                   if (hasMultipleServices) {
                     // Check if all services have staff assigned
-                    return !bookingToConfirm.services!.every(s => selectedStaffPerService[String(s.id)]);
+                    return !bookingToConfirm.services!.every(s => {
+                      const serviceKey = String(s.id || s.serviceId || s.name);
+                      return selectedStaffPerService[serviceKey];
+                    });
                   } else {
                     // Single service
                     return !selectedStaffId;
@@ -1659,11 +1677,12 @@ export default function BookingsListByStatus({ status, title }: { status: Bookin
                     {Array.isArray(bookingToReassign.services) && bookingToReassign.services.length > 0 ? (
                       <div className="space-y-4 max-h-64 overflow-y-auto">
                         {bookingToReassign.services.map((service) => {
-                          const serviceStaff = availableStaffPerService[String(service.id)] || [];
-                          const selectedStaff = selectedStaffPerService[String(service.id)];
+                          const serviceKey = String(service.id || service.serviceId || service.name);
+                          const serviceStaff = availableStaffPerService[serviceKey] || [];
+                          const selectedStaff = selectedStaffPerService[serviceKey];
                           
                           return (
-                            <div key={String(service.id)} className="border-2 border-amber-200 rounded-xl p-4 bg-amber-50/50">
+                            <div key={serviceKey} className="border-2 border-amber-200 rounded-xl p-4 bg-amber-50/50">
                               <div className="mb-3 flex items-center gap-2">
                                 <i className="fas fa-spa text-amber-600"></i>
                                 <h4 className="font-bold text-slate-800">{service.name}</h4>
@@ -1682,7 +1701,7 @@ export default function BookingsListByStatus({ status, title }: { status: Bookin
                                       key={staff.id}
                                       onClick={() => setSelectedStaffPerService(prev => ({
                                         ...prev,
-                                        [String(service.id)]: staff.id
+                                        [serviceKey]: staff.id
                                       }))}
                                       className={`w-full text-left p-2 rounded-lg border-2 transition-all ${
                                         selectedStaff === staff.id
@@ -1794,7 +1813,10 @@ export default function BookingsListByStatus({ status, title }: { status: Bookin
                   const hasMultipleServices = Array.isArray(bookingToReassign.services) && bookingToReassign.services.length > 0;
                   
                   if (hasMultipleServices) {
-                    return !bookingToReassign.services!.every(s => selectedStaffPerService[String(s.id)]);
+                    return !bookingToReassign.services!.every(s => {
+                      const serviceKey = String(s.id || s.serviceId || s.name);
+                      return selectedStaffPerService[serviceKey];
+                    });
                   } else {
                     return !selectedStaffId;
                   }

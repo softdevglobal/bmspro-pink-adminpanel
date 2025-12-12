@@ -145,17 +145,20 @@ export async function POST(req: NextRequest, context: { params: Promise<{ id: st
       // Update the specific service
       const updatedServices = existingServices.map((service, idx) => {
         if (idx === serviceIndex) {
-          return {
+          // Create clean service object (Firestore doesn't accept undefined)
+          const updatedService: any = {
             ...service,
             staffId: body.staffId,
             staffName: body.staffName || "Staff",
             approvalStatus: "pending" as const,
-            acceptedAt: undefined,
-            rejectedAt: undefined,
-            rejectionReason: undefined,
-            respondedByStaffUid: undefined,
-            respondedByStaffName: undefined,
           };
+          // Remove previous response data
+          delete updatedService.acceptedAt;
+          delete updatedService.rejectedAt;
+          delete updatedService.rejectionReason;
+          delete updatedService.respondedByStaffUid;
+          delete updatedService.respondedByStaffName;
+          return updatedService;
         }
         return service;
       });
@@ -175,15 +178,20 @@ export async function POST(req: NextRequest, context: { params: Promise<{ id: st
     } else if (hasNewServicesProvided) {
       // Full multi-service reassignment with new staff for each service
       // Reset all services with new staff and pending status
-      updateData.services = body.services!.map((service: any) => ({
-        ...service,
-        approvalStatus: "pending",
-        acceptedAt: undefined,
-        rejectedAt: undefined,
-        rejectionReason: undefined,
-        respondedByStaffUid: undefined,
-        respondedByStaffName: undefined,
-      }));
+      updateData.services = body.services!.map((service: any) => {
+        // Create clean service object (Firestore doesn't accept undefined)
+        const cleanService: any = {
+          ...service,
+          approvalStatus: "pending",
+        };
+        // Remove previous response data
+        delete cleanService.acceptedAt;
+        delete cleanService.rejectedAt;
+        delete cleanService.rejectionReason;
+        delete cleanService.respondedByStaffUid;
+        delete cleanService.respondedByStaffName;
+        return cleanService;
+      });
       
       updateData.status = "AwaitingStaffApproval";
       updateData.staffId = FieldValue.delete();
