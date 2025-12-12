@@ -178,8 +178,8 @@ export default function BookingsListByStatus({ status, title }: { status: Bookin
   const [updatingState, setUpdatingState] = useState<Record<string, string | null>>({});
   
   // Get allowed actions per row based on the row's actual status
-  const getAllowedActions = (rowStatus: BookingStatus | string | null): ReadonlyArray<"Confirm" | "Cancel" | "Complete" | "Reassign"> => {
-    const normalizedStatus = normalizeBookingStatus(rowStatus);
+  const getAllowedActions = (rowStatus: BookingStatus | string | null | undefined): ReadonlyArray<"Confirm" | "Cancel" | "Complete" | "Reassign"> => {
+    const normalizedStatus = normalizeBookingStatus(rowStatus ?? null);
     if (normalizedStatus === "Pending") return ["Confirm", "Cancel"];
     if (normalizedStatus === "AwaitingStaffApproval") return ["Cancel"]; // Admin can only cancel, waiting for staff action
     if (normalizedStatus === "StaffRejected") return ["Reassign", "Cancel"]; // Admin must reassign or cancel
