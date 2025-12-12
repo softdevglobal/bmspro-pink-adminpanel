@@ -115,6 +115,9 @@ export function subscribeSalonStaffForOwner(
           return { 
             id: d.id, 
             ...data,
+            // Ensure authUid is available (should match doc.id for properly created staff)
+            authUid: data.authUid || data.uid || d.id,
+            uid: data.uid || data.authUid || d.id,
             // Ensure compatibility with UI which expects 'name' and 'role' (job title)
             name: data.displayName || data.name || "Unknown",
             role: data.staffRole || data.role || "Staff", // prioritize job title, fallback to system role

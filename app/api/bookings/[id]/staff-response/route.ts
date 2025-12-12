@@ -114,8 +114,10 @@ export async function POST(req: NextRequest, context: { params: Promise<{ id: st
       // Multi-service booking - handle per-service accept/reject
       const services: BookingService[] = bookingData.services;
       
-      // Find services assigned to this staff member
-      const staffServices = services.filter(s => s.staffId === staffUid);
+      // Find services assigned to this staff member (check both staffId and staffAuthUid)
+      const staffServices = services.filter(s => 
+        s.staffId === staffUid || (s as any).staffAuthUid === staffUid
+      );
       
       if (staffServices.length === 0) {
         return NextResponse.json({ 
@@ -128,7 +130,17 @@ export async function POST(req: NextRequest, context: { params: Promise<{ id: st
       let servicesToUpdate: BookingService[];
       
       if (body.serviceId !== undefined) {
-        const targetService = staffServices.find(s => String(s.id) === String(body.serviceId));
+        // Find the target service - first check in staffServices, then in all services by ID
+        let targetService = staffServices.find(s => String(s.id) === String(body.serviceId));
+        
+        // If not found in staffServices, check if the service exists and is assigned to this staff
+        if (!targetService) {
+          const serviceById = services.find(s => String(s.id) === String(body.serviceId));
+          if (serviceById && (serviceById.staffId === staffUid || (serviceById as any).staffAuthUid === staffUid)) {
+            targetService = serviceById;
+          }
+        }
+        
         if (!targetService) {
           return NextResponse.json({ 
             error: "You are not assigned to this service" 
@@ -305,8 +317,9 @@ export async function POST(req: NextRequest, context: { params: Promise<{ id: st
 
     } else {
       // Single service booking - original logic
-      // Verify this staff member is assigned to this booking
-      if (bookingData.staffId !== staffUid) {
+      // Verify this staff member is assigned to this booking (check both staffId and staffAuthUid)
+      const isAssignedToBooking = bookingData.staffId === staffUid || bookingData.staffAuthUid === staffUid;
+      if (!isAssignedToBooking) {
       return NextResponse.json({ 
         error: "You are not assigned to this booking" 
       }, { status: 403, headers: corsHeaders });

@@ -897,6 +897,7 @@ function BookingsPageContent() {
             return {
               ...service,
               staffId: staffId,
+              staffAuthUid: (staff as any)?.authUid || (staff as any)?.uid || staffId, // Store auth UID for Flutter app
               staffName: staff?.name || "Staff"
             };
           }

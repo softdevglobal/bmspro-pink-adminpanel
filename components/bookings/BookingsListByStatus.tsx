@@ -652,6 +652,7 @@ export default function BookingsListByStatus({ status, title }: { status: Bookin
             return {
               ...service,
               staffId: staffId,
+              staffAuthUid: (staff as any)?.authUid || (staff as any)?.uid || staffId, // Store auth UID for Flutter app
               staffName: staff?.name || "Staff"
             };
           }
@@ -801,6 +802,7 @@ export default function BookingsListByStatus({ status, title }: { status: Bookin
             return {
               ...service,
               staffId: staffId,
+              staffAuthUid: (staff as any)?.authUid || (staff as any)?.uid || staffId, // Store auth UID for Flutter app
               staffName: staff?.name || "Staff"
             };
           }
