@@ -973,12 +973,13 @@ export default function BookingsListByStatus({ status, title }: { status: Bookin
                             approvalStatus: undefined
                           }]).map((svc, idx) => {
                             // Determine approval status badge colors
-                            const approvalStatus = (svc as any).approvalStatus || "pending";
-                            const approvalBadge = {
+                            const approvalStatus = ((svc as any).approvalStatus || "pending") as "pending" | "accepted" | "rejected";
+                            const badgeMap = {
                               pending: { bg: "bg-amber-100", text: "text-amber-700", icon: "fa-clock", label: "Pending", border: "border-amber-200" },
                               accepted: { bg: "bg-emerald-100", text: "text-emerald-700", icon: "fa-check", label: "Accepted", border: "border-emerald-200" },
                               rejected: { bg: "bg-rose-100", text: "text-rose-700", icon: "fa-times", label: "Rejected", border: "border-rose-200" },
-                            }[approvalStatus] || { bg: "bg-slate-100", text: "text-slate-700", icon: "fa-circle", label: "", border: "border-slate-200" };
+                            };
+                            const approvalBadge = badgeMap[approvalStatus] || badgeMap.pending;
 
                             return (
                             <div key={idx} className={`group relative overflow-hidden rounded-xl border bg-white p-3 shadow-sm hover:shadow-md transition-all duration-200 ${
@@ -1218,12 +1219,13 @@ export default function BookingsListByStatus({ status, title }: { status: Bookin
                                 <div className="flex flex-col gap-1">
                                   {r.services.map((svc, idx) => {
                                     // Determine approval status badge
-                                    const approvalStatus = svc.approvalStatus || "pending";
-                                    const approvalBadge = {
+                                    const approvalStatus = (svc.approvalStatus || "pending") as "pending" | "accepted" | "rejected";
+                                    const tableBadgeMap = {
                                       pending: { bg: "bg-amber-100", text: "text-amber-700", icon: "fa-clock", label: "Pending" },
                                       accepted: { bg: "bg-emerald-100", text: "text-emerald-700", icon: "fa-check", label: "Accepted" },
                                       rejected: { bg: "bg-rose-100", text: "text-rose-700", icon: "fa-times", label: "Rejected" },
-                                    }[approvalStatus];
+                                    };
+                                    const approvalBadge = tableBadgeMap[approvalStatus] || tableBadgeMap.pending;
                                     
                                     return (
                                       <div key={idx} className="flex items-center gap-2 flex-wrap">
