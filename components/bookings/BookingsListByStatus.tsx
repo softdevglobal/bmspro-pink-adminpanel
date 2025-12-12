@@ -4,7 +4,7 @@ import React, { useEffect, useMemo, useState } from "react";
 import { auth, db } from "@/lib/firebase";
 import { collection, onSnapshot, query, where } from "firebase/firestore";
 import type { BookingStatus } from "@/lib/bookingTypes";
-import { normalizeBookingStatus } from "@/lib/bookingTypes";
+import { normalizeBookingStatus, getStatusLabel, getStatusColor } from "@/lib/bookingTypes";
 import Sidebar from "@/components/Sidebar";
 import { updateBookingStatus } from "@/lib/bookings";
 
@@ -27,6 +27,10 @@ type Row = {
   status?: string | null;
   bookingCode?: string | null;
   bookingSource?: string | null;
+  // Rejection info (for StaffRejected bookings)
+  rejectionReason?: string | null;
+  rejectedByStaffName?: string | null;
+  rejectedByStaffUid?: string | null;
   services?: Array<{
     id: string | number;
     name?: string;
@@ -38,10 +42,13 @@ type Row = {
   }> | null;
 };
 
-function useBookingsByStatus(status: BookingStatus) {
+function useBookingsByStatus(statuses: BookingStatus | BookingStatus[]) {
   const [rows, setRows] = useState<Row[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  
+  // Normalize to array
+  const statusArray = Array.isArray(statuses) ? statuses : [statuses];
 
   useEffect(() => {
     let unsub: (() => void) | null = null;
@@ -98,7 +105,8 @@ function useBookingsByStatus(status: BookingStatus) {
         snap.forEach((docSnap) => {
           const d = docSnap.data() as any;
           const normalizedStatus = normalizeBookingStatus(d?.status || null);
-          if (normalizedStatus === status) {
+          // Check if status is in the array of statuses we're looking for
+          if (statusArray.includes(normalizedStatus)) {
             next.push({
               id: docSnap.id,
               client: String(d.client || ""),
@@ -118,6 +126,10 @@ function useBookingsByStatus(status: BookingStatus) {
               status: normalizedStatus,
               bookingCode: d.bookingCode || null,
               bookingSource: d.bookingSource || null,
+              // Rejection info
+              rejectionReason: d.rejectionReason || null,
+              rejectedByStaffName: d.rejectedByStaffName || null,
+              rejectedByStaffUid: d.rejectedByStaffUid || null,
               services: d.services || null,
             });
           }
@@ -155,18 +167,33 @@ function useBookingsByStatus(status: BookingStatus) {
       cancelled = true;
       if (unsub) unsub();
     };
-  }, [status]);
+  }, [statusArray.join(",")]);
 
   return { rows, loading, error };
 }
 
-export default function BookingsListByStatus({ status, title }: { status: BookingStatus; title: string }) {
+export default function BookingsListByStatus({ status, title }: { status: BookingStatus | BookingStatus[]; title: string }) {
   const { rows, loading, error } = useBookingsByStatus(status);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [updatingState, setUpdatingState] = useState<Record<string, string | null>>({});
-  const allowedActions = useMemo<ReadonlyArray<"Confirm" | "Cancel" | "Complete">>(() => {
-    if (status === "Pending") return ["Confirm", "Cancel"];
-    if (status === "Confirmed") return ["Complete"];
+  
+  // Get allowed actions per row based on the row's actual status
+  const getAllowedActions = (rowStatus: BookingStatus | string | null): ReadonlyArray<"Confirm" | "Cancel" | "Complete" | "Reassign"> => {
+    const normalizedStatus = normalizeBookingStatus(rowStatus);
+    if (normalizedStatus === "Pending") return ["Confirm", "Cancel"];
+    if (normalizedStatus === "AwaitingStaffApproval") return ["Cancel"]; // Admin can only cancel, waiting for staff action
+    if (normalizedStatus === "StaffRejected") return ["Reassign", "Cancel"]; // Admin must reassign or cancel
+    if (normalizedStatus === "Confirmed") return ["Complete", "Cancel"];
+    return [];
+  };
+  
+  // For preview panel - use the first status or check if any status allows actions
+  const allowedActions = useMemo<ReadonlyArray<"Confirm" | "Cancel" | "Complete" | "Reassign">>(() => {
+    const statusArray = Array.isArray(status) ? status : [status];
+    if (statusArray.includes("Pending")) return ["Confirm", "Cancel"];
+    if (statusArray.includes("AwaitingStaffApproval")) return ["Cancel"];
+    if (statusArray.includes("StaffRejected")) return ["Reassign", "Cancel"];
+    if (statusArray.includes("Confirmed")) return ["Complete", "Cancel"];
     return [];
   }, [status]);
   const [previewRow, setPreviewRow] = useState<Row | null>(null);
@@ -182,6 +209,10 @@ export default function BookingsListByStatus({ status, title }: { status: Bookin
   const [loadingStaff, setLoadingStaff] = useState(false);
   const [serviceQualifiedStaffIds, setServiceQualifiedStaffIds] = useState<string[]>([]);
   const [currentServiceQualifiedStaffIds, setCurrentServiceQualifiedStaffIds] = useState<Record<string, string[]>>({});
+
+  // Reassign modal state (for StaffRejected bookings)
+  const [reassignModalOpen, setReassignModalOpen] = useState(false);
+  const [bookingToReassign, setBookingToReassign] = useState<Row | null>(null);
 
   // Combined effect: Fetch services and staff together to ensure proper filtering
   useEffect(() => {
@@ -329,6 +360,153 @@ export default function BookingsListByStatus({ status, title }: { status: Bookin
       if (unsubStaff) unsubStaff();
     };
   }, [staffAssignModalOpen, bookingToConfirm]);
+
+  // Effect for reassign modal - reuses the same staff fetching logic
+  useEffect(() => {
+    if (!reassignModalOpen || !bookingToReassign) return;
+
+    let unsubServices: (() => void) | null = null;
+    let unsubStaff: (() => void) | null = null;
+    
+    const fetchData = async () => {
+      setLoadingStaff(true);
+      try {
+        const userId = auth.currentUser?.uid;
+        if (!userId) return;
+
+        const { getDoc, doc: firestoreDoc } = await import("firebase/firestore");
+        const userSnap = await getDoc(firestoreDoc(db, "users", userId));
+        const userData = userSnap.data();
+        const userRole = (userData?.role || "").toString();
+        const ownerUid = userRole === "salon_owner" ? userId : (userData?.ownerUid || userId);
+
+        const { subscribeServicesForOwner } = await import("@/lib/services");
+        const { subscribeSalonStaffForOwner } = await import("@/lib/salonStaff");
+
+        let servicesData: any[] = [];
+        let staffData: any[] = [];
+
+        const processData = () => {
+          if (servicesData.length === 0 || staffData.length === 0) return;
+
+          const hasMultipleServices = Array.isArray(bookingToReassign.services) && bookingToReassign.services.length > 0;
+          
+          if (hasMultipleServices) {
+            const staffPerService: Record<string, Array<{ id: string; name: string; branchId?: string; avatar?: string }>> = {};
+            
+            bookingToReassign.services!.forEach(bookingService => {
+              const service = servicesData.find((s: any) => String(s.id) === String(bookingService.id));
+              const qualifiedStaffIds = (service && Array.isArray(service.staffIds)) ? service.staffIds.map(String) : [];
+              
+              let filtered = staffData.filter((s: any) => s.status === "Active");
+              
+              // Exclude the staff member who rejected
+              if (bookingToReassign.rejectedByStaffUid) {
+                filtered = filtered.filter((s: any) => s.id !== bookingToReassign.rejectedByStaffUid);
+              }
+              
+              if (qualifiedStaffIds.length > 0) {
+                filtered = filtered.filter((s: any) => qualifiedStaffIds.includes(String(s.id)));
+              }
+              
+              if (bookingToReassign.branchId && bookingToReassign.date) {
+                const bookingDate = new Date(bookingToReassign.date);
+                const daysOfWeek = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+                const dayName = daysOfWeek[bookingDate.getDay()];
+                
+                filtered = filtered.filter((s: any) => {
+                  if (s.weeklySchedule && typeof s.weeklySchedule === 'object') {
+                    const daySchedule = s.weeklySchedule[dayName];
+                    if (daySchedule && daySchedule.branchId) {
+                      return daySchedule.branchId === bookingToReassign.branchId;
+                    }
+                    if (daySchedule === null || daySchedule === undefined) {
+                      return false;
+                    }
+                  }
+                  return s.branchId === bookingToReassign.branchId;
+                });
+              }
+              
+              staffPerService[String(bookingService.id)] = filtered.map((s: any) => ({
+                id: String(s.id),
+                name: String(s.name || s.displayName || "Staff"),
+                branchId: s.branchId,
+                avatar: s.avatar || s.name || s.displayName || "Staff",
+              }));
+            });
+            
+            setAvailableStaffPerService(staffPerService);
+          } else {
+            const service = servicesData.find((s: any) => String(s.id) === String(bookingToReassign.serviceId));
+            const qualifiedStaffIds = (service && Array.isArray(service.staffIds)) ? service.staffIds.map(String) : [];
+            
+            let filtered = staffData.filter((s: any) => s.status === "Active");
+
+            // Exclude the staff member who rejected
+            if (bookingToReassign.rejectedByStaffUid) {
+              filtered = filtered.filter((s: any) => s.id !== bookingToReassign.rejectedByStaffUid);
+            }
+
+            if (qualifiedStaffIds.length > 0) {
+              filtered = filtered.filter((s: any) => qualifiedStaffIds.includes(String(s.id)));
+            }
+
+            if (bookingToReassign.branchId && bookingToReassign.date) {
+              const bookingDate = new Date(bookingToReassign.date);
+              const daysOfWeek = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+              const dayName = daysOfWeek[bookingDate.getDay()];
+
+              filtered = filtered.filter((s: any) => {
+                if (s.weeklySchedule && typeof s.weeklySchedule === 'object') {
+                  const daySchedule = s.weeklySchedule[dayName];
+                  if (daySchedule && daySchedule.branchId) {
+                    return daySchedule.branchId === bookingToReassign.branchId;
+                  }
+                  if (daySchedule === null || daySchedule === undefined) {
+                    return false;
+                  }
+                }
+                return s.branchId === bookingToReassign.branchId;
+              });
+            }
+
+            setAvailableStaff(
+              filtered.map((s: any) => ({
+                id: String(s.id),
+                name: String(s.name || s.displayName || "Staff"),
+                branchId: s.branchId,
+                avatar: s.avatar || s.name || s.displayName || "Staff",
+              }))
+            );
+          }
+          
+          setLoadingStaff(false);
+        };
+
+        unsubServices = subscribeServicesForOwner(ownerUid, (services) => {
+          servicesData = services;
+          processData();
+        });
+
+        unsubStaff = subscribeSalonStaffForOwner(ownerUid, (staff) => {
+          staffData = staff;
+          processData();
+        });
+
+      } catch (err) {
+        console.error("Error fetching data for reassignment:", err);
+        setLoadingStaff(false);
+      }
+    };
+
+    fetchData();
+
+    return () => {
+      if (unsubServices) unsubServices();
+      if (unsubStaff) unsubStaff();
+    };
+  }, [reassignModalOpen, bookingToReassign]);
 
   const handleConfirmClick = (row: Row) => {
     // Check if booking has multiple services array
@@ -510,6 +688,107 @@ export default function BookingsListByStatus({ status, title }: { status: Bookin
       setUpdatingState((prev) => {
         const next = { ...prev };
         delete next[bookingToConfirm!.id];
+        return next;
+      });
+    }
+  };
+
+  // Handle reassign click for StaffRejected bookings
+  const handleReassignClick = (row: Row) => {
+    setBookingToReassign(row);
+    setSelectedStaffId("");
+    setSelectedStaffPerService({});
+    setReassignModalOpen(true);
+  };
+
+  // Confirm reassignment to new staff
+  const confirmReassignment = async () => {
+    if (!bookingToReassign) return;
+
+    const hasMultipleServices = Array.isArray(bookingToReassign.services) && bookingToReassign.services.length > 0;
+
+    if (hasMultipleServices) {
+      const allAssigned = bookingToReassign.services!.every(s => selectedStaffPerService[String(s.id)]);
+      if (!allAssigned) {
+        alert("Please assign staff to all services");
+        return;
+      }
+    } else {
+      if (!selectedStaffId) return;
+    }
+
+    try {
+      setUpdatingState((prev) => ({ ...prev, [bookingToReassign.id]: "Reassign" }));
+      
+      let token: string | null = null;
+      try {
+        if (auth.currentUser) {
+          token = await auth.currentUser.getIdToken(true);
+        } else {
+          const user = await new Promise<any>((resolve) => {
+            const unsubscribe = auth.onAuthStateChanged((u) => {
+              unsubscribe();
+              resolve(u);
+            });
+          });
+          if (user) {
+            token = await user.getIdToken(true);
+          } else {
+            token = typeof window !== "undefined" ? localStorage.getItem("idToken") : null;
+          }
+        }
+      } catch (err) {
+        console.error("Error getting token:", err);
+      }
+
+      let requestBody: any = {};
+
+      if (hasMultipleServices) {
+        const updatedServices = bookingToReassign.services!.map(service => {
+          const staffId = selectedStaffPerService[String(service.id)];
+          if (staffId) {
+            const staff = availableStaffPerService[String(service.id)]?.find(s => s.id === staffId);
+            return {
+              ...service,
+              staffId: staffId,
+              staffName: staff?.name || "Staff"
+            };
+          }
+          return service;
+        });
+        requestBody.services = updatedServices;
+      } else {
+        const selectedStaff = availableStaff.find(s => s.id === selectedStaffId);
+        requestBody.staffId = selectedStaffId;
+        requestBody.staffName = selectedStaff?.name || "Staff";
+      }
+
+      const res = await fetch(`/api/bookings/${encodeURIComponent(bookingToReassign.id)}/reassign`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+        body: JSON.stringify(requestBody),
+      });
+
+      const json = await res.json().catch(() => ({})) as any;
+      if (!res.ok) {
+        throw new Error(json?.error || "Failed to reassign booking");
+      }
+
+      // Close modal
+      setReassignModalOpen(false);
+      setBookingToReassign(null);
+      setSelectedStaffId("");
+      setSelectedStaffPerService({});
+    } catch (e: any) {
+      console.error("Error reassigning booking:", e);
+      alert(e?.message || "Failed to reassign booking");
+    } finally {
+      setUpdatingState((prev) => {
+        const next = { ...prev };
+        delete next[bookingToReassign!.id];
         return next;
       });
     }
@@ -733,7 +1012,7 @@ export default function BookingsListByStatus({ status, title }: { status: Bookin
                     >
                       Close
                     </button>
-                    {previewRow && allowedActions.includes("Confirm") && (
+                    {previewRow && getAllowedActions(previewRow.status).includes("Confirm") && (
                       <button
                         disabled={!!updatingState[previewRow.id]}
                         onClick={() => {
@@ -747,7 +1026,21 @@ export default function BookingsListByStatus({ status, title }: { status: Bookin
                         {updatingState[previewRow.id] === "Confirm" ? "Confirming..." : "Confirm"}
                       </button>
                     )}
-                    {previewRow && allowedActions.includes("Complete") && (
+                    {previewRow && getAllowedActions(previewRow.status).includes("Reassign") && (
+                      <button
+                        disabled={!!updatingState[previewRow.id]}
+                        onClick={() => {
+                          closePreview();
+                          handleReassignClick(previewRow);
+                        }}
+                        className={`px-4 py-2 rounded-full text-sm font-semibold inline-flex items-center gap-2 ${updatingState[previewRow.id] === "Reassign" ? "bg-amber-300 text-white" : "bg-gradient-to-r from-amber-500 to-orange-600 hover:from-amber-600 hover:to-orange-700 text-white shadow-sm"}`}
+                        aria-busy={!!updatingState[previewRow.id]}
+                      >
+                        {updatingState[previewRow.id] === "Reassign" ? <i className="fas fa-spinner fa-spin" /> : <i className="fas fa-user-plus" />}
+                        {updatingState[previewRow.id] === "Reassign" ? "Reassigning..." : "Reassign"}
+                      </button>
+                    )}
+                    {previewRow && getAllowedActions(previewRow.status).includes("Complete") && (
                       <button
                         disabled={!!updatingState[previewRow.id]}
                         onClick={() => onAction(previewRow.id, "Complete")}
@@ -758,7 +1051,7 @@ export default function BookingsListByStatus({ status, title }: { status: Bookin
                         {updatingState[previewRow.id] === "Complete" ? "Completing..." : "Complete"}
                       </button>
                     )}
-                    {previewRow && allowedActions.includes("Cancel") && (
+                    {previewRow && getAllowedActions(previewRow.status).includes("Cancel") && (
                       <button
                         disabled={!!updatingState[previewRow.id]}
                         onClick={() => onAction(previewRow.id, "Cancel")}
@@ -813,6 +1106,9 @@ export default function BookingsListByStatus({ status, title }: { status: Bookin
                         .slice(0, 2)
                         .map((s) => s[0]?.toUpperCase() || "")
                         .join("");
+                      const rowActions = getAllowedActions(r.status);
+                      const statusColor = getStatusColor(normalizeBookingStatus(r.status));
+                      const statusLabel = getStatusLabel(normalizeBookingStatus(r.status));
                       return (
                       <tr key={r.id} className="hover:bg-slate-50 transition">
                         <td className="p-4 pl-6">
@@ -888,6 +1184,10 @@ export default function BookingsListByStatus({ status, title }: { status: Bookin
                         </td>
                         <td className="p-4 text-right pr-6">
                           <div className="inline-flex items-center gap-2 justify-end bg-slate-100/60 rounded-full px-2 py-1">
+                            {/* Status Badge */}
+                            <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${statusColor}`}>
+                              {statusLabel}
+                            </span>
                             <button
                               aria-label="Preview"
                               title="Preview"
@@ -896,9 +1196,9 @@ export default function BookingsListByStatus({ status, title }: { status: Bookin
                             >
                               <i className="fas fa-eye" />
                             </button>
-                            {allowedActions.length > 0 && (
+                            {rowActions.length > 0 && (
                               <>
-                              {allowedActions.includes("Confirm" as any) && (
+                              {rowActions.includes("Confirm" as any) && (
                                 <button
                                   disabled={!!updatingState[r.id]}
                                   onClick={() => handleConfirmClick(r)}
@@ -909,7 +1209,7 @@ export default function BookingsListByStatus({ status, title }: { status: Bookin
                                   {updatingState[r.id] === "Confirm" ? "Confirming..." : "Confirm"}
                                 </button>
                               )}
-                              {allowedActions.includes("Complete" as any) && (
+                              {rowActions.includes("Complete" as any) && (
                                 <button
                                   disabled={!!updatingState[r.id]}
                                   onClick={() => onAction(r.id, "Complete")}
@@ -920,7 +1220,18 @@ export default function BookingsListByStatus({ status, title }: { status: Bookin
                                   {updatingState[r.id] === "Complete" ? "Completing..." : "Complete"}
                                 </button>
                               )}
-                              {allowedActions.includes("Cancel" as any) && (
+                              {rowActions.includes("Reassign" as any) && (
+                                <button
+                                  disabled={!!updatingState[r.id]}
+                                  onClick={() => handleReassignClick(r)}
+                                  className={`px-3 py-1.5 rounded-full text-xs font-semibold transition inline-flex items-center gap-1 ${updatingState[r.id] === "Reassign" ? "bg-amber-300 text-white" : "bg-gradient-to-r from-amber-500 to-orange-600 hover:from-amber-600 hover:to-orange-700 text-white shadow-sm"}`}
+                                  aria-busy={!!updatingState[r.id]}
+                                >
+                                  {updatingState[r.id] === "Reassign" ? <i className="fas fa-spinner fa-spin" /> : <i className="fas fa-user-plus" />}
+                                  {updatingState[r.id] === "Reassign" ? "Reassigning..." : "Reassign"}
+                                </button>
+                              )}
+                              {rowActions.includes("Cancel" as any) && (
                                 <button
                                   disabled={!!updatingState[r.id]}
                                   onClick={() => onAction(r.id, "Cancel")}
@@ -1157,6 +1468,241 @@ export default function BookingsListByStatus({ status, title }: { status: Bookin
                   <>
                     <i className="fas fa-check-circle"></i>
                     <span>Confirm Booking</span>
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Reassignment Modal for StaffRejected bookings */}
+      {reassignModalOpen && bookingToReassign && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center p-4">
+          {/* Backdrop */}
+          <div
+            className="absolute inset-0 bg-black/60 backdrop-blur-sm animate-fade-in"
+            onClick={() => !updatingState[bookingToReassign.id] && setReassignModalOpen(false)}
+          />
+
+          {/* Modal */}
+          <div className="relative bg-white rounded-2xl shadow-2xl max-w-md w-full animate-scale-in overflow-hidden max-h-[90vh] flex flex-col">
+            {/* Header */}
+            <div className="bg-gradient-to-r from-amber-500 to-orange-600 p-5 shrink-0">
+              <div className="flex items-center gap-3">
+                <div className="w-12 h-12 bg-white/20 backdrop-blur-sm rounded-xl flex items-center justify-center">
+                  <i className="fas fa-user-plus text-white text-xl"></i>
+                </div>
+                <div>
+                  <h3 className="text-lg font-bold text-white">Reassign Booking</h3>
+                  <p className="text-white/80 text-sm">Select a new staff member</p>
+                </div>
+              </div>
+            </div>
+
+            {/* Content - scrollable */}
+            <div className="p-6 overflow-y-auto flex-1">
+              {/* Rejection Info Alert */}
+              {bookingToReassign.rejectionReason && (
+                <div className="mb-4 p-4 bg-rose-50 border border-rose-200 rounded-lg">
+                  <div className="flex items-start gap-3">
+                    <div className="w-8 h-8 bg-rose-100 rounded-full flex items-center justify-center shrink-0">
+                      <i className="fas fa-exclamation-circle text-rose-600 text-sm"></i>
+                    </div>
+                    <div>
+                      <p className="font-semibold text-rose-800 text-sm">
+                        Rejected by {bookingToReassign.rejectedByStaffName || "Staff"}
+                      </p>
+                      <p className="text-rose-700 text-sm mt-1">
+                        "{bookingToReassign.rejectionReason}"
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* Booking Details */}
+              <div className="mb-6 p-4 bg-slate-50 rounded-lg">
+                <div className="flex items-center gap-3 mb-3">
+                  <div className="w-10 h-10 rounded-full bg-gradient-to-br from-pink-500 to-fuchsia-600 text-white flex items-center justify-center text-sm font-bold">
+                    {(bookingToReassign.client || "?").split(" ").map(s => s[0]).slice(0,2).join("")}
+                  </div>
+                  <div>
+                    <p className="font-semibold text-slate-900">{bookingToReassign.client}</p>
+                    <p className="text-xs text-slate-500">{bookingToReassign.serviceName || "Service"}</p>
+                  </div>
+                </div>
+                <div className="flex items-center gap-4 text-xs text-slate-600">
+                  <span><i className="far fa-calendar mr-1"></i>{bookingToReassign.date}</span>
+                  <span><i className="far fa-clock mr-1"></i>{bookingToReassign.time}</span>
+                  {bookingToReassign.branchName && <span><i className="fas fa-store mr-1"></i>{bookingToReassign.branchName}</span>}
+                </div>
+              </div>
+
+              {/* Staff Selection */}
+              <div>
+                {loadingStaff ? (
+                  <div className="flex items-center justify-center py-8">
+                    <div className="w-8 h-8 border-3 border-amber-200 border-t-amber-600 rounded-full animate-spin"></div>
+                    <span className="ml-3 text-slate-600">Loading available staff...</span>
+                  </div>
+                ) : (
+                  <>
+                    {/* Multiple Services */}
+                    {Array.isArray(bookingToReassign.services) && bookingToReassign.services.length > 0 ? (
+                      <div className="space-y-4 max-h-64 overflow-y-auto">
+                        {bookingToReassign.services.map((service) => {
+                          const serviceStaff = availableStaffPerService[String(service.id)] || [];
+                          const selectedStaff = selectedStaffPerService[String(service.id)];
+                          
+                          return (
+                            <div key={String(service.id)} className="border-2 border-amber-200 rounded-xl p-4 bg-amber-50/50">
+                              <div className="mb-3 flex items-center gap-2">
+                                <i className="fas fa-spa text-amber-600"></i>
+                                <h4 className="font-bold text-slate-800">{service.name}</h4>
+                                <span className="text-xs text-slate-500 ml-auto">{service.duration} min</span>
+                              </div>
+                              
+                              {serviceStaff.length === 0 ? (
+                                <div className="p-3 bg-rose-50 border border-rose-200 rounded-lg text-rose-800 text-xs">
+                                  <i className="fas fa-exclamation-triangle mr-2"></i>
+                                  No other qualified staff available
+                                </div>
+                              ) : (
+                                <div className="space-y-2">
+                                  {serviceStaff.map((staff) => (
+                                    <button
+                                      key={staff.id}
+                                      onClick={() => setSelectedStaffPerService(prev => ({
+                                        ...prev,
+                                        [String(service.id)]: staff.id
+                                      }))}
+                                      className={`w-full text-left p-2 rounded-lg border-2 transition-all ${
+                                        selectedStaff === staff.id
+                                          ? "border-amber-500 bg-amber-50 shadow-sm"
+                                          : "border-slate-200 hover:border-amber-300 hover:bg-white"
+                                      }`}
+                                    >
+                                      <div className="flex items-center gap-2">
+                                        <div className={`w-8 h-8 rounded-full overflow-hidden flex-shrink-0 border-2 ${
+                                          selectedStaff === staff.id ? "border-amber-500" : "border-slate-200"
+                                        }`}>
+                                          <img
+                                            src={`https://api.dicebear.com/7.x/avataaars/svg?seed=${encodeURIComponent(staff.avatar || staff.name)}`}
+                                            alt={staff.name}
+                                            className="w-full h-full object-cover"
+                                          />
+                                        </div>
+                                        <div className="flex-1">
+                                          <p className={`font-semibold text-sm ${
+                                            selectedStaff === staff.id ? "text-amber-900" : "text-slate-800"
+                                          }`}>
+                                            {staff.name}
+                                          </p>
+                                        </div>
+                                        {selectedStaff === staff.id && (
+                                          <i className="fas fa-check-circle text-amber-500"></i>
+                                        )}
+                                      </div>
+                                    </button>
+                                  ))}
+                                </div>
+                              )}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    ) : (
+                      /* Single Service */
+                      <>
+                        <label className="block text-sm font-semibold text-slate-700 mb-3">
+                          <i className="fas fa-user-tie text-amber-600 mr-2"></i>
+                          Select New Staff Member
+                        </label>
+                        {availableStaff.length === 0 ? (
+                          <div className="p-4 bg-rose-50 border border-rose-200 rounded-lg text-rose-800 text-sm">
+                            <i className="fas fa-exclamation-triangle mr-2"></i>
+                            No other available staff members found for this booking.
+                          </div>
+                        ) : (
+                          <div className="space-y-2 max-h-64 overflow-y-auto">
+                            {availableStaff.map((staff) => (
+                              <button
+                                key={staff.id}
+                                onClick={() => setSelectedStaffId(staff.id)}
+                                className={`w-full text-left p-3 rounded-lg border-2 transition-all ${
+                                  selectedStaffId === staff.id
+                                    ? "border-amber-500 bg-amber-50 shadow-sm"
+                                    : "border-slate-200 hover:border-amber-300 hover:bg-slate-50"
+                                }`}
+                              >
+                                <div className="flex items-center gap-3">
+                                  <div className={`w-10 h-10 rounded-full overflow-hidden flex-shrink-0 border-2 ${
+                                    selectedStaffId === staff.id
+                                      ? "border-amber-500"
+                                      : "border-slate-200"
+                                  }`}>
+                                    <img
+                                      src={`https://api.dicebear.com/7.x/avataaars/svg?seed=${encodeURIComponent(staff.avatar || staff.name)}`}
+                                      alt={staff.name}
+                                      className="w-full h-full object-cover"
+                                    />
+                                  </div>
+                                  <div className="flex-1">
+                                    <p className={`font-semibold ${
+                                      selectedStaffId === staff.id ? "text-amber-900" : "text-slate-800"
+                                    }`}>
+                                      {staff.name}
+                                    </p>
+                                  </div>
+                                  {selectedStaffId === staff.id && (
+                                    <i className="fas fa-check-circle text-amber-500 text-lg"></i>
+                                  )}
+                                </div>
+                              </button>
+                            ))}
+                          </div>
+                        )}
+                      </>
+                    )}
+                  </>
+                )}
+              </div>
+            </div>
+
+            {/* Footer */}
+            <div className="bg-slate-50 px-6 py-4 flex gap-3 justify-end border-t border-slate-200 shrink-0">
+              <button
+                onClick={() => setReassignModalOpen(false)}
+                disabled={!!updatingState[bookingToReassign.id]}
+                className="px-4 py-2.5 rounded-lg text-slate-700 hover:bg-slate-200 font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed text-sm"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={confirmReassignment}
+                disabled={(() => {
+                  if (!!updatingState[bookingToReassign.id]) return true;
+                  
+                  const hasMultipleServices = Array.isArray(bookingToReassign.services) && bookingToReassign.services.length > 0;
+                  
+                  if (hasMultipleServices) {
+                    return !bookingToReassign.services!.every(s => selectedStaffPerService[String(s.id)]);
+                  } else {
+                    return !selectedStaffId;
+                  }
+                })()}
+                className="px-5 py-2.5 rounded-lg bg-gradient-to-r from-amber-500 to-orange-600 hover:from-amber-600 hover:to-orange-700 text-white font-semibold transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2 text-sm shadow-lg shadow-amber-200"
+              >
+                {updatingState[bookingToReassign.id] === "Reassign" ? (
+                  <>
+                    <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin"></div>
+                    <span>Reassigning...</span>
+                  </>
+                ) : (
+                  <>
+                    <i className="fas fa-user-plus"></i>
+                    <span>Reassign Booking</span>
                   </>
                 )}
               </button>
