@@ -1322,13 +1322,27 @@ export default function BookingsListByStatus({ status, title }: { status: Bookin
                         </td>
                         {/* Staff Column - show consolidated or main staff */}
                         <td className="p-4">
-                          {r.services && r.services.length > 0 ? (
-                             <div className="flex flex-col gap-1">
-                               <span className="text-xs font-medium text-slate-700">{r.staffName || "Multiple Staff"}</span>
-                             </div>
-                          ) : (
-                             <span>{r.staffName || "-"}</span>
-                          )}
+                          {(() => {
+                            // Determine staff display from services
+                            if (r.services && r.services.length > 0) {
+                              const uniqueStaff = new Set<string>();
+                              r.services.forEach((s: any) => {
+                                const name = s.staffName;
+                                if (name && name !== "Any Available" && name !== "Any Staff" && name !== "null") {
+                                  uniqueStaff.add(name);
+                                }
+                              });
+                              
+                              if (uniqueStaff.size === 0) {
+                                return <span className="text-xs font-medium text-slate-500">Any Available</span>;
+                              } else if (uniqueStaff.size === 1) {
+                                return <span className="text-xs font-medium text-slate-700">{Array.from(uniqueStaff)[0]}</span>;
+                              } else {
+                                return <span className="text-xs font-medium text-slate-700">Multiple Staff</span>;
+                              }
+                            }
+                            return <span>{r.staffName || "-"}</span>;
+                          })()}
                         </td>
                         <td className="p-4">{r.branchName || "-"}</td>
                         <td className="p-4 text-right pr-6">
