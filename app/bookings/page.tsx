@@ -403,7 +403,7 @@ function BookingsPageContent() {
         }
         const startHour = 9;
         const endHour = 17;
-        const interval = 30;
+        const interval = 15;
         let currentTime = startHour * 60;
         const maxTime = endHour * 60;
         
@@ -1203,7 +1203,7 @@ function BookingsPageContent() {
     
     const startHour = 9;
     const endHour = 17;
-    const interval = 30;
+    const interval = 15;
     const slots: Array<{ time: string; available: boolean; reason?: string }> = [];
     let current = startHour * 60;
     const max = endHour * 60;

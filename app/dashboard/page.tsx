@@ -1082,6 +1082,7 @@ export default function DashboardPage() {
                       <th className="px-6 py-4 text-left text-xs font-semibold text-slate-600 uppercase tracking-wider">Activity</th>
                       <th className="px-6 py-4 text-left text-xs font-semibold text-slate-600 uppercase tracking-wider">Client</th>
                       <th className="px-6 py-4 text-left text-xs font-semibold text-slate-600 uppercase tracking-wider">Service</th>
+                      <th className="px-6 py-4 text-left text-xs font-semibold text-slate-600 uppercase tracking-wider">Staff</th>
                       <th className="px-6 py-4 text-left text-xs font-semibold text-slate-600 uppercase tracking-wider">Booking Date</th>
                       <th className="px-6 py-4 text-right text-xs font-semibold text-slate-600 uppercase tracking-wider">Amount</th>
                     </tr>
@@ -1089,7 +1090,7 @@ export default function DashboardPage() {
                   <tbody className="divide-y divide-slate-200">
                     {recentActivities.length === 0 ? (
                       <tr>
-                        <td colSpan={5} className="px-6 py-8 text-center text-slate-500">
+                        <td colSpan={6} className="px-6 py-8 text-center text-slate-500">
                           <i className="fas fa-calendar-check text-4xl text-slate-300 mb-3 block" />
                           <p>Booking activity will appear here</p>
                         </td>
@@ -1175,6 +1176,52 @@ export default function DashboardPage() {
                               {activity.branchName && (
                                 <p className="text-xs text-slate-500">{activity.branchName}</p>
                               )}
+                            </td>
+                            <td className="px-6 py-4">
+                              {(() => {
+                                // Get staff names from services array or staffName field
+                                let staffNames: string[] = [];
+                                if (Array.isArray(activity.services) && activity.services.length > 0) {
+                                  staffNames = activity.services
+                                    .map((s: any) => s.staffName)
+                                    .filter((name: string) => name && name !== "Any Available");
+                                } else if (activity.staffName) {
+                                  // staffName might be comma-separated for multiple staff
+                                  staffNames = activity.staffName.split(",").map((n: string) => n.trim()).filter(Boolean);
+                                }
+                                
+                                // Get unique staff names
+                                const uniqueStaff = [...new Set(staffNames)];
+                                
+                                if (uniqueStaff.length === 0) {
+                                  return <span className="text-sm text-slate-400">—</span>;
+                                }
+                                
+                                if (uniqueStaff.length === 1) {
+                                  return (
+                                    <div className="flex items-center space-x-2">
+                                      <div className="w-7 h-7 bg-gradient-to-br from-indigo-400 to-indigo-600 rounded-full flex items-center justify-center">
+                                        <i className="fas fa-user text-white text-xs" />
+                                      </div>
+                                      <span className="text-sm font-medium text-slate-900">{uniqueStaff[0]}</span>
+                                    </div>
+                                  );
+                                }
+                                
+                                // Multiple staff - show as stacked avatars with names
+                                return (
+                                  <div className="flex flex-col gap-1">
+                                    {uniqueStaff.map((name, idx) => (
+                                      <div key={idx} className="flex items-center space-x-2">
+                                        <div className={`w-6 h-6 bg-gradient-to-br ${idx === 0 ? 'from-indigo-400 to-indigo-600' : idx === 1 ? 'from-purple-400 to-purple-600' : 'from-pink-400 to-pink-600'} rounded-full flex items-center justify-center`}>
+                                          <i className="fas fa-user text-white text-[10px]" />
+                                        </div>
+                                        <span className="text-xs font-medium text-slate-900">{name}</span>
+                                      </div>
+                                    ))}
+                                  </div>
+                                );
+                              })()}
                             </td>
                             <td className="px-6 py-4">
                               <p className="text-sm text-slate-900">{bookingDate}</p>
