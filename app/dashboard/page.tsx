@@ -22,6 +22,9 @@ export default function DashboardPage() {
   const [recentTenants, setRecentTenants] = useState<any[]>([]);
   const [recentActivities, setRecentActivities] = useState<any[]>([]);
   const [isSuperAdmin, setIsSuperAdmin] = useState<boolean>(false);
+  const [isBranchAdmin, setIsBranchAdmin] = useState<boolean>(false);
+  const [branchAdminBranchId, setBranchAdminBranchId] = useState<string>("");
+  const [branchAdminBranchName, setBranchAdminBranchName] = useState<string>("");
   const [salonName, setSalonName] = useState<string>("");
   const [logoUrl, setLogoUrl] = useState<string>("");
   
@@ -40,6 +43,14 @@ export default function DashboardPage() {
   const [toastNotifications, setToastNotifications] = useState<any[]>([]);
   const previousPendingIdsRef = useRef<Set<string>>(new Set());
   const isInitialLoadRef = useRef(true);
+  
+  // Live clock state
+  const [currentTime, setCurrentTime] = useState<Date | null>(null);
+  const [clockPosition, setClockPosition] = useState({ x: 288, y: 500 });
+  const [isDragging, setIsDragging] = useState(false);
+  const [dragOffset, setDragOffset] = useState({ x: 0, y: 0 });
+  const [clockMounted, setClockMounted] = useState(false);
+  const clockRef = useRef<HTMLDivElement>(null);
 
   // Show toast notification
   const showToastNotification = (booking: any) => {
@@ -182,14 +193,19 @@ export default function DashboardPage() {
           const userData = userDoc.data();
           const role = userData?.role || "";
           
-          // Redirect salon_branch_admin to branches page
+          // For branch admin, store their branch info
           if (role === "salon_branch_admin") {
-            router.replace("/branches");
-            return;
+            setIsBranchAdmin(true);
+            setBranchAdminBranchId(userData?.branchId || "");
+            setBranchAdminBranchName(userData?.branchName || "");
+            // Set the owner UID to their salon owner's UID for data fetching
+            if (userData?.ownerUid) {
+              setOwnerUid(userData.ownerUid);
+            }
           }
           
           setIsSuperAdmin(role === "super_admin");
-          setSalonName(userData?.name || userData?.displayName || "");
+          setSalonName(userData?.name || userData?.displayName || userData?.branchName || "");
           setLogoUrl(userData?.logoUrl || "");
         } catch {
           router.replace("/login");
@@ -198,6 +214,62 @@ export default function DashboardPage() {
       return () => unsub();
     })();
   }, [router]);
+
+  // Live clock - update every second (only on client)
+  useEffect(() => {
+    setCurrentTime(new Date());
+    setClockMounted(true);
+    const timer = setInterval(() => {
+      setCurrentTime(new Date());
+    }, 1000);
+    return () => clearInterval(timer);
+  }, []);
+
+  // Initialize clock position on mount
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      const savedPosition = localStorage.getItem('clockPosition');
+      if (savedPosition) {
+        setClockPosition(JSON.parse(savedPosition));
+      } else {
+        setClockPosition({ x: 288, y: window.innerHeight - 150 });
+      }
+    }
+  }, []);
+
+  // Handle clock dragging
+  useEffect(() => {
+    const handleMouseMove = (e: MouseEvent) => {
+      if (!isDragging) return;
+      const newX = e.clientX - dragOffset.x;
+      const newY = e.clientY - dragOffset.y;
+      // Keep within viewport bounds
+      const maxX = window.innerWidth - 280;
+      const maxY = window.innerHeight - 120;
+      setClockPosition({
+        x: Math.max(0, Math.min(newX, maxX)),
+        y: Math.max(0, Math.min(newY, maxY))
+      });
+    };
+
+    const handleMouseUp = () => {
+      if (isDragging) {
+        setIsDragging(false);
+        // Save position to localStorage
+        localStorage.setItem('clockPosition', JSON.stringify(clockPosition));
+      }
+    };
+
+    if (isDragging) {
+      document.addEventListener('mousemove', handleMouseMove);
+      document.addEventListener('mouseup', handleMouseUp);
+    }
+
+    return () => {
+      document.removeEventListener('mousemove', handleMouseMove);
+      document.removeEventListener('mouseup', handleMouseUp);
+    };
+  }, [isDragging, dragOffset, clockPosition]);
 
   // Fetch real data from Firestore
   useEffect(() => {
@@ -215,7 +287,12 @@ export default function DashboardPage() {
       unsubBookings = onSnapshot(
         bookingsQuery,
         (snapshot) => {
-        const bookings = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+        let bookings = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+        
+        // For branch admins, filter bookings by their branch
+        if (isBranchAdmin && branchAdminBranchName) {
+          bookings = bookings.filter((b: any) => b.branchName === branchAdminBranchName);
+        }
         
         // Total bookings
         setTotalBookings(bookings.length);
@@ -326,14 +403,31 @@ export default function DashboardPage() {
       const staffQuery = query(collection(db, "users"), where("ownerUid", "==", ownerUid));
       unsubStaff = onSnapshot(
         staffQuery,
-        (snapshot) => {
-          const staff = snapshot.docs
-            .map(doc => doc.data())
+        async (snapshot) => {
+          let staff = snapshot.docs
+            .map(doc => ({ id: doc.id, ...doc.data() }))
             .filter((s: any) => {
               // Only count salon_staff and salon_branch_admin roles
               const role = (s.role || "").toLowerCase();
               return role === "salon_staff" || role === "salon_branch_admin";
             });
+          
+          // For branch admins, get staff from the branch document's staffIds array
+          if (isBranchAdmin && branchAdminBranchId) {
+            try {
+              const { doc: getDocRef, getDoc } = await import("firebase/firestore");
+              const branchDoc = await getDoc(getDocRef(db, "branches", branchAdminBranchId));
+              if (branchDoc.exists()) {
+                const branchData = branchDoc.data();
+                const branchStaffIds = branchData?.staffIds || [];
+                // Filter staff to only those in this branch
+                staff = staff.filter((s: any) => branchStaffIds.includes(s.id));
+              }
+            } catch (err) {
+              console.error("Error fetching branch for staff filter:", err);
+            }
+          }
+          
           // Count active staff (those with status "Active" or no status set)
           const activeCount = staff.filter((s: any) => 
             !s.status || s.status === "Active"
@@ -355,7 +449,16 @@ export default function DashboardPage() {
       unsubServices = onSnapshot(
         servicesQuery,
         (snapshot) => {
-          setActiveServices(snapshot.docs.length);
+          let services = snapshot.docs.map(doc => doc.data());
+          
+          // For branch admins, filter services by their branch if services have branch info
+          if (isBranchAdmin && branchAdminBranchId) {
+            services = services.filter((s: any) => 
+              !s.branchId || s.branchId === branchAdminBranchId || s.branchIds?.includes(branchAdminBranchId)
+            );
+          }
+          
+          setActiveServices(services.length);
         },
         (error) => {
           if (error.code === "permission-denied") {
@@ -373,7 +476,7 @@ export default function DashboardPage() {
       unsubStaff?.();
       unsubServices?.();
     };
-  }, [ownerUid]);
+  }, [ownerUid, isBranchAdmin, branchAdminBranchId, branchAdminBranchName]);
 
   // Fetch today's schedule
   useEffect(() => {
@@ -562,8 +665,9 @@ export default function DashboardPage() {
   };
 
   // Fetch recent activity (tenants for super admin, booking activities for salon owners)
+  // Skip for branch admins since we hide that section for them
   useEffect(() => {
-    if (!ownerUid) return;
+    if (!ownerUid || isBranchAdmin) return;
 
     let unsubTenants: (() => void) | undefined;
     let unsubActivities: (() => void) | undefined;
@@ -653,7 +757,7 @@ export default function DashboardPage() {
       unsubTenants?.();
       unsubActivities?.();
     };
-  }, [ownerUid, isSuperAdmin]);
+  }, [ownerUid, isSuperAdmin, isBranchAdmin]);
 
   // Track if charts have been initially built
   const chartsInitializedRef = useRef(false);
@@ -890,10 +994,10 @@ export default function DashboardPage() {
                   )}
                   <div>
                     <h1 className="text-2xl font-bold">
-                      {salonName ? `${salonName}` : "Dashboard"}
+                      {isBranchAdmin ? branchAdminBranchName : (salonName || "Dashboard")}
                     </h1>
                     <p className="text-sm text-white/80 mt-1">
-                      {salonName ? "Business Overview" : "Real-time system overview"}
+                      {isBranchAdmin ? "Branch Dashboard" : (salonName ? "Business Overview" : "Real-time system overview")}
                     </p>
                   </div>
                 </div>
@@ -1017,7 +1121,12 @@ export default function DashboardPage() {
                     <span className="px-3 py-1.5 bg-pink-50 text-pink-700 rounded-full text-sm font-semibold">
                       {(() => {
                         let filtered = todayBookings;
-                        if (selectedBranch) filtered = filtered.filter(b => b.branchName === selectedBranch);
+                        // Auto-filter by branch admin's branch
+                        if (isBranchAdmin && branchAdminBranchName) {
+                          filtered = filtered.filter(b => b.branchName === branchAdminBranchName);
+                        } else if (selectedBranch) {
+                          filtered = filtered.filter(b => b.branchName === selectedBranch);
+                        }
                         if (selectedStaffId) {
                           filtered = filtered.filter(b => {
                             if (b.staffId === selectedStaffId) return true;
@@ -1054,20 +1163,23 @@ export default function DashboardPage() {
                     >
                       <i className="fas fa-users mr-1.5" />Staff
                     </button>
-                    <button
-                      onClick={() => setScheduleViewMode('branch')}
-                      className={`px-3 py-1.5 rounded-md text-sm font-medium transition-all ${
-                        scheduleViewMode === 'branch' 
-                          ? 'bg-white text-pink-600 shadow-sm' 
-                          : 'text-slate-600 hover:text-slate-900'
-                      }`}
-                    >
-                      <i className="fas fa-store mr-1.5" />Branch
-                    </button>
+                    {/* Hide Branch view for branch admins - they only see their branch */}
+                    {!isBranchAdmin && (
+                      <button
+                        onClick={() => setScheduleViewMode('branch')}
+                        className={`px-3 py-1.5 rounded-md text-sm font-medium transition-all ${
+                          scheduleViewMode === 'branch' 
+                            ? 'bg-white text-pink-600 shadow-sm' 
+                            : 'text-slate-600 hover:text-slate-900'
+                        }`}
+                      >
+                        <i className="fas fa-store mr-1.5" />Branch
+                      </button>
+                    )}
                   </div>
                   
-                  {/* Branch filter */}
-                  {allBranches.length > 0 && (
+                  {/* Branch filter - hide for branch admins */}
+                  {allBranches.length > 0 && !isBranchAdmin && (
                     <select
                       value={selectedBranch || ''}
                       onChange={(e) => setSelectedBranch(e.target.value || null)}
@@ -1080,6 +1192,14 @@ export default function DashboardPage() {
                     </select>
                   )}
                   
+                  {/* Show branch name badge for branch admins */}
+                  {isBranchAdmin && branchAdminBranchName && (
+                    <div className="px-3 py-1.5 bg-purple-50 text-purple-700 rounded-lg text-sm font-medium flex items-center gap-2">
+                      <i className="fas fa-store" />
+                      {branchAdminBranchName}
+                    </div>
+                  )}
+                  
                   {/* Staff filter */}
                   {allStaff.length > 0 && (
                     <select
@@ -1088,9 +1208,27 @@ export default function DashboardPage() {
                       className="px-3 py-1.5 bg-white border border-slate-200 rounded-lg text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-pink-500"
                     >
                       <option value="">All Staff</option>
-                      {allStaff.map(staff => (
-                        <option key={staff.id} value={staff.id}>{staff.name}</option>
-                      ))}
+                      {(() => {
+                        // For branch admins, only show staff from their branch's bookings
+                        if (isBranchAdmin && branchAdminBranchName) {
+                          const branchBookings = todayBookings.filter(b => b.branchName === branchAdminBranchName);
+                          const branchStaffMap = new Map<string, string>();
+                          branchBookings.forEach(b => {
+                            if (b.staffId && b.staffName) branchStaffMap.set(b.staffId, b.staffName);
+                            b.services?.forEach((s: any) => {
+                              if (s.staffId && s.staffName) branchStaffMap.set(s.staffId, s.staffName);
+                            });
+                          });
+                          return [...branchStaffMap.entries()]
+                            .sort((a, b) => a[1].localeCompare(b[1]))
+                            .map(([id, name]) => (
+                              <option key={id} value={id}>{name}</option>
+                            ));
+                        }
+                        return allStaff.map(staff => (
+                          <option key={staff.id} value={staff.id}>{staff.name}</option>
+                        ));
+                      })()}
                     </select>
                   )}
                   
@@ -1111,7 +1249,14 @@ export default function DashboardPage() {
                 {(() => {
                   // Filter bookings
                   let filtered = todayBookings;
-                  if (selectedBranch) filtered = filtered.filter(b => b.branchName === selectedBranch);
+                  
+                  // Auto-filter by branch admin's branch
+                  if (isBranchAdmin && branchAdminBranchName) {
+                    filtered = filtered.filter(b => b.branchName === branchAdminBranchName);
+                  } else if (selectedBranch) {
+                    filtered = filtered.filter(b => b.branchName === selectedBranch);
+                  }
+                  
                   if (selectedStaffId) {
                     filtered = filtered.filter(b => {
                       if (b.staffId === selectedStaffId) return true;
@@ -1850,6 +1995,8 @@ export default function DashboardPage() {
               </div>
             </div>
           </div>
+          {/* Recent Activity - hide for branch admins */}
+          {!isBranchAdmin && (
           <div className="bg-white rounded-2xl border border-slate-200 shadow-sm">
             <div className="p-6 border-b border-slate-200">
               <div>
@@ -2162,6 +2309,7 @@ export default function DashboardPage() {
               )}
             </div>
           </div>
+          )}
         </main>
       </div>
 
@@ -2421,6 +2569,76 @@ export default function DashboardPage() {
           animation: slideIn 0.4s cubic-bezier(0.16, 1, 0.3, 1);
         }
       `}</style>
+      
+      {/* Fixed Date & Time Widget - Desktop Only - Draggable - Only render on client */}
+      {clockMounted && currentTime && (
+        <div 
+          ref={clockRef}
+          className={`hidden lg:flex fixed z-40 select-none ${isDragging ? 'cursor-grabbing' : 'cursor-grab'}`}
+          style={{ left: clockPosition.x, top: clockPosition.y }}
+          onMouseDown={(e) => {
+            if (clockRef.current) {
+              const rect = clockRef.current.getBoundingClientRect();
+              setDragOffset({ x: e.clientX - rect.left, y: e.clientY - rect.top });
+              setIsDragging(true);
+            }
+          }}
+        >
+          <div className={`bg-slate-800 rounded-2xl shadow-xl border border-slate-700 overflow-hidden transition-shadow ${isDragging ? 'shadow-2xl ring-2 ring-pink-500/50' : ''}`}>
+            {/* Drag handle indicator */}
+            <div className="flex justify-center py-1.5 bg-slate-700/50 border-b border-slate-700">
+              <div className="flex gap-1">
+                <div className="w-1 h-1 rounded-full bg-slate-500" />
+                <div className="w-1 h-1 rounded-full bg-slate-500" />
+                <div className="w-1 h-1 rounded-full bg-slate-500" />
+              </div>
+            </div>
+            
+            <div className="px-5 py-3">
+              {/* Time display */}
+              <div className="flex items-center gap-3 mb-2">
+                <div className="w-10 h-10 bg-gradient-to-br from-pink-500 to-purple-600 rounded-xl flex items-center justify-center shadow-lg">
+                  <i className="fas fa-clock text-white text-lg" />
+                </div>
+                <div className="flex items-baseline text-white tracking-tight font-mono">
+                  <span className="text-3xl font-bold">
+                    {(() => {
+                      const hours = currentTime.getHours();
+                      const minutes = currentTime.getMinutes();
+                      const hour12 = hours % 12 || 12;
+                      return `${hour12}:${String(minutes).padStart(2, '0')}`;
+                    })()}
+                  </span>
+                  <span className="text-lg font-semibold text-slate-400 ml-1">
+                    :{String(currentTime.getSeconds()).padStart(2, '0')}
+                  </span>
+                  <span className="text-sm font-semibold text-pink-400 ml-2">
+                    {currentTime.getHours() >= 12 ? 'PM' : 'AM'}
+                  </span>
+                </div>
+              </div>
+              
+              {/* Date display */}
+              <div className="flex items-center gap-2 pl-1">
+                <div className="flex items-center gap-2 text-slate-300">
+                  <i className="fas fa-calendar-day text-xs text-pink-400" />
+                  <span className="text-sm font-medium">
+                    {currentTime.toLocaleDateString('en-AU', { 
+                      weekday: 'long',
+                      day: 'numeric',
+                      month: 'long',
+                      year: 'numeric'
+                    })}
+                  </span>
+                </div>
+              </div>
+              
+              {/* Decorative gradient line */}
+              <div className="mt-3 h-1 bg-gradient-to-r from-pink-500 via-purple-500 to-indigo-500 rounded-full" />
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

@@ -242,7 +242,7 @@ export default function Sidebar({ mobile = false, onClose }: SidebarProps) {
         )}
       </div>
       <div ref={scrollContainerRef} className="flex-1 p-4 space-y-1 overflow-y-auto sidebar-scroll bg-slate-900" style={{ overflowAnchor: 'none' }}>
-        {mounted && role !== "salon_branch_admin" && (
+        {mounted && (role === "salon_owner" || role === "salon_branch_admin" || role === "super_admin") && (
           <Link
             href="/dashboard"
             className={`flex items-center space-x-3 px-4 py-3 rounded-xl font-medium text-sm transition ${
