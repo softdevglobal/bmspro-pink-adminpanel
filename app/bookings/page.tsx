@@ -1575,82 +1575,62 @@ function BookingsPageContent() {
                         const selectedTime = bkServiceTimes[String(serviceId)];
                         const selectedStaffId = bkServiceStaff[String(serviceId)];
                         
-                        // Inline staff filtering - checks service capability, branch, AND schedule for selected day
+                        // Inline staff filtering - STRICT: only show staff who can perform this service AT this branch
                         const selectedBranchName = branches.find((b: any) => b.id === bkBranchId)?.name;
                         
                         // Get day of week from selected date
                         const dayNames = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
                         const selectedDayName = bkDate ? dayNames[bkDate.getDay()] : null;
                         
-                        // Primary filter: staff scheduled to work at selected branch on selected day
+                        // Check if service has specific staff assigned
+                        const serviceHasStaffAssigned = service?.staffIds && service.staffIds.length > 0;
+                        const serviceStaffIds = serviceHasStaffAssigned ? service.staffIds.map(String) : [];
+                        
+                        // Helper function to check if staff works at selected branch
+                        const staffWorksAtBranch = (st: typeof staffList[0]): boolean => {
+                           if (!bkBranchId) return true; // No branch selected = show all
+                           
+                           // Check weekly schedule first (day-specific branch assignment)
+                           if (selectedDayName && st.weeklySchedule) {
+                              const daySchedule = st.weeklySchedule[selectedDayName];
+                              if (!daySchedule) return false; // Staff is off this day
+                              // Check if scheduled at selected branch
+                              return daySchedule.branchId === bkBranchId || daySchedule.branchName === selectedBranchName;
+                           }
+                           
+                           // Fall back to home branch check
+                           const staffBranchId = String(st.branchId || "");
+                           const staffBranchName = String(st.branch || "");
+                           
+                           // Staff MUST have a branch assignment matching the selected branch
+                           return staffBranchId === bkBranchId || staffBranchName === selectedBranchName;
+                        };
+                        
+                        // FILTER: Staff must be non-suspended + work at branch + (if service has staffIds, be in that list)
                         let availableStaffForService = staffList.filter(st => {
-                           // Only filter out if explicitly suspended
+                           // 1. Filter out suspended staff
                            if (st.status === "Suspended" || st.status === "suspended") return false;
                            
-                           // Service capability check - if service has specific staff assigned, only show those
-                           if (service?.staffIds && service.staffIds.length > 0) {
-                              const sIds = service.staffIds.map(String);
-                              if (!sIds.includes(String(st.id))) return false;
+                           // 2. If service has specific staff assigned, ONLY show those
+                           if (serviceHasStaffAssigned) {
+                              if (!serviceStaffIds.includes(String(st.id))) return false;
                            }
                            
-                           // Schedule check - staff must be scheduled at the selected branch on the selected day
-                           if (bkBranchId && selectedDayName && st.weeklySchedule) {
-                              const daySchedule = st.weeklySchedule[selectedDayName];
-                              // If no schedule for this day, staff is off
-                              if (!daySchedule) return false;
-                              // Check if scheduled at the selected branch
-                              if (daySchedule.branchId !== bkBranchId && daySchedule.branchName !== selectedBranchName) {
-                                 return false;
-                              }
-                           } else if (bkBranchId && !st.weeklySchedule) {
-                              // No weekly schedule defined - fall back to home branch check
-                              const staffBranchId = String(st.branchId || "");
-                              const staffBranchName = String(st.branch || "");
-                              const hasBranchMatch = 
-                                staffBranchId === bkBranchId || 
-                                staffBranchName === selectedBranchName ||
-                                (!staffBranchId && !staffBranchName);
-                              if (!hasBranchMatch) return false;
-                           }
+                           // 3. Staff must work at the selected branch (mandatory)
+                           if (!staffWorksAtBranch(st)) return false;
                            
                            return true;
                         });
                         
-                        // Fallback: if no staff found with strict schedule check, try without schedule check
-                        if (availableStaffForService.length === 0) {
-                           availableStaffForService = staffList.filter(st => {
-                              if (st.status === "Suspended" || st.status === "suspended") return false;
-                              // Service capability check only
-                              if (service?.staffIds && service.staffIds.length > 0) {
-                                 const sIds = service.staffIds.map(String);
-                                 if (!sIds.includes(String(st.id))) return false;
-                              }
-                              // Basic branch check (without schedule)
-                              if (bkBranchId) {
-                                 const staffBranchId = String(st.branchId || "");
-                                 const staffBranchName = String(st.branch || "");
-                                 const hasBranchMatch = 
-                                   staffBranchId === bkBranchId || 
-                                   staffBranchName === selectedBranchName ||
-                                   (!staffBranchId && !staffBranchName);
-                                 if (!hasBranchMatch) return false;
-                              }
-                              return true;
-                           });
-                        }
-                        
-                        // Final fallback: if still no staff, show all non-suspended staff
-                        if (availableStaffForService.length === 0) {
-                           availableStaffForService = staffList.filter(st => 
-                              st.status !== "Suspended" && st.status !== "suspended"
-                           );
-                        }
-                        
                         // Debug log
                         console.log('[Booking] Staff filtering:', {
+                           serviceName: service.name,
+                           serviceHasStaffAssigned,
+                           serviceStaffIds,
                            selectedDay: selectedDayName,
                            selectedBranch: { id: bkBranchId, name: selectedBranchName },
-                           serviceStaffIds: service?.staffIds,
+                           allStaffCount: staffList.length,
+                           allStaffNames: staffList.map(s => `${s.name} (branch: ${s.branchId || 'none'})`),
                            filteredCount: availableStaffForService.length,
                            filteredNames: availableStaffForService.map(s => s.name),
                         });
