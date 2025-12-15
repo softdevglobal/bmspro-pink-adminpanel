@@ -99,13 +99,15 @@ export async function POST(req: NextRequest) {
       if (userData) {
         const userRole = userData.role || userData.systemRole;
         const userBranchName = userData.branchName || branchName;
+        const userName = userData.displayName || userData.name || "Staff";
         
         if (userRole === "salon_branch_admin") {
           bookingSource = `Branch Admin Booking - ${userBranchName || "Unknown Branch"}`;
         } else if (userRole === "salon_owner") {
           bookingSource = "Owner Booking";
         } else if (userRole === "salon_staff") {
-          bookingSource = `Staff Booking - ${userBranchName || "Unknown Branch"}`;
+          // For staff bookings, show the staff member's name instead of branch
+          bookingSource = `Staff Booking - ${userName}`;
         }
       }
     } catch (roleError) {
