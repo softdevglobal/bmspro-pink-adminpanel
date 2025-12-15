@@ -25,6 +25,14 @@ export default function DashboardPage() {
   const [salonName, setSalonName] = useState<string>("");
   const [logoUrl, setLogoUrl] = useState<string>("");
   
+  // Today's Schedule state
+  const [todayBookings, setTodayBookings] = useState<any[]>([]);
+  const [allBranches, setAllBranches] = useState<string[]>([]);
+  const [allStaff, setAllStaff] = useState<any[]>([]);
+  const [selectedBranch, setSelectedBranch] = useState<string | null>(null);
+  const [selectedStaffId, setSelectedStaffId] = useState<string | null>(null);
+  const [scheduleViewMode, setScheduleViewMode] = useState<'time' | 'staff' | 'branch'>('time');
+  
   // Notification state
   const [notifications, setNotifications] = useState<any[]>([]);
   const [notificationPanelOpen, setNotificationPanelOpen] = useState(false);
@@ -366,6 +374,97 @@ export default function DashboardPage() {
       unsubServices?.();
     };
   }, [ownerUid]);
+
+  // Fetch today's schedule
+  useEffect(() => {
+    if (!ownerUid || isSuperAdmin) return;
+
+    let unsubTodayBookings: (() => void) | undefined;
+
+    (async () => {
+      const { db } = await import("@/lib/firebase");
+
+      // Get today's date string
+      const now = new Date();
+      const todayStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+
+      // Subscribe to today's bookings
+      const todayQuery = query(
+        collection(db, "bookings"),
+        where("ownerUid", "==", ownerUid),
+        where("date", "==", todayStr)
+      );
+
+      unsubTodayBookings = onSnapshot(
+        todayQuery,
+        (snapshot) => {
+          const bookings: any[] = [];
+          const branchNames = new Set<string>();
+          const staffMap = new Map<string, { id: string; name: string }>();
+
+          snapshot.docs.forEach(doc => {
+            const data = doc.data();
+            const status = (data.status || '').toLowerCase();
+
+            // Skip cancelled bookings
+            if (status === 'cancelled' || status === 'canceled' || status === 'staffrejected') {
+              return;
+            }
+
+            const booking = {
+              id: doc.id,
+              time: data.time || '09:00',
+              client: data.client || data.clientName || 'Customer',
+              clientPhone: data.clientPhone || '',
+              serviceName: data.serviceName || '',
+              branchName: data.branchName || '',
+              staffName: data.staffName || '',
+              staffId: data.staffId || '',
+              status: data.status || 'Pending',
+              price: data.price || 0,
+              services: data.services || [],
+            };
+
+            bookings.push(booking);
+
+            // Collect branch names
+            if (booking.branchName) {
+              branchNames.add(booking.branchName);
+            }
+
+            // Collect staff from top-level
+            if (booking.staffId && booking.staffName && !booking.staffName.toLowerCase().includes('any')) {
+              staffMap.set(booking.staffId, { id: booking.staffId, name: booking.staffName });
+            }
+
+            // Collect staff from services array
+            if (Array.isArray(data.services)) {
+              data.services.forEach((svc: any) => {
+                if (svc?.staffId && svc?.staffName && !svc.staffName.toLowerCase().includes('any')) {
+                  staffMap.set(svc.staffId, { id: svc.staffId, name: svc.staffName });
+                }
+              });
+            }
+          });
+
+          // Sort bookings by time
+          bookings.sort((a, b) => (a.time || '').localeCompare(b.time || ''));
+
+          setTodayBookings(bookings);
+          setAllBranches([...branchNames].sort());
+          setAllStaff([...staffMap.values()].sort((a, b) => a.name.localeCompare(b.name)));
+        },
+        (error) => {
+          console.error("Error fetching today's schedule:", error);
+          setTodayBookings([]);
+        }
+      );
+    })();
+
+    return () => {
+      unsubTodayBookings?.();
+    };
+  }, [ownerUid, isSuperAdmin]);
 
   // Listen for new booking requests (Pending bookings) and trigger notifications
   useEffect(() => {
@@ -897,6 +996,828 @@ export default function DashboardPage() {
               <div className="text-xs text-slate-500">In catalog</div>
             </div>
           </div>
+          
+          {/* Today's Schedule Section */}
+          {!isSuperAdmin && (
+            <div className="bg-white rounded-2xl border border-slate-200 shadow-sm mb-8">
+              <div className="p-6 border-b border-slate-200">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 bg-gradient-to-br from-pink-500 to-purple-500 rounded-xl flex items-center justify-center">
+                      <i className="fas fa-calendar-day text-white" />
+                    </div>
+                    <div>
+                      <h3 className="font-semibold text-lg text-slate-900">Today's Schedule</h3>
+                      <p className="text-sm text-slate-500">
+                        {new Date().toLocaleDateString('en-AU', { weekday: 'short', month: 'short', day: 'numeric' })}
+                      </p>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-3">
+                    <span className="px-3 py-1.5 bg-pink-50 text-pink-700 rounded-full text-sm font-semibold">
+                      {(() => {
+                        let filtered = todayBookings;
+                        if (selectedBranch) filtered = filtered.filter(b => b.branchName === selectedBranch);
+                        if (selectedStaffId) {
+                          filtered = filtered.filter(b => {
+                            if (b.staffId === selectedStaffId) return true;
+                            return b.services?.some((s: any) => s.staffId === selectedStaffId);
+                          });
+                        }
+                        return filtered.length;
+                      })()} bookings
+                    </span>
+                  </div>
+                </div>
+                
+                {/* View mode toggle and filters */}
+                <div className="mt-4 flex flex-wrap items-center gap-3">
+                  {/* View mode toggle */}
+                  <div className="flex bg-slate-100 rounded-lg p-1">
+                    <button
+                      onClick={() => setScheduleViewMode('time')}
+                      className={`px-3 py-1.5 rounded-md text-sm font-medium transition-all ${
+                        scheduleViewMode === 'time' 
+                          ? 'bg-white text-pink-600 shadow-sm' 
+                          : 'text-slate-600 hover:text-slate-900'
+                      }`}
+                    >
+                      <i className="fas fa-clock mr-1.5" />Time
+                    </button>
+                    <button
+                      onClick={() => setScheduleViewMode('staff')}
+                      className={`px-3 py-1.5 rounded-md text-sm font-medium transition-all ${
+                        scheduleViewMode === 'staff' 
+                          ? 'bg-white text-pink-600 shadow-sm' 
+                          : 'text-slate-600 hover:text-slate-900'
+                      }`}
+                    >
+                      <i className="fas fa-users mr-1.5" />Staff
+                    </button>
+                    <button
+                      onClick={() => setScheduleViewMode('branch')}
+                      className={`px-3 py-1.5 rounded-md text-sm font-medium transition-all ${
+                        scheduleViewMode === 'branch' 
+                          ? 'bg-white text-pink-600 shadow-sm' 
+                          : 'text-slate-600 hover:text-slate-900'
+                      }`}
+                    >
+                      <i className="fas fa-store mr-1.5" />Branch
+                    </button>
+                  </div>
+                  
+                  {/* Branch filter */}
+                  {allBranches.length > 0 && (
+                    <select
+                      value={selectedBranch || ''}
+                      onChange={(e) => setSelectedBranch(e.target.value || null)}
+                      className="px-3 py-1.5 bg-white border border-slate-200 rounded-lg text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-pink-500"
+                    >
+                      <option value="">All Branches</option>
+                      {allBranches.map(branch => (
+                        <option key={branch} value={branch}>{branch}</option>
+                      ))}
+                    </select>
+                  )}
+                  
+                  {/* Staff filter */}
+                  {allStaff.length > 0 && (
+                    <select
+                      value={selectedStaffId || ''}
+                      onChange={(e) => setSelectedStaffId(e.target.value || null)}
+                      className="px-3 py-1.5 bg-white border border-slate-200 rounded-lg text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-pink-500"
+                    >
+                      <option value="">All Staff</option>
+                      {allStaff.map(staff => (
+                        <option key={staff.id} value={staff.id}>{staff.name}</option>
+                      ))}
+                    </select>
+                  )}
+                  
+                  {/* Clear filters */}
+                  {(selectedBranch || selectedStaffId) && (
+                    <button
+                      onClick={() => { setSelectedBranch(null); setSelectedStaffId(null); }}
+                      className="px-3 py-1.5 bg-rose-50 text-rose-600 rounded-lg text-sm font-medium hover:bg-rose-100 transition-colors"
+                    >
+                      <i className="fas fa-times mr-1.5" />Clear
+                    </button>
+                  )}
+                </div>
+              </div>
+              
+              {/* Schedule content */}
+              <div className="p-6">
+                {(() => {
+                  // Filter bookings
+                  let filtered = todayBookings;
+                  if (selectedBranch) filtered = filtered.filter(b => b.branchName === selectedBranch);
+                  if (selectedStaffId) {
+                    filtered = filtered.filter(b => {
+                      if (b.staffId === selectedStaffId) return true;
+                      return b.services?.some((s: any) => s.staffId === selectedStaffId);
+                    });
+                  }
+
+                  if (filtered.length === 0) {
+                    return (
+                      <div className="text-center py-12">
+                        <i className="fas fa-calendar-xmark text-5xl text-slate-300 mb-4" />
+                        <p className="text-slate-500 font-medium">No bookings for today</p>
+                        <p className="text-slate-400 text-sm mt-1">Bookings will appear here as they are scheduled</p>
+                      </div>
+                    );
+                  }
+
+                  // Group bookings based on view mode
+                  if (scheduleViewMode === 'time') {
+                    // Flatten bookings - if a booking has multiple services with different times, show each separately
+                    interface TimeSlotEntry {
+                      bookingId: string;
+                      time: string;
+                      client: string;
+                      clientPhone: string;
+                      serviceName: string;
+                      staffName: string;
+                      staffId: string;
+                      branchName: string;
+                      status: string;
+                      price: number;
+                      duration: number;
+                      isMultiService: boolean;
+                      totalServices: number;
+                      serviceIndex: number;
+                      totalPrice: number;
+                    }
+                    
+                    const timeSlotEntries: TimeSlotEntry[] = [];
+                    
+                    filtered.forEach(b => {
+                      const hasMultipleServices = b.services?.length > 1;
+                      const totalPrice = b.price || b.services?.reduce((sum: number, s: any) => sum + (Number(s.price) || 0), 0) || 0;
+                      
+                      if (b.services?.length > 0) {
+                        // Show each service with its own time slot
+                        b.services.forEach((svc: any, idx: number) => {
+                          timeSlotEntries.push({
+                            bookingId: b.id,
+                            time: svc.time || b.time || '09:00',
+                            client: b.client,
+                            clientPhone: b.clientPhone || '',
+                            serviceName: svc.name || 'Service',
+                            staffName: svc.staffName || b.staffName || '',
+                            staffId: svc.staffId || b.staffId || '',
+                            branchName: b.branchName || '',
+                            status: b.status,
+                            price: Number(svc.price) || 0,
+                            duration: Number(svc.duration) || 30,
+                            isMultiService: hasMultipleServices,
+                            totalServices: b.services.length,
+                            serviceIndex: idx + 1,
+                            totalPrice,
+                          });
+                        });
+                      } else {
+                        // Single service booking
+                        timeSlotEntries.push({
+                          bookingId: b.id,
+                          time: b.time || '09:00',
+                          client: b.client,
+                          clientPhone: b.clientPhone || '',
+                          serviceName: b.serviceName || 'Service',
+                          staffName: b.staffName || '',
+                          staffId: b.staffId || '',
+                          branchName: b.branchName || '',
+                          status: b.status,
+                          price: Number(b.price) || 0,
+                          duration: 30,
+                          isMultiService: false,
+                          totalServices: 1,
+                          serviceIndex: 1,
+                          totalPrice: Number(b.price) || 0,
+                        });
+                      }
+                    });
+                    
+                    // Sort by time
+                    timeSlotEntries.sort((a, b) => a.time.localeCompare(b.time));
+                    
+                    // Group by time slot (exact time, not hour)
+                    const byTime: Record<string, TimeSlotEntry[]> = {};
+                    timeSlotEntries.forEach(entry => {
+                      if (!byTime[entry.time]) byTime[entry.time] = [];
+                      byTime[entry.time].push(entry);
+                    });
+
+                    const formatTime = (time: string) => {
+                      const [h, m] = time.split(':').map(Number);
+                      const ampm = h >= 12 ? 'PM' : 'AM';
+                      const hour = h > 12 ? h - 12 : h === 0 ? 12 : h;
+                      return `${hour}:${String(m).padStart(2, '0')} ${ampm}`;
+                    };
+
+                    const formatDuration = (mins: number) => {
+                      if (mins >= 60) {
+                        const h = Math.floor(mins / 60);
+                        const m = mins % 60;
+                        return m > 0 ? `${h}h ${m}m` : `${h}h`;
+                      }
+                      return `${mins}m`;
+                    };
+
+                    // Calculate end time
+                    const getEndTime = (startTime: string, duration: number) => {
+                      const [h, m] = startTime.split(':').map(Number);
+                      const totalMins = h * 60 + m + duration;
+                      const endH = Math.floor(totalMins / 60) % 24;
+                      const endM = totalMins % 60;
+                      return `${String(endH).padStart(2, '0')}:${String(endM).padStart(2, '0')}`;
+                    };
+
+                    return (
+                      <div className="space-y-4">
+                        {Object.keys(byTime).sort().map(time => (
+                          <div key={time} className="relative">
+                            {/* Time marker */}
+                            <div className="flex items-center gap-3 mb-3">
+                              <div className="flex items-center gap-2 bg-gradient-to-r from-pink-500 to-purple-500 text-white px-3 py-1.5 rounded-full shadow-sm">
+                                <i className="fas fa-clock text-xs" />
+                                <span className="text-sm font-bold">{formatTime(time)}</span>
+                              </div>
+                              <div className="flex-1 h-px bg-gradient-to-r from-pink-200 to-transparent" />
+                              <span className="text-xs font-medium text-slate-500 bg-slate-100 px-2 py-1 rounded-full">
+                                {byTime[time].length} {byTime[time].length === 1 ? 'service' : 'services'}
+                              </span>
+                            </div>
+                            
+                            {/* Appointments at this time */}
+                            <div className="ml-4 space-y-3">
+                              {byTime[time].map((entry, idx) => (
+                                <div 
+                                  key={`${entry.bookingId}-${entry.serviceIndex}-${idx}`}
+                                  className={`relative overflow-hidden rounded-xl border transition-all hover:shadow-lg ${
+                                    entry.status.toLowerCase() === 'confirmed' 
+                                      ? 'border-emerald-200 bg-gradient-to-br from-emerald-50/50 to-white' 
+                                      : entry.status.toLowerCase() === 'completed'
+                                      ? 'border-blue-200 bg-gradient-to-br from-blue-50/50 to-white'
+                                      : 'border-amber-200 bg-gradient-to-br from-amber-50/50 to-white'
+                                  }`}
+                                >
+                                  {/* Status indicator bar */}
+                                  <div className={`absolute left-0 top-0 bottom-0 w-1 ${
+                                    entry.status.toLowerCase() === 'confirmed' ? 'bg-emerald-500' :
+                                    entry.status.toLowerCase() === 'completed' ? 'bg-blue-500' :
+                                    'bg-amber-500'
+                                  }`} />
+                                  
+                                  <div className="p-4 pl-5">
+                                    {/* Header row */}
+                                    <div className="flex items-start justify-between mb-3">
+                                      <div className="flex items-center gap-3">
+                                        {/* Client avatar */}
+                                        <div className="w-10 h-10 bg-gradient-to-br from-pink-400 to-purple-500 rounded-full flex items-center justify-center text-white font-bold text-sm shadow-md">
+                                          {entry.client?.charAt(0)?.toUpperCase() || '?'}
+                                        </div>
+                                        <div>
+                                          <h4 className="font-semibold text-slate-900">{entry.client}</h4>
+                                          {entry.clientPhone && (
+                                            <p className="text-xs text-slate-500">
+                                              <i className="fas fa-phone mr-1" />{entry.clientPhone}
+                                            </p>
+                                          )}
+                                        </div>
+                                      </div>
+                                      
+                                      {/* Status badge */}
+                                      <div className="flex flex-col items-end gap-1">
+                                        <span className={`px-2.5 py-1 rounded-full text-xs font-semibold ${
+                                          entry.status.toLowerCase() === 'confirmed' ? 'bg-emerald-100 text-emerald-700' :
+                                          entry.status.toLowerCase() === 'completed' ? 'bg-blue-100 text-blue-700' :
+                                          'bg-amber-100 text-amber-700'
+                                        }`}>
+                                          <i className={`fas ${
+                                            entry.status.toLowerCase() === 'confirmed' ? 'fa-check-circle' :
+                                            entry.status.toLowerCase() === 'completed' ? 'fa-check-double' :
+                                            'fa-clock'
+                                          } mr-1`} />
+                                          {entry.status}
+                                        </span>
+                                        {entry.isMultiService && (
+                                          <span className="text-[10px] text-slate-400">
+                                            Service {entry.serviceIndex}/{entry.totalServices}
+                                          </span>
+                                        )}
+                                      </div>
+                                    </div>
+                                    
+                                    {/* Service details */}
+                                    <div className="bg-white/60 rounded-lg p-3 mb-3">
+                                      <div className="flex items-center justify-between">
+                                        <div className="flex items-center gap-2">
+                                          <div className="w-8 h-8 bg-purple-100 rounded-lg flex items-center justify-center">
+                                            <i className="fas fa-spa text-purple-600 text-sm" />
+                                          </div>
+                                          <div>
+                                            <p className="font-medium text-slate-900">{entry.serviceName}</p>
+                                            <div className="flex items-center gap-2 text-xs text-slate-500">
+                                              <span><i className="fas fa-hourglass-half mr-1" />{formatDuration(entry.duration)}</span>
+                                              <span>•</span>
+                                              <span>{formatTime(entry.time)} - {formatTime(getEndTime(entry.time, entry.duration))}</span>
+                                            </div>
+                                          </div>
+                                        </div>
+                                        <div className="text-right">
+                                          <p className="font-bold text-pink-600">AU${entry.price.toLocaleString()}</p>
+                                          {entry.isMultiService && (
+                                            <p className="text-[10px] text-slate-400">Total: AU${entry.totalPrice.toLocaleString()}</p>
+                                          )}
+                                        </div>
+                                      </div>
+                                    </div>
+                                    
+                                    {/* Footer with staff and branch */}
+                                    <div className="flex flex-wrap items-center gap-2">
+                                      {entry.staffName && !entry.staffName.toLowerCase().includes('any') && (
+                                        <div className="flex items-center gap-2 bg-indigo-50 px-2.5 py-1.5 rounded-lg">
+                                          <div className="w-6 h-6 bg-indigo-200 rounded-full flex items-center justify-center">
+                                            <i className="fas fa-user text-indigo-600 text-[10px]" />
+                                          </div>
+                                          <span className="text-xs font-medium text-indigo-700">{entry.staffName}</span>
+                                        </div>
+                                      )}
+                                      {entry.branchName && (
+                                        <div className="flex items-center gap-2 bg-blue-50 px-2.5 py-1.5 rounded-lg">
+                                          <div className="w-6 h-6 bg-blue-200 rounded-full flex items-center justify-center">
+                                            <i className="fas fa-store text-blue-600 text-[10px]" />
+                                          </div>
+                                          <span className="text-xs font-medium text-blue-700">{entry.branchName}</span>
+                                        </div>
+                                      )}
+                                    </div>
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    );
+                  }
+
+                  if (scheduleViewMode === 'staff') {
+                    // Group by staff - use Map to avoid duplicates
+                    const byStaff: Record<string, { name: string; bookings: typeof filtered }> = {};
+                    filtered.forEach(b => {
+                      // Use Map to track unique staff for this booking
+                      const uniqueStaff = new Map<string, string>();
+                      
+                      // Check top-level staff
+                      if (b.staffId && b.staffName && !b.staffName.toLowerCase().includes('any')) {
+                        uniqueStaff.set(b.staffId, b.staffName);
+                      }
+                      
+                      // Check services array
+                      if (b.services?.length) {
+                        b.services.forEach((s: any) => {
+                          if (s.staffId && s.staffName && !s.staffName.toLowerCase().includes('any')) {
+                            if (!uniqueStaff.has(s.staffId)) {
+                              uniqueStaff.set(s.staffId, s.staffName);
+                            }
+                          }
+                        });
+                      }
+                      
+                      if (uniqueStaff.size === 0) {
+                        uniqueStaff.set('unassigned', 'Unassigned');
+                      }
+                      
+                      uniqueStaff.forEach((name, id) => {
+                        if (!byStaff[id]) byStaff[id] = { name, bookings: [] };
+                        byStaff[id].bookings.push(b);
+                      });
+                    });
+
+                    // Helper functions
+                    const formatTime = (time: string) => {
+                      const [h, m] = time.split(':').map(Number);
+                      const ampm = h >= 12 ? 'PM' : 'AM';
+                      const hour = h > 12 ? h - 12 : h === 0 ? 12 : h;
+                      return `${hour}:${String(m).padStart(2, '0')} ${ampm}`;
+                    };
+
+                    const getTotalRevenue = (bookings: typeof filtered) => {
+                      return bookings.reduce((sum, b) => {
+                        const price = b.price || b.services?.reduce((s: number, svc: any) => s + (Number(svc.price) || 0), 0) || 0;
+                        return sum + price;
+                      }, 0);
+                    };
+
+                    const getTotalDuration = (bookings: typeof filtered) => {
+                      return bookings.reduce((sum, b) => {
+                        const dur = b.services?.reduce((s: number, svc: any) => s + (Number(svc.duration) || 30), 0) || 30;
+                        return sum + dur;
+                      }, 0);
+                    };
+
+                    const formatDuration = (mins: number) => {
+                      if (mins >= 60) {
+                        const h = Math.floor(mins / 60);
+                        const m = mins % 60;
+                        return m > 0 ? `${h}h ${m}m` : `${h}h`;
+                      }
+                      return `${mins}m`;
+                    };
+
+                    const staffColors = [
+                      { bg: 'from-indigo-500 to-purple-600', light: 'indigo' },
+                      { bg: 'from-pink-500 to-rose-600', light: 'pink' },
+                      { bg: 'from-emerald-500 to-teal-600', light: 'emerald' },
+                      { bg: 'from-amber-500 to-orange-600', light: 'amber' },
+                      { bg: 'from-cyan-500 to-blue-600', light: 'cyan' },
+                    ];
+
+                    return (
+                      <div className="space-y-6">
+                        {Object.entries(byStaff).sort((a, b) => a[1].name.localeCompare(b[1].name)).map(([staffId, { name, bookings }], staffIdx) => {
+                          const colorScheme = staffColors[staffIdx % staffColors.length];
+                          const totalRevenue = getTotalRevenue(bookings);
+                          const totalDuration = getTotalDuration(bookings);
+                          const sortedBookings = [...bookings].sort((a, b) => (a.time || '').localeCompare(b.time || ''));
+                          
+                          return (
+                            <div key={staffId} className="rounded-2xl overflow-hidden shadow-lg border border-slate-200">
+                              {/* Staff Header */}
+                              <div className={`bg-gradient-to-r ${staffId === 'unassigned' ? 'from-slate-400 to-slate-500' : colorScheme.bg} p-5`}>
+                                <div className="flex items-center justify-between">
+                                  <div className="flex items-center gap-4">
+                                    <div className={`w-14 h-14 rounded-full bg-white/20 backdrop-blur-sm flex items-center justify-center shadow-lg`}>
+                                      {staffId === 'unassigned' 
+                                        ? <i className="fas fa-user-slash text-white text-xl" />
+                                        : <span className="font-bold text-white text-xl">{name[0]?.toUpperCase()}</span>
+                                      }
+                                    </div>
+                                    <div>
+                                      <h3 className="font-bold text-white text-lg">{name}</h3>
+                                      <p className="text-white/80 text-sm">
+                                        {bookings.length} appointment{bookings.length !== 1 ? 's' : ''} today
+                                      </p>
+                                    </div>
+                                  </div>
+                                  
+                                  {/* Stats */}
+                                  <div className="hidden md:flex items-center gap-4">
+                                    <div className="text-center px-4 py-2 bg-white/10 backdrop-blur-sm rounded-lg">
+                                      <p className="text-white/70 text-xs">Total Duration</p>
+                                      <p className="text-white font-bold">{formatDuration(totalDuration)}</p>
+                                    </div>
+                                    <div className="text-center px-4 py-2 bg-white/10 backdrop-blur-sm rounded-lg">
+                                      <p className="text-white/70 text-xs">Revenue</p>
+                                      <p className="text-white font-bold">AU${totalRevenue.toLocaleString()}</p>
+                                    </div>
+                                  </div>
+                                </div>
+                              </div>
+                              
+                              {/* Mobile Stats */}
+                              <div className="md:hidden bg-slate-50 px-4 py-3 flex justify-around border-b border-slate-200">
+                                <div className="text-center">
+                                  <p className="text-slate-500 text-xs">Duration</p>
+                                  <p className="text-slate-900 font-semibold">{formatDuration(totalDuration)}</p>
+                                </div>
+                                <div className="text-center">
+                                  <p className="text-slate-500 text-xs">Revenue</p>
+                                  <p className="text-slate-900 font-semibold">AU${totalRevenue.toLocaleString()}</p>
+                                </div>
+                              </div>
+                              
+                              {/* Bookings Timeline */}
+                              <div className="p-4 bg-white">
+                                <div className="space-y-3">
+                                  {sortedBookings.map((b, idx) => {
+                                    const servicesList = b.services?.length > 0 
+                                      ? b.services 
+                                      : [{ name: b.serviceName || 'Service', price: b.price, duration: 30 }];
+                                    const bookingPrice = b.price || servicesList.reduce((s: number, svc: any) => s + (Number(svc.price) || 0), 0);
+                                    
+                                    return (
+                                      <div 
+                                        key={`${staffId}-${b.id}-${idx}`} 
+                                        className="relative pl-6 pb-3 border-l-2 border-slate-200 last:border-l-transparent last:pb-0"
+                                      >
+                                        {/* Timeline dot */}
+                                        <div className={`absolute -left-[9px] top-0 w-4 h-4 rounded-full border-2 border-white shadow ${
+                                          b.status.toLowerCase() === 'confirmed' ? 'bg-emerald-500' :
+                                          b.status.toLowerCase() === 'completed' ? 'bg-blue-500' :
+                                          'bg-amber-500'
+                                        }`} />
+                                        
+                                        <div className="bg-gradient-to-br from-slate-50 to-white rounded-xl border border-slate-200 overflow-hidden hover:shadow-md transition-shadow">
+                                          {/* Booking Header */}
+                                          <div className="p-4">
+                                            <div className="flex items-start justify-between mb-3">
+                                              <div className="flex items-center gap-3">
+                                                <div className="w-10 h-10 bg-gradient-to-br from-pink-400 to-purple-500 rounded-full flex items-center justify-center text-white font-bold shadow">
+                                                  {b.client?.charAt(0)?.toUpperCase() || '?'}
+                                                </div>
+                                                <div>
+                                                  <h4 className="font-semibold text-slate-900">{b.client}</h4>
+                                                  {b.clientPhone && (
+                                                    <p className="text-xs text-slate-500">
+                                                      <i className="fas fa-phone mr-1" />{b.clientPhone}
+                                                    </p>
+                                                  )}
+                                                </div>
+                                              </div>
+                                              <div className="flex flex-col items-end gap-1">
+                                                <span className={`px-2.5 py-1 rounded-full text-xs font-semibold ${
+                                                  b.status.toLowerCase() === 'confirmed' ? 'bg-emerald-100 text-emerald-700' :
+                                                  b.status.toLowerCase() === 'completed' ? 'bg-blue-100 text-blue-700' :
+                                                  'bg-amber-100 text-amber-700'
+                                                }`}>
+                                                  <i className={`fas ${
+                                                    b.status.toLowerCase() === 'confirmed' ? 'fa-check-circle' :
+                                                    b.status.toLowerCase() === 'completed' ? 'fa-check-double' :
+                                                    'fa-clock'
+                                                  } mr-1`} />
+                                                  {b.status}
+                                                </span>
+                                                <span className="text-lg font-bold text-pink-600">AU${bookingPrice.toLocaleString()}</span>
+                                              </div>
+                                            </div>
+                                            
+                                            {/* Services */}
+                                            <div className="space-y-2">
+                                              {servicesList.map((svc: any, svcIdx: number) => (
+                                                <div key={svcIdx} className="flex items-center justify-between bg-white/80 rounded-lg p-2 border border-slate-100">
+                                                  <div className="flex items-center gap-2">
+                                                    <div className="w-7 h-7 bg-purple-100 rounded-lg flex items-center justify-center">
+                                                      <i className="fas fa-spa text-purple-600 text-xs" />
+                                                    </div>
+                                                    <div>
+                                                      <p className="text-sm font-medium text-slate-900">{svc.name}</p>
+                                                      <p className="text-xs text-slate-500">
+                                                        <i className="fas fa-clock mr-1" />
+                                                        {formatTime(svc.time || b.time || '09:00')}
+                                                        {svc.duration && ` • ${formatDuration(svc.duration)}`}
+                                                      </p>
+                                                    </div>
+                                                  </div>
+                                                  {svc.price && (
+                                                    <span className="text-sm font-semibold text-slate-700">AU${Number(svc.price).toLocaleString()}</span>
+                                                  )}
+                                                </div>
+                                              ))}
+                                            </div>
+                                            
+                                            {/* Branch info */}
+                                            {b.branchName && (
+                                              <div className="mt-3 flex items-center gap-2">
+                                                <div className="flex items-center gap-2 bg-blue-50 px-2.5 py-1.5 rounded-lg">
+                                                  <i className="fas fa-store text-blue-600 text-xs" />
+                                                  <span className="text-xs font-medium text-blue-700">{b.branchName}</span>
+                                                </div>
+                                              </div>
+                                            )}
+                                          </div>
+                                        </div>
+                                      </div>
+                                    );
+                                  })}
+                                </div>
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    );
+                  }
+
+                  if (scheduleViewMode === 'branch') {
+                    // Group by branch
+                    const byBranch: Record<string, typeof filtered> = {};
+                    filtered.forEach(b => {
+                      const branch = b.branchName || 'Unknown Branch';
+                      if (!byBranch[branch]) byBranch[branch] = [];
+                      byBranch[branch].push(b);
+                    });
+
+                    // Helper functions
+                    const formatTime = (time: string) => {
+                      const [h, m] = time.split(':').map(Number);
+                      const ampm = h >= 12 ? 'PM' : 'AM';
+                      const hour = h > 12 ? h - 12 : h === 0 ? 12 : h;
+                      return `${hour}:${String(m).padStart(2, '0')} ${ampm}`;
+                    };
+
+                    const getTotalRevenue = (bookings: typeof filtered) => {
+                      return bookings.reduce((sum, b) => {
+                        const price = b.price || b.services?.reduce((s: number, svc: any) => s + (Number(svc.price) || 0), 0) || 0;
+                        return sum + price;
+                      }, 0);
+                    };
+
+                    const getUniqueStaffCount = (bookings: typeof filtered) => {
+                      const staffSet = new Set<string>();
+                      bookings.forEach(b => {
+                        if (b.staffId) staffSet.add(b.staffId);
+                        b.services?.forEach((s: any) => { if (s.staffId) staffSet.add(s.staffId); });
+                      });
+                      return staffSet.size;
+                    };
+
+                    const formatDuration = (mins: number) => {
+                      if (mins >= 60) {
+                        const h = Math.floor(mins / 60);
+                        const m = mins % 60;
+                        return m > 0 ? `${h}h ${m}m` : `${h}h`;
+                      }
+                      return `${mins}m`;
+                    };
+
+                    const branchGradients = [
+                      { bg: 'from-pink-500 to-rose-600', accent: 'pink' },
+                      { bg: 'from-blue-500 to-indigo-600', accent: 'blue' },
+                      { bg: 'from-emerald-500 to-teal-600', accent: 'emerald' },
+                      { bg: 'from-purple-500 to-violet-600', accent: 'purple' },
+                      { bg: 'from-amber-500 to-orange-600', accent: 'amber' },
+                    ];
+
+                    return (
+                      <div className="space-y-6">
+                        {Object.keys(byBranch).sort().map((branch, branchIdx) => {
+                          const colorScheme = branchGradients[branchIdx % branchGradients.length];
+                          const branchBookings = byBranch[branch];
+                          const totalRevenue = getTotalRevenue(branchBookings);
+                          const uniqueStaff = getUniqueStaffCount(branchBookings);
+                          const confirmedCount = branchBookings.filter(b => b.status.toLowerCase() === 'confirmed').length;
+                          const sortedBookings = [...branchBookings].sort((a, b) => (a.time || '').localeCompare(b.time || ''));
+                          
+                          return (
+                            <div key={branch} className="rounded-2xl overflow-hidden shadow-lg border border-slate-200">
+                              {/* Branch Header */}
+                              <div className={`bg-gradient-to-r ${colorScheme.bg} p-5`}>
+                                <div className="flex items-center justify-between">
+                                  <div className="flex items-center gap-4">
+                                    <div className="w-14 h-14 rounded-xl bg-white/20 backdrop-blur-sm flex items-center justify-center shadow-lg">
+                                      <i className="fas fa-store text-white text-xl" />
+                                    </div>
+                                    <div>
+                                      <h3 className="font-bold text-white text-lg">{branch}</h3>
+                                      <p className="text-white/80 text-sm flex items-center gap-2">
+                                        <span>{branchBookings.length} booking{branchBookings.length !== 1 ? 's' : ''}</span>
+                                        <span>•</span>
+                                        <span>{uniqueStaff} staff</span>
+                                      </p>
+                                    </div>
+                                  </div>
+                                  
+                                  {/* Stats */}
+                                  <div className="hidden md:flex items-center gap-3">
+                                    <div className="text-center px-4 py-2 bg-white/10 backdrop-blur-sm rounded-lg">
+                                      <p className="text-white/70 text-xs">Confirmed</p>
+                                      <p className="text-white font-bold text-lg">{confirmedCount}/{branchBookings.length}</p>
+                                    </div>
+                                    <div className="text-center px-4 py-2 bg-white/10 backdrop-blur-sm rounded-lg">
+                                      <p className="text-white/70 text-xs">Revenue</p>
+                                      <p className="text-white font-bold text-lg">AU${totalRevenue.toLocaleString()}</p>
+                                    </div>
+                                  </div>
+                                </div>
+                              </div>
+                              
+                              {/* Mobile Stats */}
+                              <div className="md:hidden bg-slate-50 px-4 py-3 flex justify-around border-b border-slate-200">
+                                <div className="text-center">
+                                  <p className="text-slate-500 text-xs">Confirmed</p>
+                                  <p className="text-slate-900 font-semibold">{confirmedCount}/{branchBookings.length}</p>
+                                </div>
+                                <div className="text-center">
+                                  <p className="text-slate-500 text-xs">Staff</p>
+                                  <p className="text-slate-900 font-semibold">{uniqueStaff}</p>
+                                </div>
+                                <div className="text-center">
+                                  <p className="text-slate-500 text-xs">Revenue</p>
+                                  <p className="text-slate-900 font-semibold">AU${totalRevenue.toLocaleString()}</p>
+                                </div>
+                              </div>
+                              
+                              {/* Bookings Grid */}
+                              <div className="p-4 bg-white">
+                                <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                                  {sortedBookings.map((b, idx) => {
+                                    const servicesList = b.services?.length > 0 
+                                      ? b.services 
+                                      : [{ name: b.serviceName || 'Service', price: b.price, duration: 30, staffName: b.staffName }];
+                                    const bookingPrice = b.price || servicesList.reduce((s: number, svc: any) => s + (Number(svc.price) || 0), 0);
+                                    
+                                    return (
+                                      <div 
+                                        key={`${branch}-${b.id}-${idx}`}
+                                        className={`relative overflow-hidden rounded-xl border transition-all hover:shadow-lg ${
+                                          b.status.toLowerCase() === 'confirmed' 
+                                            ? 'border-emerald-200 bg-gradient-to-br from-emerald-50/30 to-white' 
+                                            : b.status.toLowerCase() === 'completed'
+                                            ? 'border-blue-200 bg-gradient-to-br from-blue-50/30 to-white'
+                                            : 'border-amber-200 bg-gradient-to-br from-amber-50/30 to-white'
+                                        }`}
+                                      >
+                                        {/* Status bar */}
+                                        <div className={`absolute left-0 top-0 bottom-0 w-1.5 ${
+                                          b.status.toLowerCase() === 'confirmed' ? 'bg-emerald-500' :
+                                          b.status.toLowerCase() === 'completed' ? 'bg-blue-500' :
+                                          'bg-amber-500'
+                                        }`} />
+                                        
+                                        <div className="p-4 pl-5">
+                                          {/* Header */}
+                                          <div className="flex items-start justify-between mb-3">
+                                            <div className="flex items-center gap-3">
+                                              <div className="w-11 h-11 bg-gradient-to-br from-pink-400 to-purple-500 rounded-full flex items-center justify-center text-white font-bold shadow">
+                                                {b.client?.charAt(0)?.toUpperCase() || '?'}
+                                              </div>
+                                              <div>
+                                                <h4 className="font-semibold text-slate-900">{b.client}</h4>
+                                                <div className="flex items-center gap-2 text-xs text-slate-500">
+                                                  <span><i className="fas fa-clock mr-1" />{formatTime(b.time || '09:00')}</span>
+                                                  {b.clientPhone && (
+                                                    <>
+                                                      <span>•</span>
+                                                      <span><i className="fas fa-phone mr-1" />{b.clientPhone}</span>
+                                                    </>
+                                                  )}
+                                                </div>
+                                              </div>
+                                            </div>
+                                            <span className={`px-2.5 py-1 rounded-full text-xs font-semibold ${
+                                              b.status.toLowerCase() === 'confirmed' ? 'bg-emerald-100 text-emerald-700' :
+                                              b.status.toLowerCase() === 'completed' ? 'bg-blue-100 text-blue-700' :
+                                              'bg-amber-100 text-amber-700'
+                                            }`}>
+                                              {b.status}
+                                            </span>
+                                          </div>
+                                          
+                                          {/* Services */}
+                                          <div className="space-y-2 mb-3">
+                                            {servicesList.map((svc: any, svcIdx: number) => (
+                                              <div key={svcIdx} className="flex items-center justify-between bg-white/80 rounded-lg p-2.5 border border-slate-100">
+                                                <div className="flex items-center gap-2">
+                                                  <div className="w-8 h-8 bg-purple-100 rounded-lg flex items-center justify-center">
+                                                    <i className="fas fa-spa text-purple-600 text-sm" />
+                                                  </div>
+                                                  <div>
+                                                    <p className="text-sm font-medium text-slate-900">{svc.name}</p>
+                                                    {svc.duration && (
+                                                      <p className="text-xs text-slate-500">
+                                                        <i className="fas fa-hourglass-half mr-1" />{formatDuration(svc.duration)}
+                                                      </p>
+                                                    )}
+                                                  </div>
+                                                </div>
+                                                <div className="text-right">
+                                                  {svc.price && (
+                                                    <p className="text-sm font-semibold text-pink-600">AU${Number(svc.price).toLocaleString()}</p>
+                                                  )}
+                                                </div>
+                                              </div>
+                                            ))}
+                                          </div>
+                                          
+                                          {/* Footer */}
+                                          <div className="flex items-center justify-between pt-2 border-t border-slate-100">
+                                            <div className="flex flex-wrap items-center gap-2">
+                                              {servicesList.map((svc: any, svcIdx: number) => (
+                                                svc.staffName && !svc.staffName.toLowerCase().includes('any') && (
+                                                  <div key={svcIdx} className="flex items-center gap-1.5 bg-indigo-50 px-2 py-1 rounded-lg">
+                                                    <div className="w-5 h-5 bg-indigo-200 rounded-full flex items-center justify-center">
+                                                      <i className="fas fa-user text-indigo-600 text-[8px]" />
+                                                    </div>
+                                                    <span className="text-xs font-medium text-indigo-700">{svc.staffName}</span>
+                                                  </div>
+                                                )
+                                              ))}
+                                            </div>
+                                            <p className="text-lg font-bold text-pink-600">AU${bookingPrice.toLocaleString()}</p>
+                                          </div>
+                                        </div>
+                                      </div>
+                                    );
+                                  })}
+                                </div>
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    );
+                  }
+
+                  return null;
+                })()}
+              </div>
+            </div>
+          )}
+          
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-8">
             <div className="lg:col-span-2 bg-white p-6 rounded-2xl border border-slate-200 shadow-sm min-w-0 overflow-hidden">
               <div className="flex items-center justify-between mb-6">

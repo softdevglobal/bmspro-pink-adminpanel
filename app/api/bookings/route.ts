@@ -104,7 +104,7 @@ export async function POST(req: NextRequest) {
         if (userRole === "salon_branch_admin") {
           bookingSource = `Branch Admin Booking - ${userBranchName || "Unknown Branch"}`;
         } else if (userRole === "salon_owner") {
-          bookingSource = "Owner Booking";
+          bookingSource = "Salom Owner Booking";
         } else if (userRole === "salon_staff") {
           // For staff bookings, show the staff member's name instead of branch
           bookingSource = `Staff Booking - ${userName}`;
