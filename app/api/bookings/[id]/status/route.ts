@@ -8,6 +8,11 @@ import {
   createStaffAssignmentNotification,
   createCustomerConfirmationNotification 
 } from "@/lib/notifications";
+import { 
+  logBookingStatusChangedServer, 
+  logBookingSentToStaffServer,
+  logBookingReassignedServer 
+} from "@/lib/auditLogServer";
 
 // Helper to get activity type from status
 function getActivityType(status: string): string {
@@ -236,6 +241,57 @@ export async function PATCH(req: NextRequest, context: { params: Promise<{ id: s
       await db.collection("bookingActivities").add(activityData);
     } catch (activityError) {
       console.error("Failed to create booking activity:", activityError);
+    }
+
+    // Create audit log entry
+    try {
+      const clientName = data.client || data.clientName || "Customer";
+      const performer = {
+        uid: callerUid,
+        name: userData?.name || userData?.displayName || "User",
+        role: userRole,
+      };
+
+      if (isAdminConfirmingPending) {
+        // Admin sending to staff for approval
+        const staffNames = body.services?.map((s: any) => s.staffName).filter(Boolean) || [];
+        await logBookingSentToStaffServer(
+          ownerUid,
+          id,
+          data.bookingCode,
+          clientName,
+          performer,
+          staffNames.length > 0 ? staffNames : [body.staffName || "Staff"],
+          data.branchName
+        );
+      } else if (isAdminReassigning) {
+        // Admin reassigning after rejection
+        const staffNames = body.services?.map((s: any) => s.staffName).filter(Boolean) || [];
+        await logBookingReassignedServer(
+          ownerUid,
+          id,
+          data.bookingCode,
+          clientName,
+          performer,
+          staffNames.join(", ") || body.staffName,
+          data.branchName
+        );
+      } else {
+        // General status change
+        await logBookingStatusChangedServer(
+          ownerUid,
+          id,
+          data.bookingCode,
+          clientName,
+          currentStatus,
+          actualNextStatus,
+          performer,
+          isStaffRejecting && body.rejectionReason ? `Rejection reason: ${body.rejectionReason}` : undefined,
+          data.branchName
+        );
+      }
+    } catch (auditError) {
+      console.error("Failed to create audit log:", auditError);
     }
 
     // === NEW NOTIFICATION WORKFLOW ===

@@ -16,6 +16,13 @@ import {
   where,
 } from "firebase/firestore";
 import { promoteStaffToBranchAdmin, demoteStaffFromBranchAdmin, WeeklySchedule } from "@/lib/salonStaff";
+import { 
+  getCurrentUserForAudit, 
+  logBranchCreated, 
+  logBranchUpdated, 
+  logBranchDeleted,
+  logBranchAdminAssigned
+} from "@/lib/auditLog";
 
 // Staff assignment by day for a branch
 export type StaffByDay = {
@@ -53,7 +60,7 @@ export type BranchInput = {
   status?: "Active" | "Pending" | "Closed";
 };
 
-export async function createBranchForOwner(ownerUid: string, data: BranchInput) {
+export async function createBranchForOwner(ownerUid: string, data: BranchInput, adminName?: string) {
   const ref = await addDoc(collection(db, "branches"), {
     ownerUid,
     ...data,
@@ -75,10 +82,38 @@ export async function createBranchForOwner(ownerUid: string, data: BranchInput) 
     }
   }
 
+  // Audit log for branch creation
+  try {
+    const performer = await getCurrentUserForAudit();
+    if (performer) {
+      await logBranchCreated(
+        ownerUid,
+        ref.id,
+        data.name,
+        data.address,
+        performer
+      );
+
+      // Log admin assignment if applicable
+      if (data.adminStaffId && adminName) {
+        await logBranchAdminAssigned(
+          ownerUid,
+          ref.id,
+          data.name,
+          data.adminStaffId,
+          adminName,
+          performer
+        );
+      }
+    }
+  } catch (e) {
+    console.error("Failed to create audit log for branch creation:", e);
+  }
+
   return ref.id;
 }
 
-export async function updateBranch(branchId: string, data: Partial<BranchInput>) {
+export async function updateBranch(branchId: string, data: Partial<BranchInput>, newAdminName?: string) {
   const branchRef = doc(db, "branches", branchId);
   
   // Fetch current branch to see if admin changed
@@ -86,6 +121,14 @@ export async function updateBranch(branchId: string, data: Partial<BranchInput>)
   const currentData = snap.data();
   const oldAdminId = currentData?.adminStaffId;
   const ownerUid = currentData?.ownerUid;
+  const branchName = data.name || currentData?.name || "";
+
+  // Build change description for audit log
+  const changes: string[] = [];
+  if (data.name && data.name !== currentData?.name) changes.push(`Name: ${currentData?.name} → ${data.name}`);
+  if (data.address && data.address !== currentData?.address) changes.push(`Address updated`);
+  if (data.phone && data.phone !== currentData?.phone) changes.push(`Phone updated`);
+  if (data.status && data.status !== currentData?.status) changes.push(`Status: ${currentData?.status} → ${data.status}`);
 
   await updateDoc(branchRef, {
     ...data,
@@ -97,12 +140,12 @@ export async function updateBranch(branchId: string, data: Partial<BranchInput>)
   // 1. If there was an old admin, and (we are setting a new one OR explicitly clearing it), and it's different
   if (oldAdminId && newAdminId !== undefined && oldAdminId !== newAdminId) {
     await demoteStaffFromBranchAdmin(oldAdminId);
+    changes.push(`Admin changed`);
   }
 
   // 2. If there is a new admin, promote them and update their schedule to match branch hours
-  if (newAdminId) {
+  if (newAdminId && newAdminId !== oldAdminId) {
     // Get the branch name and hours (either from new data or existing)
-    const branchName = data.name || currentData?.name || "";
     const branchHours = data.hours || currentData?.hours;
     
     const { weeklySchedule } = await promoteStaffToBranchAdmin(newAdminId, {
@@ -116,12 +159,62 @@ export async function updateBranch(branchId: string, data: Partial<BranchInput>)
       await syncBranchStaffFromSchedule(newAdminId, weeklySchedule, null, ownerUid);
     }
   }
+
+  // Audit log for branch update
+  try {
+    const performer = await getCurrentUserForAudit();
+    if (performer && ownerUid) {
+      await logBranchUpdated(
+        ownerUid,
+        branchId,
+        branchName,
+        performer,
+        changes.length > 0 ? changes.join(", ") : "Minor updates"
+      );
+
+      // Log admin assignment if applicable
+      if (newAdminId && newAdminId !== oldAdminId && newAdminName) {
+        await logBranchAdminAssigned(
+          ownerUid,
+          branchId,
+          branchName,
+          newAdminId,
+          newAdminName,
+          performer
+        );
+      }
+    }
+  } catch (e) {
+    console.error("Failed to create audit log for branch update:", e);
+  }
 }
 
-export async function deleteBranch(branchId: string) {
+export async function deleteBranch(branchId: string, ownerUid?: string) {
+  // Get branch data before deleting for audit log
+  const branchRef = doc(db, "branches", branchId);
+  const branchSnap = await getDoc(branchRef);
+  const branchData = branchSnap.data();
+  const branchName = branchData?.name || "Unknown Branch";
+  const branchOwnerUid = ownerUid || branchData?.ownerUid || "";
+
   // Optional: Demote admin before deleting?
   // For now, simple delete.
-  await deleteDoc(doc(db, "branches", branchId));
+  await deleteDoc(branchRef);
+
+  // Audit log for branch deletion
+  try {
+    const performer = await getCurrentUserForAudit();
+    if (performer && branchOwnerUid) {
+      await logBranchDeleted(
+        branchOwnerUid,
+        branchId,
+        branchName,
+        performer
+      );
+    }
+  } catch (e) {
+    console.error("Failed to create audit log for branch deletion:", e);
+  }
 }
 
 export function subscribeBranchesForOwner(

@@ -5,6 +5,7 @@ import {
   deleteDoc,
   doc,
   DocumentData,
+  getDoc,
   onSnapshot,
   query,
   serverTimestamp,
@@ -12,6 +13,15 @@ import {
   updateDoc,
   where,
 } from "firebase/firestore";
+import { 
+  getCurrentUserForAudit, 
+  logStaffCreated, 
+  logStaffUpdated, 
+  logStaffDeleted,
+  logStaffStatusChanged,
+  logStaffPromoted,
+  logStaffScheduleUpdated
+} from "@/lib/auditLog";
 
 export type StaffStatus = "Active" | "Suspended";
 
@@ -73,10 +83,33 @@ export async function createSalonStaffForOwner(ownerUid: string, data: SalonStaf
     updatedAt: serverTimestamp(),
     provider: "password", // Assumed
   });
+
+  // Audit log for staff creation
+  try {
+    const performer = await getCurrentUserForAudit();
+    if (performer) {
+      await logStaffCreated(
+        ownerUid,
+        data.authUid,
+        data.name,
+        data.role,
+        data.branchName,
+        performer
+      );
+    }
+  } catch (e) {
+    console.error("Failed to create audit log for staff creation:", e);
+  }
+
   return data.authUid;
 }
 
-export async function updateSalonStaff(staffId: string, data: Partial<SalonStaffInput>) {
+export async function updateSalonStaff(staffId: string, data: Partial<SalonStaffInput>, ownerUid?: string) {
+  // Get current staff data for audit log
+  const staffRef = doc(db, "users", staffId);
+  const staffSnap = await getDoc(staffRef);
+  const currentData = staffSnap.data();
+  
   // Map staff-specific fields to user schema if necessary
   const updatePayload: any = { ...data, updatedAt: serverTimestamp() };
   
@@ -84,18 +117,102 @@ export async function updateSalonStaff(staffId: string, data: Partial<SalonStaff
   if (data.role) updatePayload.staffRole = data.role; // Update job title
   if (data.systemRole) updatePayload.role = data.systemRole; // Update system access level
 
-  await updateDoc(doc(db, "users", staffId), updatePayload);
+  // Build change description for audit log
+  const changes: string[] = [];
+  if (data.name && data.name !== currentData?.name) changes.push(`Name: ${currentData?.name} → ${data.name}`);
+  if (data.role && data.role !== currentData?.staffRole) changes.push(`Role: ${currentData?.staffRole} → ${data.role}`);
+  if (data.branchName && data.branchName !== currentData?.branchName) changes.push(`Branch: ${currentData?.branchName} → ${data.branchName}`);
+  if (data.email && data.email !== currentData?.email) changes.push(`Email updated`);
+  if (data.weeklySchedule) changes.push(`Schedule updated`);
+
+  await updateDoc(staffRef, updatePayload);
+
+  // Audit log for staff update
+  try {
+    const performer = await getCurrentUserForAudit();
+    if (performer) {
+      const staffOwnerUid = ownerUid || currentData?.ownerUid || "";
+      const staffName = data.name || currentData?.name || currentData?.displayName || "Unknown Staff";
+      
+      if (data.weeklySchedule) {
+        await logStaffScheduleUpdated(
+          staffOwnerUid,
+          staffId,
+          staffName,
+          performer,
+          "Weekly schedule updated"
+        );
+      } else if (changes.length > 0) {
+        await logStaffUpdated(
+          staffOwnerUid,
+          staffId,
+          staffName,
+          performer,
+          changes.join(", ")
+        );
+      }
+    }
+  } catch (e) {
+    console.error("Failed to create audit log for staff update:", e);
+  }
 }
 
-export async function updateSalonStaffStatus(staffId: string, status: StaffStatus) {
-  await updateDoc(doc(db, "users", staffId), {
+export async function updateSalonStaffStatus(staffId: string, status: StaffStatus, ownerUid?: string) {
+  // Get current staff data for audit log
+  const staffRef = doc(db, "users", staffId);
+  const staffSnap = await getDoc(staffRef);
+  const currentData = staffSnap.data();
+  const previousStatus = currentData?.status || "Unknown";
+  const staffName = currentData?.name || currentData?.displayName || "Unknown Staff";
+  const staffOwnerUid = ownerUid || currentData?.ownerUid || "";
+
+  await updateDoc(staffRef, {
     status,
     updatedAt: serverTimestamp(),
   });
+
+  // Audit log for status change
+  try {
+    const performer = await getCurrentUserForAudit();
+    if (performer && staffOwnerUid) {
+      await logStaffStatusChanged(
+        staffOwnerUid,
+        staffId,
+        staffName,
+        previousStatus,
+        status,
+        performer
+      );
+    }
+  } catch (e) {
+    console.error("Failed to create audit log for staff status change:", e);
+  }
 }
 
-export async function deleteSalonStaff(staffId: string) {
-  await deleteDoc(doc(db, "users", staffId));
+export async function deleteSalonStaff(staffId: string, ownerUid?: string) {
+  // Get staff data before deleting for audit log
+  const staffRef = doc(db, "users", staffId);
+  const staffSnap = await getDoc(staffRef);
+  const staffData = staffSnap.data();
+  const staffName = staffData?.name || staffData?.displayName || "Unknown Staff";
+  const staffOwnerUid = ownerUid || staffData?.ownerUid || "";
+
+  await deleteDoc(staffRef);
+
+  // Audit log for staff deletion
+  try {
+    const performer = await getCurrentUserForAudit();
+    if (performer && staffOwnerUid) {
+      await logStaffDeleted(
+        staffOwnerUid,
+        staffId,
+        staffName,
+        performer
+      );
+    }
+  } catch (e) {
+    console.error("Failed to create audit log for staff deletion:", e);
+  }
 }
 
 export function subscribeSalonStaffForOwner(
@@ -164,6 +281,12 @@ const DAYS_OF_WEEK = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "S
 export async function promoteStaffToBranchAdmin(staffId: string, options?: PromoteOptions): Promise<{ weeklySchedule: WeeklySchedule | null }> {
   const userRef = doc(db, "users", staffId);
   
+  // Get current staff data for audit log
+  const staffSnap = await getDoc(userRef);
+  const staffData = staffSnap.data();
+  const staffName = staffData?.name || staffData?.displayName || "Unknown Staff";
+  const staffOwnerUid = staffData?.ownerUid || "";
+  
   // Build the weekly schedule based on branch hours (work all days the branch is open)
   let weeklySchedule: WeeklySchedule | null = null;
   
@@ -210,15 +333,54 @@ export async function promoteStaffToBranchAdmin(staffId: string, options?: Promo
   }
   
   await updateDoc(userRef, updatePayload);
+
+  // Audit log for promotion
+  try {
+    const performer = await getCurrentUserForAudit();
+    if (performer && staffOwnerUid) {
+      await logStaffPromoted(
+        staffOwnerUid,
+        staffId,
+        staffName,
+        "Branch Admin",
+        performer
+      );
+    }
+  } catch (e) {
+    console.error("Failed to create audit log for staff promotion:", e);
+  }
   
   return { weeklySchedule };
 }
 
 export async function demoteStaffFromBranchAdmin(staffId: string) {
   const userRef = doc(db, "users", staffId);
+  
+  // Get current staff data for audit log
+  const staffSnap = await getDoc(userRef);
+  const staffData = staffSnap.data();
+  const staffName = staffData?.name || staffData?.displayName || "Unknown Staff";
+  const staffOwnerUid = staffData?.ownerUid || "";
+  
   await updateDoc(userRef, {
     role: "salon_staff",
     systemRole: "salon_staff",
     updatedAt: serverTimestamp(),
   });
+
+  // Audit log for demotion
+  try {
+    const performer = await getCurrentUserForAudit();
+    if (performer && staffOwnerUid) {
+      await logStaffUpdated(
+        staffOwnerUid,
+        staffId,
+        staffName,
+        performer,
+        "Demoted from Branch Admin to Staff"
+      );
+    }
+  } catch (e) {
+    console.error("Failed to create audit log for staff demotion:", e);
+  }
 }

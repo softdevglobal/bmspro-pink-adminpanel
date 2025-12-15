@@ -1,11 +1,12 @@
 import { NextResponse } from "next/server";
-import { adminAuth } from "@/lib/firebaseAdmin";
+import { adminAuth, adminDb } from "@/lib/firebaseAdmin";
+import { logStaffSuspendedServer } from "@/lib/auditLogServer";
 
 export const runtime = "nodejs";
 
 export async function POST(request: Request) {
   try {
-    const { uid, disabled } = await request.json();
+    const { uid, disabled, performerUid, performerName, performerRole } = await request.json();
 
     if (!uid) {
       return NextResponse.json({ error: "Missing uid" }, { status: 400 });
@@ -15,6 +16,31 @@ export async function POST(request: Request) {
     await adminAuth().updateUser(uid, {
       disabled: Boolean(disabled),
     });
+
+    // Create audit log
+    try {
+      const db = adminDb();
+      const userDoc = await db.doc(`users/${uid}`).get();
+      const userData = userDoc.data();
+      const staffName = userData?.name || userData?.displayName || "Unknown Staff";
+      const ownerUid = userData?.ownerUid || performerUid || "";
+
+      if (ownerUid) {
+        await logStaffSuspendedServer(
+          ownerUid,
+          uid,
+          staffName,
+          {
+            uid: performerUid || "system",
+            name: performerName || "Admin",
+            role: performerRole || "salon_owner",
+          },
+          Boolean(disabled)
+        );
+      }
+    } catch (auditError) {
+      console.error("Failed to create audit log for staff suspension:", auditError);
+    }
 
     return NextResponse.json({ 
       success: true, 

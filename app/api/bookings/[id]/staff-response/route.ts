@@ -6,6 +6,7 @@ import {
   createCustomerConfirmationNotification, 
   createAdminRejectionNotification 
 } from "@/lib/notifications";
+import { logBookingStaffResponseServer } from "@/lib/auditLogServer";
 
 export const runtime = "nodejs";
 
@@ -238,6 +239,29 @@ export async function POST(req: NextRequest, context: { params: Promise<{ id: st
         console.error("Failed to create activity log:", e);
       }
 
+      // Create audit log for staff response
+      try {
+        const serviceNames = servicesToUpdate.map(s => s.name || "Service").join(", ");
+        const performer = {
+          uid: staffUid,
+          name: staffName,
+          role: staffData?.role || "salon_staff",
+        };
+        await logBookingStaffResponseServer(
+          ownerUid,
+          id,
+          bookingData.bookingCode,
+          clientName,
+          body.action === "accept" ? "accepted" : "rejected",
+          performer,
+          serviceNames,
+          body.rejectionReason,
+          bookingData.branchName
+        );
+      } catch (e) {
+        console.error("Failed to create audit log:", e);
+      }
+
       // Send notifications based on new status
       if (newBookingStatus === "Confirmed") {
         // All services accepted - send confirmation to customer
@@ -384,6 +408,28 @@ export async function POST(req: NextRequest, context: { params: Promise<{ id: st
         console.error("Failed to send customer notification:", e);
       }
 
+      // Create audit log for staff acceptance (single service)
+      try {
+        const performer = {
+          uid: staffUid,
+          name: staffName,
+          role: staffData?.role || "salon_staff",
+        };
+        await logBookingStaffResponseServer(
+          ownerUid,
+          id,
+          bookingData.bookingCode,
+          clientName,
+          "accepted",
+          performer,
+          finalServiceName,
+          undefined,
+          bookingData.branchName
+        );
+      } catch (e) {
+        console.error("Failed to create audit log:", e);
+      }
+
       return NextResponse.json({ 
         ok: true, 
         status: "Confirmed",
@@ -446,6 +492,28 @@ export async function POST(req: NextRequest, context: { params: Promise<{ id: st
         console.log("Sent admin rejection notification");
       } catch (e) {
         console.error("Failed to send admin notification:", e);
+      }
+
+      // Create audit log for staff rejection (single service)
+      try {
+        const performer = {
+          uid: staffUid,
+          name: staffName,
+          role: staffData?.role || "salon_staff",
+        };
+        await logBookingStaffResponseServer(
+          ownerUid,
+          id,
+          bookingData.bookingCode,
+          clientName,
+          "rejected",
+          performer,
+          finalServiceName,
+          body.rejectionReason,
+          bookingData.branchName
+        );
+      } catch (e) {
+        console.error("Failed to create audit log:", e);
       }
 
       return NextResponse.json({ 

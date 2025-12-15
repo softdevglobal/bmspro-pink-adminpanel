@@ -5,6 +5,7 @@ import { signInWithEmailAndPassword } from "firebase/auth";
 import { auth, db } from "@/lib/firebase";
 import { doc, getDoc } from "firebase/firestore";
 import { ensureUserDocument } from "@/lib/users";
+import { logUserLogin } from "@/lib/auditLog";
 
 export default function LoginPage() {
   const router = useRouter();
@@ -119,9 +120,18 @@ export default function LoginPage() {
           const data = snap.data();
           const role = (data?.role || "").toString();
           const name = (data?.displayName || data?.name || "").toString();
+          const ownerUid = data?.ownerUid || uid2; // For staff, get their owner; for owners, use their own uid
+          
           if (typeof window !== "undefined") {
             localStorage.setItem("role", role);
             if (name) localStorage.setItem("userName", name);
+          }
+
+          // Audit log for successful login
+          try {
+            await logUserLogin(ownerUid, uid2, name || email, role);
+          } catch (auditErr) {
+            console.error("Failed to create login audit log:", auditErr);
           }
         }
       } catch {}

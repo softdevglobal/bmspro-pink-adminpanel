@@ -1,6 +1,7 @@
 import { auth, db } from "@/lib/firebase";
 import { addDoc, collection, serverTimestamp, doc, updateDoc } from "firebase/firestore";
 import type { BookingStatus } from "./bookingTypes";
+import { getCurrentUserForAudit, logBookingCreated, logBookingStatusChanged } from "@/lib/auditLog";
 
 /**
  * Generate a readable booking code
@@ -43,6 +44,10 @@ export async function createBooking(input: BookingInput): Promise<{ id: string }
   const token =
     (await user?.getIdToken().catch(() => null)) ||
     (typeof window !== "undefined" ? localStorage.getItem("idToken") : null);
+  
+  let bookingId: string = "";
+  let bookingCode: string | undefined;
+  
   try {
     const res = await fetch("/api/bookings", {
       method: "POST",
@@ -61,29 +66,58 @@ export async function createBooking(input: BookingInput): Promise<{ id: string }
     }
     // If API was a dev no-op, also persist from client
     if (json?.devNoop) {
+      const newCode = generateBookingCode();
       const payload = {
         ownerUid: user?.uid || null,
         ...input,
+        bookingCode: newCode,
         status: input.status || "Pending",
         createdAt: serverTimestamp(),
         updatedAt: serverTimestamp(),
       };
       const ref = await addDoc(collection(db, "bookings"), payload as any);
-      return { id: ref.id };
+      bookingId = ref.id;
+      bookingCode = newCode;
+    } else {
+      bookingId = String(json?.id);
+      bookingCode = json?.bookingCode;
     }
-    return { id: String(json?.id) };
   } catch {
     // Fallback: write from client (requires Firestore rules allow authenticated writes)
+    const newCode = generateBookingCode();
     const payload = {
       ownerUid: user?.uid || null,
       ...input,
+      bookingCode: newCode,
       status: input.status || "Pending",
       createdAt: serverTimestamp(),
       updatedAt: serverTimestamp(),
     };
     const ref = await addDoc(collection(db, "bookings"), payload as any);
-    return { id: ref.id };
+    bookingId = ref.id;
+    bookingCode = newCode;
   }
+
+  // Audit log for booking creation
+  try {
+    const performer = await getCurrentUserForAudit();
+    if (performer && user?.uid) {
+      await logBookingCreated(
+        user.uid,
+        bookingId,
+        bookingCode,
+        input.client,
+        input.serviceName || "Service",
+        input.branchName,
+        input.staffName,
+        performer
+      );
+    }
+  } catch (e) {
+    console.error("Failed to create audit log for booking creation:", e);
+  }
+
+  return { id: bookingId };
 }
 
 export async function updateBookingStatus(bookingId: string, nextStatus: BookingStatus): Promise<void> {

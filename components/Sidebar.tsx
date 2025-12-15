@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import { onAuthStateChanged, signOut } from "firebase/auth";
 import { auth, db } from "@/lib/firebase";
 import { doc, getDoc } from "firebase/firestore";
+import { logUserLogout } from "@/lib/auditLog";
 
 type SidebarProps = {
   mobile?: boolean;
@@ -32,6 +33,7 @@ export default function Sidebar({ mobile = false, onClose }: SidebarProps) {
   const isBilling = pathname?.startsWith("/billing");
   const isSettings = pathname?.startsWith("/settings");
   const isOwnerSettings = pathname?.startsWith("/owner-settings");
+  const isAuditLogs = pathname?.startsWith("/audit-logs");
   const [role, setRole] = useState<string | null>(null);
   const [userName, setUserName] = useState<string>("");
   const [userEmail, setUserEmail] = useState<string>("");
@@ -184,8 +186,21 @@ export default function Sidebar({ mobile = false, onClose }: SidebarProps) {
     setConfirmOpen(true);
   };
 
-  const confirmSignOut = () => {
+  const confirmSignOut = async () => {
     try {
+      // Log logout before clearing data
+      const currentUser = auth.currentUser;
+      if (currentUser && role) {
+        try {
+          const userDoc = await getDoc(doc(db, "users", currentUser.uid));
+          const userData = userDoc.data();
+          const ownerUid = userData?.ownerUid || currentUser.uid;
+          await logUserLogout(ownerUid, currentUser.uid, userName || userEmail, role);
+        } catch (e) {
+          console.error("Failed to create logout audit log:", e);
+        }
+      }
+
       if (typeof window !== "undefined") {
         localStorage.removeItem("idToken");
         localStorage.removeItem("role");
@@ -409,6 +424,12 @@ export default function Sidebar({ mobile = false, onClose }: SidebarProps) {
           <Link href="/settings" className={`flex items-center space-x-3 px-4 py-3 rounded-xl text-sm transition ${isSettings ? "bg-pink-500 text-white shadow-lg" : "hover:bg-slate-800 text-slate-400 hover:text-white"}`}>
             <i className="fas fa-cog w-5" />
             <span>Platform Settings</span>
+          </Link>
+        )}
+        {mounted && role === "salon_owner" && (
+          <Link href="/audit-logs" className={`flex items-center space-x-3 px-4 py-3 rounded-xl text-sm transition ${isAuditLogs ? "bg-pink-500 text-white shadow-lg" : "hover:bg-slate-800 text-slate-400 hover:text-white"}`}>
+            <i className="fas fa-clipboard-list w-5" />
+            <span>Audit Logs</span>
           </Link>
         )}
         {mounted && role === "salon_owner" && (
