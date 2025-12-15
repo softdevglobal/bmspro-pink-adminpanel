@@ -473,7 +473,22 @@ export default function ServicesPage() {
                     <div className="grid grid-cols-2 gap-2.5 sm:gap-3">
                       <div>
                         <label className="block text-xs font-bold text-slate-600 mb-1">Duration (mins)</label>
-                        <input value={duration} onChange={(e) => setDuration(e.target.value === "" ? "" : Number(e.target.value))} type="number" required className="w-full border border-slate-300 rounded-lg p-2 sm:p-2.5 text-xs sm:text-sm focus:ring-2 focus:ring-pink-500 focus:outline-none" placeholder="60" />
+                        <select 
+                          value={duration} 
+                          onChange={(e) => setDuration(e.target.value === "" ? "" : Number(e.target.value))} 
+                          required 
+                          className="w-full border border-slate-300 rounded-lg p-2 sm:p-2.5 text-xs sm:text-sm focus:ring-2 focus:ring-pink-500 focus:outline-none bg-white"
+                        >
+                          <option value="">Select Duration</option>
+                          <option value="30">30 mins</option>
+                          <option value="60">60 mins</option>
+                          <option value="90">90 mins</option>
+                          <option value="120">120 mins</option>
+                          <option value="150">150 mins</option>
+                          <option value="180">180 mins</option>
+                          <option value="210">210 mins</option>
+                          <option value="240">240 mins</option>
+                        </select>
                       </div>
                       <div>
                         <label className="block text-xs font-bold text-slate-600 mb-1">Price ($)</label>

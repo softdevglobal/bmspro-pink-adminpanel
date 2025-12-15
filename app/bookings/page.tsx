@@ -406,23 +406,67 @@ function BookingsPageContent() {
         const interval = 30;
         let currentTime = startHour * 60;
         const maxTime = endHour * 60;
-        const occupiedSlots = this.data.bookings
-          .filter((b: any) => b.staffId === staffId && b.date === date && b.status !== "Canceled")
-          .map((b: any) => ({ start: b.time, end: this.calculateEndTime(b.time, b.duration) }));
+        
+        // Get all bookings for this staff on this date (excluding cancelled)
+        const relevantBookings = this.data.bookings.filter((b: any) => {
+          const status = (b.status || "").toLowerCase();
+          const isCancelled = status === "cancelled" || status === "canceled" || status === "staffrejected";
+          return b.date === date && !isCancelled;
+        });
+        
+        // Helper to check if a slot time is occupied by any booking for this staff
+        const isSlotOccupied = (slotMinutes: number): boolean => {
+          for (const booking of relevantBookings) {
+            // Check if booking has individual services (multi-service booking)
+            if (Array.isArray(booking.services) && booking.services.length > 0) {
+              for (const svc of booking.services) {
+                if (svc && svc.staffId === staffId && svc.time) {
+                  const svcStartMin = this.timeToMinutes(svc.time);
+                  const svcDuration = svc.duration || 60;
+                  const svcEndMin = svcStartMin + svcDuration;
+                  // Check if slot time falls within this service's period
+                  if (slotMinutes >= svcStartMin && slotMinutes < svcEndMin) {
+                    return true;
+                  }
+                }
+              }
+            } else {
+              // Single service booking - check main staffId
+              if (booking.staffId === staffId && booking.time) {
+                const bStartMin = this.timeToMinutes(booking.time);
+                const bDuration = booking.duration || 60;
+                const bEndMin = bStartMin + bDuration;
+                // Check if slot time falls within this booking's period
+                if (slotMinutes >= bStartMin && slotMinutes < bEndMin) {
+                  return true;
+                }
+              }
+            }
+          }
+          return false;
+        };
+        
         const formatTime = (minutes: number) => {
           const h = Math.floor(minutes / 60) % 24;
           const m = minutes % 60;
           return `${h.toString().padStart(2, "0")}:${m.toString().padStart(2, "0")}`;
         };
+        
         while (currentTime < maxTime) {
           const slotStartTime = formatTime(currentTime);
-          const slotEndTime = this.calculateEndTime(slotStartTime, duration);
-          const isAvailable = occupiedSlots.every((o: any) => !((this.timeToMinutes(o.start) < this.timeToMinutes(slotEndTime)) && (this.timeToMinutes(o.end) > this.timeToMinutes(slotStartTime))));
-          if (isAvailable && this.timeToMinutes(slotEndTime) <= maxTime) {
-            const slotElement = document.createElement("div");
+          const isOccupied = isSlotOccupied(currentTime);
+          
+          const slotElement = document.createElement("div");
+          (slotElement as any).dataset.time = slotStartTime;
+          slotElement.innerText = `${slotStartTime}`;
+          
+          if (isOccupied) {
+            // Blocked slot - show in red, not clickable
+            slotElement.className = "time-slot time-slot-blocked text-sm bg-red-50 text-red-400 border border-red-200 cursor-not-allowed line-through opacity-70";
+            slotElement.title = "Already booked";
+          } else {
+            // Available slot
             slotElement.className = "time-slot text-sm";
-            (slotElement as any).dataset.time = slotStartTime;
-            slotElement.innerText = `${slotStartTime}`;
             slotElement.onclick = (e: any) => {
               document.querySelectorAll(".time-slot").forEach((s) => s.classList.remove("selected"));
               e.target.classList.add("selected");
@@ -430,12 +474,16 @@ function BookingsPageContent() {
               const eet = document.getElementById("estimated-end-time");
               if (eet) eet.textContent = this.calculateEndTime(e.target.dataset.time, duration);
             };
-            slotsContainer.appendChild(slotElement);
           }
+          
+          slotsContainer.appendChild(slotElement);
           currentTime += interval;
         }
-        if (slotsContainer.innerHTML === "") {
-          slotsContainer.innerHTML = '<p class="col-span-4 text-center text-red-500 text-xs py-2">No available slots for this combination.</p>';
+        
+        // Check if ALL slots are blocked
+        const availableSlots = slotsContainer.querySelectorAll(".time-slot:not(.time-slot-blocked)");
+        if (availableSlots.length === 0) {
+          slotsContainer.innerHTML = '<p class="col-span-4 text-center text-red-500 text-xs py-2">No available slots for this staff on this date.</p>';
         }
       },
       timeToMinutes: function (time: string) {
@@ -1075,32 +1123,88 @@ function BookingsPageContent() {
     const [h, m] = time.split(":").map(Number);
     return h * 60 + m;
   };
-  const computeSlots = (forServiceId?: number | string) => {
+  const computeSlots = (forServiceId?: number | string): Array<{ time: string; available: boolean; reason?: string }> => {
     const app = appRef();
     // Only need date to show time slots
     if (!bkDate) return [];
     
-    // Get duration of the service we're scheduling
-    let serviceDuration = 60;
-    if (forServiceId) {
-      const service = servicesList.find((s) => String(s.id) === String(forServiceId)) ||
-        (app ? app.data.services.find((s: any) => String(s.id) === String(forServiceId)) : null);
-      serviceDuration = Number((service as any)?.duration) || 60;
-    }
-    
-    // If staff is selected for this service, filter out occupied slots for that staff
+    // Get the staff member selected for this service
     const staffIdForService = forServiceId ? bkServiceStaff[String(forServiceId)] : null;
+    const dateStr = formatLocalYmd(bkDate);
     
-    const occupied = app && staffIdForService
-      ? app.data.bookings
-          .filter((b: any) => b.staffId === staffIdForService && b.date === formatLocalYmd(bkDate) && b.status !== "Canceled")
-          .map((b: any) => ({ start: b.time, end: calculateEndTime(b.time, b.duration) }))
-      : [];
+    // Get all bookings for this date (excluding cancelled)
+    const relevantBookings = app ? app.data.bookings.filter((b: any) => {
+      const status = (b.status || "").toLowerCase();
+      const isCancelled = status === "cancelled" || status === "canceled" || status === "staffrejected";
+      return b.date === dateStr && !isCancelled;
+    }) : [];
+    
+    // Check if a specific slot time is occupied by any booking for the selected staff
+    const isSlotOccupied = (slotMinutes: number): boolean => {
+      if (!staffIdForService) return false;
+      
+      for (const booking of relevantBookings) {
+        // Check if booking has individual services (multi-service booking)
+        if (Array.isArray(booking.services) && booking.services.length > 0) {
+          for (const svc of booking.services) {
+            if (svc && svc.staffId === staffIdForService && svc.time) {
+              const svcStartMin = timeToMinutes(svc.time);
+              const svcDuration = svc.duration || 60;
+              const svcEndMin = svcStartMin + svcDuration;
+              // Check if slot time falls within this service's period
+              if (slotMinutes >= svcStartMin && slotMinutes < svcEndMin) {
+                return true;
+              }
+            }
+          }
+        } else {
+          // Single service booking - check main staffId
+          if (booking.staffId === staffIdForService && booking.time) {
+            const bStartMin = timeToMinutes(booking.time);
+            const bDuration = booking.duration || 60;
+            const bEndMin = bStartMin + bDuration;
+            // Check if slot time falls within this booking's period
+            if (slotMinutes >= bStartMin && slotMinutes < bEndMin) {
+              return true;
+            }
+          }
+        }
+      }
+      return false;
+    };
+    
+    // Check if a slot is blocked by OTHER services in the CURRENT booking session (same staff)
+    const isSlotBlockedByCurrentSelection = (slotMinutes: number): boolean => {
+      if (!staffIdForService || !forServiceId) return false;
+      
+      for (const otherServiceId of bkSelectedServices) {
+        if (String(otherServiceId) === String(forServiceId)) continue;
+        
+        const otherStaffId = bkServiceStaff[String(otherServiceId)];
+        if (otherStaffId !== staffIdForService) continue;
+        
+        const otherTime = bkServiceTimes[String(otherServiceId)];
+        if (!otherTime) continue;
+        
+        const otherService = servicesList.find((s) => String(s.id) === String(otherServiceId)) ||
+          (app ? app.data.services.find((s: any) => String(s.id) === String(otherServiceId)) : null);
+        const otherDuration = Number((otherService as any)?.duration) || 60;
+        
+        const otherStartMin = timeToMinutes(otherTime);
+        const otherEndMin = otherStartMin + otherDuration;
+        
+        // Check if slot time falls within the other service's period
+        if (slotMinutes >= otherStartMin && slotMinutes < otherEndMin) {
+          return true;
+        }
+      }
+      return false;
+    };
     
     const startHour = 9;
     const endHour = 17;
     const interval = 30;
-    const slots: string[] = [];
+    const slots: Array<{ time: string; available: boolean; reason?: string }> = [];
     let current = startHour * 60;
     const max = endHour * 60;
     const format = (minutes: number) => {
@@ -1108,11 +1212,20 @@ function BookingsPageContent() {
       const m = minutes % 60;
       return `${h.toString().padStart(2, "0")}:${m.toString().padStart(2, "0")}`;
     };
+    
     while (current < max) {
-      const start = format(current);
-      const end = calculateEndTime(start, serviceDuration);
-      const ok = occupied.every((o: any) => !(timeToMinutes(o.start) < timeToMinutes(end) && timeToMinutes(o.end) > timeToMinutes(start)));
-      if (ok && timeToMinutes(end) <= max) slots.push(start);
+      const timeStr = format(current);
+      const occupiedByBooking = isSlotOccupied(current);
+      const blockedBySelection = isSlotBlockedByCurrentSelection(current);
+      
+      if (occupiedByBooking) {
+        slots.push({ time: timeStr, available: false, reason: 'booked' });
+      } else if (blockedBySelection) {
+        slots.push({ time: timeStr, available: false, reason: 'selected' });
+      } else {
+        slots.push({ time: timeStr, available: true });
+      }
+      
       current += interval;
     }
     return slots;
@@ -1706,19 +1819,36 @@ function BookingsPageContent() {
                                     No slots available
                                   </div>
                                 ) : (
-                                  slots.map((t) => (
-                                    <button
-                                      key={t}
-                                      onClick={() => setBkServiceTimes({ ...bkServiceTimes, [String(serviceId)]: t })}
-                                      className={`py-1.5 rounded text-[10px] font-bold transition-all ${
-                                        selectedTime === t 
-                                          ? "bg-gradient-to-r from-pink-600 to-purple-600 text-white shadow-sm" 
-                                          : "bg-white text-slate-700 border border-purple-100 hover:border-pink-300"
-                                      }`}
-                                    >
-                                      {t}
-                                    </button>
-                                  ))
+                                  slots.map((slot) => {
+                                    const isSelected = selectedTime === slot.time;
+                                    const isDisabled = !slot.available;
+                                    const isBookedByOther = slot.reason === 'booked';
+                                    const isSelectedForOtherService = slot.reason === 'selected';
+                                    
+                                    return (
+                                      <button
+                                        key={slot.time}
+                                        onClick={() => {
+                                          if (!isDisabled) {
+                                            setBkServiceTimes({ ...bkServiceTimes, [String(serviceId)]: slot.time });
+                                          }
+                                        }}
+                                        disabled={isDisabled}
+                                        title={isDisabled ? (isBookedByOther ? 'Already booked' : 'Selected for another service') : 'Available'}
+                                        className={`py-1.5 rounded text-[10px] font-bold transition-all ${
+                                          isSelected 
+                                            ? "bg-gradient-to-r from-pink-600 to-purple-600 text-white shadow-sm" 
+                                            : isBookedByOther
+                                              ? "bg-red-50 text-red-400 border border-red-200 cursor-not-allowed line-through"
+                                              : isSelectedForOtherService
+                                                ? "bg-amber-50 text-amber-500 border border-amber-200 cursor-not-allowed"
+                                                : "bg-white text-slate-700 border border-purple-100 hover:border-pink-300"
+                                        }`}
+                                      >
+                                        {slot.time}
+                                      </button>
+                                    );
+                                  })
                                 )}
                               </div>
                             </div>
