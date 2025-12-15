@@ -91,6 +91,27 @@ export async function POST(req: NextRequest) {
       }
     } catch {}
 
+    // Determine booking source based on user role
+    let bookingSource = "AdminBooking";
+    try {
+      const userDoc = await adminDb().doc(`users/${ownerUid}`).get();
+      const userData = userDoc.data();
+      if (userData) {
+        const userRole = userData.role || userData.systemRole;
+        const userBranchName = userData.branchName || branchName;
+        
+        if (userRole === "salon_branch_admin") {
+          bookingSource = `Branch Admin Booking - ${userBranchName || "Unknown Branch"}`;
+        } else if (userRole === "salon_owner") {
+          bookingSource = "Owner Booking";
+        } else if (userRole === "salon_staff") {
+          bookingSource = `Staff Booking - ${userBranchName || "Unknown Branch"}`;
+        }
+      }
+    } catch (roleError) {
+      console.error("Failed to get user role for booking source:", roleError);
+    }
+
     const bookingCode = generateBookingCode();
     
     const payload: any = {
@@ -111,7 +132,7 @@ export async function POST(req: NextRequest) {
       status: normalizeBookingStatus(body.status || "Pending"),
       price: Number(body.price) || 0,
       services: body.services || null,
-      bookingSource: "AdminBooking",
+      bookingSource: bookingSource,
       bookingCode: bookingCode,
       createdAt: FieldValue.serverTimestamp(),
       updatedAt: FieldValue.serverTimestamp(),

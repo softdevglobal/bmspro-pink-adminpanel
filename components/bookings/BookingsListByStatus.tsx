@@ -992,9 +992,19 @@ export default function BookingsListByStatus({ status, title }: { status: Bookin
                             <span className={`text-xs font-semibold px-2 py-1 rounded-full ${
                               previewRow.bookingSource === "booking_engine" 
                                 ? "bg-blue-100 text-blue-700" 
-                                : "bg-purple-100 text-purple-700"
+                                : previewRow.bookingSource.includes("Branch Admin")
+                                ? "bg-emerald-100 text-emerald-700"
+                                : previewRow.bookingSource.includes("Owner")
+                                ? "bg-purple-100 text-purple-700"
+                                : previewRow.bookingSource.includes("Staff")
+                                ? "bg-amber-100 text-amber-700"
+                                : "bg-slate-100 text-slate-700"
                             }`}>
-                              {previewRow.bookingSource === "booking_engine" ? "Booking Engine" : "Admin Panel"}
+                              {previewRow.bookingSource === "booking_engine" 
+                                ? "Booking Engine" 
+                                : previewRow.bookingSource === "AdminBooking"
+                                ? "Admin Panel"
+                                : previewRow.bookingSource}
                             </span>
                           </div>
                         )}
