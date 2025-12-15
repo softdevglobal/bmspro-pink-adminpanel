@@ -1583,8 +1583,8 @@ function BookingsPageContent() {
                         const selectedDayName = bkDate ? dayNames[bkDate.getDay()] : null;
                         
                         // Check if service has specific staff assigned
-                        const serviceHasStaffAssigned = service?.staffIds && service.staffIds.length > 0;
-                        const serviceStaffIds = serviceHasStaffAssigned ? service.staffIds.map(String) : [];
+                        const serviceStaffIds: string[] = (service?.staffIds ?? []).map(String);
+                        const serviceHasStaffAssigned = serviceStaffIds.length > 0;
                         
                         // Helper function to check if staff works at selected branch
                         const staffWorksAtBranch = (st: typeof staffList[0]): boolean => {
