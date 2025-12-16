@@ -27,6 +27,12 @@ type CreateBookingInput = {
 
 export async function POST(req: NextRequest) {
   try {
+    // Security: Limit request size to prevent DoS attacks (CVE-2025-55184)
+    const contentLength = req.headers.get("content-length");
+    if (contentLength && parseInt(contentLength) > 1024 * 1024) { // 1MB limit
+      return NextResponse.json({ error: "Request too large" }, { status: 413 });
+    }
+
     const authHeader = req.headers.get("authorization") || "";
     const token = authHeader.startsWith("Bearer ") ? authHeader.slice(7) : null;
     if (!token) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
