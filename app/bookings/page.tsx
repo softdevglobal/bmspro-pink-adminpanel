@@ -10,6 +10,7 @@ import { subscribeBranchesForOwner } from "@/lib/branches";
 import { createBooking } from "@/lib/bookings";
 import { collection, onSnapshot, query, where } from "firebase/firestore";
 import { db } from "@/lib/firebase";
+import { shouldBlockSlots } from "@/lib/bookingTypes";
 
 // Wrapper component to handle search params with Suspense
 function BookingsPageContent() {
@@ -18,6 +19,7 @@ function BookingsPageContent() {
   const [mobileOpen, setMobileOpen] = useState(false);
   const [chartReady, setChartReady] = useState(false);
   const [autoOpenHandled, setAutoOpenHandled] = useState(false);
+  const [bookingsUpdateKey, setBookingsUpdateKey] = useState(0); // Force re-render when bookings update
 
   // Booking wizard state
   const [bkStep, setBkStep] = useState<1 | 2 | 3>(1);
@@ -407,39 +409,108 @@ function BookingsPageContent() {
         let currentTime = startHour * 60;
         const maxTime = endHour * 60;
         
-        // Get all bookings for this staff on this date (excluding cancelled)
+        // Get all bookings for this date (excluding cancelled, completed, rejected)
+        // Use centralized helper to ensure consistency
+        // NOTE: When a booking is cancelled, its status changes to "Canceled" and shouldBlockSlots returns false,
+        // so it's automatically excluded from relevantBookings, making the slot available again in real-time
         const relevantBookings = this.data.bookings.filter((b: any) => {
-          const status = (b.status || "").toLowerCase();
-          const isCancelled = status === "cancelled" || status === "canceled" || status === "staffrejected";
-          return b.date === date && !isCancelled;
+          return b.date === date && shouldBlockSlots(b.status);
         });
+        
+        // Helper to check if a staff ID represents "any staff"
+        const isAnyStaff = (staffId: any): boolean => {
+          if (!staffId) return true; // null, undefined
+          const str = String(staffId).trim();
+          return str === "" || str === "any" || str === "null" || str.toLowerCase() === "any available" || str.toLowerCase() === "any staff";
+        };
+        
+        // Helper function to check if a booking involves the selected staff
+        const bookingInvolvesStaff = (booking: any, targetStaffId: string): boolean => {
+          // If targetStaffId is "any staff", only check bookings with "any staff"
+          if (isAnyStaff(targetStaffId)) {
+            // Check if booking has "any staff"
+            if (Array.isArray(booking.services) && booking.services.length > 0) {
+              // For multi-service, check if any service has "any staff"
+              for (const svc of booking.services) {
+                const svcStaffId = (svc.staffId !== undefined && svc.staffId !== null) ? svc.staffId : (booking.staffId || null);
+                if (isAnyStaff(svcStaffId)) return true;
+              }
+              return false; // All services have specific staff
+            } else {
+              return isAnyStaff(booking.staffId);
+            }
+          }
+          
+          // Specific staff selected - check if booking involves this staff
+          // Check root-level staffId
+          if (booking.staffId === targetStaffId) return true;
+          
+          // Check services array for multi-service bookings
+          if (Array.isArray(booking.services)) {
+            for (const svc of booking.services) {
+              if (svc && svc.staffId === targetStaffId) {
+                return true;
+              }
+            }
+          }
+          
+          // If booking has "any staff", it blocks all staff (including this one)
+          if (isAnyStaff(booking.staffId)) {
+            return true;
+          }
+          
+          return false;
+        };
         
         // Helper to check if a slot time is occupied by any booking for this staff
         const isSlotOccupied = (slotMinutes: number): boolean => {
+          // If "Any" staff is selected, don't block any slots
+          // The server-side validation will prevent conflicts when the booking is actually created
+          // This matches the booking engine behavior - when "any" is selected, all slots are available
+          if (isAnyStaff(staffId)) {
+            return false; // Don't block any slots when "Any" is selected
+          }
+          
+          // Specific staff selected - check bookings involving this staff
           for (const booking of relevantBookings) {
+            // Only check bookings that involve this staff
+            if (!bookingInvolvesStaff(booking, staffId)) continue;
+            
             // Check if booking has individual services (multi-service booking)
             if (Array.isArray(booking.services) && booking.services.length > 0) {
               for (const svc of booking.services) {
-                if (svc && svc.staffId === staffId && svc.time) {
-                  const svcStartMin = this.timeToMinutes(svc.time);
-                  const svcDuration = svc.duration || 60;
-                  const svcEndMin = svcStartMin + svcDuration;
-                  // Check if slot time falls within this service's period
-                  if (slotMinutes >= svcStartMin && slotMinutes < svcEndMin) {
-                    return true;
-                  }
+                if (!svc || !svc.time) continue;
+                
+                // Check if this service involves our staff (or is "any staff")
+                const svcStaffId = svc.staffId || booking.staffId || null;
+                if (svcStaffId && svcStaffId !== "any" && svcStaffId !== "" && svcStaffId !== staffId && staffId !== "any" && staffId !== "") {
+                  continue; // Different staff, skip
+                }
+                
+                const svcStartMin = this.timeToMinutes(svc.time);
+                const svcDuration = svc.duration || booking.duration || 60;
+                const svcEndMin = svcStartMin + svcDuration;
+                // Check if slot time falls within this service's period
+                if (slotMinutes >= svcStartMin && slotMinutes < svcEndMin) {
+                  return true;
                 }
               }
             } else {
               // Single service booking - check main staffId
-              if (booking.staffId === staffId && booking.time) {
-                const bStartMin = this.timeToMinutes(booking.time);
-                const bDuration = booking.duration || 60;
-                const bEndMin = bStartMin + bDuration;
-                // Check if slot time falls within this booking's period
-                if (slotMinutes >= bStartMin && slotMinutes < bEndMin) {
-                  return true;
-                }
+              if (!booking.time) continue;
+              
+              const bookingStaffId = booking.staffId || null;
+              // Check if booking involves this staff (or is "any staff")
+              if (bookingStaffId && bookingStaffId !== "any" && bookingStaffId !== "" && bookingStaffId !== staffId && staffId !== "any" && staffId !== "") {
+                continue; // Different staff, skip
+              }
+              
+              const bStartMin = this.timeToMinutes(booking.time);
+              const bDuration = booking.duration || 60;
+              const bEndMin = bStartMin + bDuration;
+              // Check if slot time falls within this booking's period
+              if (slotMinutes >= bStartMin && slotMinutes < bEndMin) {
+                return true;
               }
             }
           }
@@ -682,6 +753,122 @@ function BookingsPageContent() {
     );
     return () => unsub();
   }, [ownerUid, userRole, userBranchId, router]);
+
+  // Subscribe to bookings for selected date in booking wizard (for slot availability checking)
+  useEffect(() => {
+    if (!ownerUid || !bkDate) return;
+    
+    const dateStr = formatLocalYmd(bkDate);
+    
+    // Branch admin should only see bookings for their branch
+    const constraints = [
+      where("ownerUid", "==", ownerUid),
+      where("date", "==", dateStr)
+    ];
+    
+    if (userRole === "salon_branch_admin" && userBranchId) {
+      constraints.push(where("branchId", "==", userBranchId));
+    }
+    
+    let bookingsList: any[] = [];
+    let bookingRequestsList: any[] = [];
+    
+    const mergeAndUpdate = () => {
+      try {
+        const wapp = appRef();
+        if (!wapp) return;
+        wapp.data = wapp.data || {};
+        
+        // Merge bookings and bookingRequests for selected date with existing bookings
+        // Remove old bookings for this date first, then add new ones
+        const existingBookings = (wapp.data.bookings || []).filter((b: any) => b.date !== dateStr);
+        wapp.data.bookings = [...existingBookings, ...bookingsList, ...bookingRequestsList];
+        
+        // Trigger re-render to update slot availability
+        setBookingsUpdateKey(prev => prev + 1);
+      } catch (error) {
+        console.error("Error updating bookings for selected date:", error);
+      }
+    };
+    
+    // Subscribe to bookings collection
+    const q1 = query(collection(db, "bookings"), ...constraints);
+    const unsub1 = onSnapshot(
+      q1,
+      (snap) => {
+        bookingsList = [];
+        snap.forEach((d) => {
+          const b = d.data() as any;
+          bookingsList.push({
+            id: d.id,
+            client: String(b.client || ""),
+            serviceId: b.serviceId,
+            serviceName: String(b.serviceName || ""),
+            staffId: String(b.staffId || ""),
+            staffName: String(b.staffName || ""),
+            branchId: String(b.branchId || ""),
+            date: String(b.date || dateStr),
+            time: String(b.time || ""),
+            duration: Number(b.duration || 0),
+            status: String(b.status || "Confirmed"),
+            price: Number(b.price || 0),
+            services: b.services || null, // Include services array for multi-service bookings
+          });
+        });
+        mergeAndUpdate();
+      },
+      (error) => {
+        if (error.code === "permission-denied") {
+          console.warn("Permission denied for bookings query for selected date.");
+        } else {
+          console.error("Error in bookings snapshot for selected date:", error);
+        }
+        bookingsList = [];
+        mergeAndUpdate();
+      }
+    );
+    
+    // Also subscribe to bookingRequests collection (for pending bookings from booking engine)
+    const q2 = query(collection(db, "bookingRequests"), ...constraints);
+    const unsub2 = onSnapshot(
+      q2,
+      (snap) => {
+        bookingRequestsList = [];
+        snap.forEach((d) => {
+          const b = d.data() as any;
+          bookingRequestsList.push({
+            id: d.id,
+            client: String(b.client || ""),
+            serviceId: b.serviceId,
+            serviceName: String(b.serviceName || ""),
+            staffId: String(b.staffId || ""),
+            staffName: String(b.staffName || ""),
+            branchId: String(b.branchId || ""),
+            date: String(b.date || dateStr),
+            time: String(b.time || ""),
+            duration: Number(b.duration || 0),
+            status: String(b.status || "Pending"),
+            price: Number(b.price || 0),
+            services: b.services || null, // Include services array for multi-service bookings
+          });
+        });
+        mergeAndUpdate();
+      },
+      (error) => {
+        // Silently ignore permission errors for bookingRequests (customers may not have access)
+        if (error.code !== "permission-denied") {
+          console.error("Error in bookingRequests snapshot for selected date:", error);
+        }
+        bookingRequestsList = [];
+        mergeAndUpdate();
+      }
+    );
+    
+    return () => {
+      unsub1();
+      unsub2();
+    };
+  }, [ownerUid, userRole, userBranchId, bkDate]);
 
   // Subscribe to Firestore data for wizard choices
   useEffect(() => {
@@ -1128,45 +1315,104 @@ function BookingsPageContent() {
     // Only need date to show time slots
     if (!bkDate) return [];
     
+    // Use bookingsUpdateKey to ensure we recalculate when bookings change
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    const _ = bookingsUpdateKey;
+    
     // Get the staff member selected for this service
     const staffIdForService = forServiceId ? bkServiceStaff[String(forServiceId)] : null;
     const dateStr = formatLocalYmd(bkDate);
     
-    // Get all bookings for this date (excluding cancelled)
+    // Get all bookings for this date (excluding cancelled, completed, rejected)
+    // Use centralized helper to ensure consistency
+    // NOTE: When a booking is cancelled, its status changes to "Canceled" and shouldBlockSlots returns false,
+    // so it's automatically excluded from relevantBookings, making the slot available again in real-time
     const relevantBookings = app ? app.data.bookings.filter((b: any) => {
-      const status = (b.status || "").toLowerCase();
-      const isCancelled = status === "cancelled" || status === "canceled" || status === "staffrejected";
-      return b.date === dateStr && !isCancelled;
+      return b.date === dateStr && shouldBlockSlots(b.status);
     }) : [];
+    
+    // Helper function to check if a booking involves the selected staff
+    const bookingInvolvesStaff = (booking: any, targetStaffId: string | null): boolean => {
+      // If targetStaffId is "any" or empty, check all bookings
+      if (!targetStaffId || targetStaffId === "any" || targetStaffId === "") {
+        return true;
+      }
+      
+      // Check root-level staffId
+      if (booking.staffId === targetStaffId) return true;
+      
+      // Check services array for multi-service bookings
+      if (Array.isArray(booking.services)) {
+        for (const svc of booking.services) {
+          if (svc && svc.staffId === targetStaffId) {
+            return true;
+          }
+        }
+      }
+      
+      // If booking has "any staff" (null or "any"), it blocks all staff
+      if (!booking.staffId || booking.staffId === "any" || booking.staffId === "") {
+        return true;
+      }
+      
+      return false;
+    };
+    
+    // Helper to check if a staff ID represents "any staff"
+    const isAnyStaff = (staffId: any): boolean => {
+      if (!staffId) return true; // null, undefined
+      const str = String(staffId).trim();
+      return str === "" || str === "any" || str === "null" || str.toLowerCase() === "any available" || str.toLowerCase() === "any staff";
+    };
     
     // Check if a specific slot time is occupied by any booking for the selected staff
     const isSlotOccupied = (slotMinutes: number): boolean => {
-      if (!staffIdForService) return false;
+      // If "Any" staff is selected, don't block any slots
+      // The server-side validation will prevent conflicts when the booking is actually created
+      // This matches the booking engine behavior - when "any" is selected, all slots are available
+      if (isAnyStaff(staffIdForService)) {
+        return false; // Don't block any slots when "Any" is selected
+      }
       
       for (const booking of relevantBookings) {
+        // Only check bookings that involve this staff
+        if (!bookingInvolvesStaff(booking, staffIdForService)) continue;
+        
         // Check if booking has individual services (multi-service booking)
         if (Array.isArray(booking.services) && booking.services.length > 0) {
           for (const svc of booking.services) {
-            if (svc && svc.staffId === staffIdForService && svc.time) {
-              const svcStartMin = timeToMinutes(svc.time);
-              const svcDuration = svc.duration || 60;
-              const svcEndMin = svcStartMin + svcDuration;
-              // Check if slot time falls within this service's period
-              if (slotMinutes >= svcStartMin && slotMinutes < svcEndMin) {
-                return true;
-              }
+            if (!svc || !svc.time) continue;
+            
+            // Check if this service involves our staff (or is "any staff")
+            const svcStaffId = svc.staffId || booking.staffId || null;
+            if (svcStaffId && svcStaffId !== "any" && svcStaffId !== "" && svcStaffId !== staffIdForService && staffIdForService !== "any" && staffIdForService !== "") {
+              continue; // Different staff, skip
+            }
+            
+            const svcStartMin = timeToMinutes(svc.time);
+            const svcDuration = svc.duration || booking.duration || 60;
+            const svcEndMin = svcStartMin + svcDuration;
+            // Check if slot time falls within this service's period
+            if (slotMinutes >= svcStartMin && slotMinutes < svcEndMin) {
+              return true;
             }
           }
         } else {
           // Single service booking - check main staffId
-          if (booking.staffId === staffIdForService && booking.time) {
-            const bStartMin = timeToMinutes(booking.time);
-            const bDuration = booking.duration || 60;
-            const bEndMin = bStartMin + bDuration;
-            // Check if slot time falls within this booking's period
-            if (slotMinutes >= bStartMin && slotMinutes < bEndMin) {
-              return true;
-            }
+          if (!booking.time) continue;
+          
+          const bookingStaffId = booking.staffId || null;
+          // Check if booking involves this staff (or is "any staff")
+          if (bookingStaffId && bookingStaffId !== "any" && bookingStaffId !== "" && bookingStaffId !== staffIdForService && staffIdForService !== "any" && staffIdForService !== "") {
+            continue; // Different staff, skip
+          }
+          
+          const bStartMin = timeToMinutes(booking.time);
+          const bDuration = booking.duration || 60;
+          const bEndMin = bStartMin + bDuration;
+          // Check if slot time falls within this booking's period
+          if (slotMinutes >= bStartMin && slotMinutes < bEndMin) {
+            return true;
           }
         }
       }
@@ -1333,11 +1579,25 @@ function BookingsPageContent() {
           app.closeModal("booking");
           app.showToast("New Booking Created!");
         }
-      } catch (error) {
+      } catch (error: any) {
         console.error("Error creating booking:", error);
         if (app) {
           app.closeModal("booking");
-          app.showToast("Failed to create booking", "error");
+          
+          // Check if it's a conflict error (409) or contains booking conflict message
+          let errorMessage = "Failed to create booking";
+          
+          if (error.status === 409 || (error.message && error.message.includes("already booked"))) {
+            errorMessage = error.details || "This time slot has already been booked. Please select a different time.";
+          } else if (error.message && error.message.includes("conflicts")) {
+            errorMessage = error.message;
+          } else if (error.details) {
+            errorMessage = error.details;
+          } else if (error.message) {
+            errorMessage = error.message;
+          }
+          
+          app.showToast(errorMessage, "error");
         }
       } finally {
         setSubmittingBooking(false);

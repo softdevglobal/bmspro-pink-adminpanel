@@ -480,13 +480,21 @@ export default function ServicesPage() {
                           className="w-full border border-slate-300 rounded-lg p-2 sm:p-2.5 text-xs sm:text-sm focus:ring-2 focus:ring-pink-500 focus:outline-none bg-white"
                         >
                           <option value="">Select Duration</option>
+                          <option value="15">15 mins</option>
                           <option value="30">30 mins</option>
+                          <option value="45">45 mins</option>
                           <option value="60">60 mins</option>
+                          <option value="75">75 mins</option>
                           <option value="90">90 mins</option>
+                          <option value="105">105 mins</option>
                           <option value="120">120 mins</option>
+                          <option value="135">135 mins</option>
                           <option value="150">150 mins</option>
+                          <option value="165">165 mins</option>
                           <option value="180">180 mins</option>
+                          <option value="195">195 mins</option>
                           <option value="210">210 mins</option>
+                          <option value="225">225 mins</option>
                           <option value="240">240 mins</option>
                         </select>
                       </div>

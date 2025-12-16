@@ -7,7 +7,6 @@ import { onAuthStateChanged, signOut } from "firebase/auth";
 import { auth, db } from "@/lib/firebase";
 import { doc, getDoc } from "firebase/firestore";
 import { logUserLogout } from "@/lib/auditLog";
-import Clock from "./Clock";
 
 type SidebarProps = {
   mobile?: boolean;
@@ -509,9 +508,6 @@ export default function Sidebar({ mobile = false, onClose }: SidebarProps) {
         </div>
       </div>
     )}
-
-    {/* Global Clock Widget - Shows on all pages */}
-    {!mobile && <Clock />}
     </>
   );
 }

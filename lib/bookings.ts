@@ -62,7 +62,10 @@ export async function createBooking(input: BookingInput): Promise<{ id: string }
     });
     const json = (await res.json().catch(() => ({}))) as any;
     if (!res.ok) {
-      throw new Error(json?.error || "Failed");
+      const error: any = new Error(json?.error || "Failed to create booking");
+      error.status = res.status;
+      error.details = json?.details;
+      throw error;
     }
     // If API was a dev no-op, also persist from client
     if (json?.devNoop) {

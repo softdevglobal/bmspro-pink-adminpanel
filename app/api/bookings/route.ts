@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { adminAuth, adminDb } from "@/lib/firebaseAdmin";
 import { FieldValue } from "firebase-admin/firestore";
-import { normalizeBookingStatus } from "@/lib/bookingTypes";
+import { normalizeBookingStatus, shouldBlockSlots } from "@/lib/bookingTypes";
 import { generateBookingCode } from "@/lib/bookings";
 
 export const runtime = "nodejs";
@@ -118,6 +118,148 @@ export async function POST(req: NextRequest) {
       }
     } catch (roleError) {
       console.error("Failed to get user role for booking source:", roleError);
+    }
+
+    // Validate that the requested time slots are not already booked
+    const db = adminDb();
+    const dateStr = String(body.date);
+    
+    // Helper function to check if two time ranges overlap
+    const timeRangesOverlap = (
+      start1: number, end1: number,
+      start2: number, end2: number
+    ): boolean => {
+      // Overlap occurs if: start1 < end2 && start2 < end1
+      return start1 < end2 && start2 < end1;
+    };
+
+    // Helper function to parse time string to minutes
+    const timeToMinutes = (timeStr: string): number => {
+      const parts = timeStr.split(':').map(Number);
+      if (parts.length < 2) return 0;
+      return parts[0] * 60 + parts[1];
+    };
+
+    // Use centralized helper to check if booking status should block slots
+    const isActiveStatus = (status: string | undefined): boolean => {
+      return shouldBlockSlots(status);
+    };
+
+    // Check for existing bookings that would conflict
+    try {
+      // Query bookings for the same date
+      const bookingsQuery = db.collection("bookings")
+        .where("ownerUid", "==", ownerUid)
+        .where("date", "==", dateStr);
+      
+      const bookingRequestsQuery = db.collection("bookingRequests")
+        .where("ownerUid", "==", ownerUid)
+        .where("date", "==", dateStr);
+
+      const [bookingsSnapshot, bookingRequestsSnapshot] = await Promise.all([
+        bookingsQuery.get().catch(() => ({ docs: [] })),
+        bookingRequestsQuery.get().catch(() => ({ docs: [] }))
+      ]);
+
+      // Combine results from both collections
+      const allExistingBookings: Array<any> = [
+        ...bookingsSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })),
+        ...bookingRequestsSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }))
+      ];
+
+      // Check each service in the new booking request
+      const servicesToCheck = body.services && Array.isArray(body.services) && body.services.length > 0
+        ? body.services
+        : [{
+            id: body.serviceId,
+            time: body.time,
+            duration: body.duration,
+            staffId: body.staffId || null
+          }];
+
+      for (const newService of servicesToCheck) {
+        const newServiceTime = newService.time || body.time;
+        const newServiceDuration = newService.duration || body.duration;
+        const newServiceStaffId = newService.staffId || body.staffId || null;
+
+        if (!newServiceTime) continue;
+
+        const newStartMinutes = timeToMinutes(newServiceTime);
+        const newEndMinutes = newStartMinutes + newServiceDuration;
+
+        // Check against all existing bookings
+        for (const existingBooking of allExistingBookings) {
+          // Skip if booking is not active
+          if (!isActiveStatus(existingBooking.status)) continue;
+
+          // Check if this is a multi-service booking
+          if (existingBooking.services && Array.isArray(existingBooking.services) && existingBooking.services.length > 0) {
+            // Check each service in the existing booking
+            for (const existingService of existingBooking.services) {
+              if (!existingService.time) continue;
+              
+              const existingServiceStaffId = existingService.staffId || existingBooking.staffId || null;
+              
+              // Only check if same staff (or both are "any staff")
+              if (newServiceStaffId && existingServiceStaffId) {
+                if (newServiceStaffId !== existingServiceStaffId) continue;
+              } else if (newServiceStaffId || existingServiceStaffId) {
+                // If one has staff and other doesn't, they might conflict
+                // For safety, we'll check them
+              }
+
+              const existingStartMinutes = timeToMinutes(existingService.time);
+              const existingDuration = existingService.duration || existingBooking.duration || 60;
+              const existingEndMinutes = existingStartMinutes + existingDuration;
+
+              // Check for overlap
+              if (timeRangesOverlap(newStartMinutes, newEndMinutes, existingStartMinutes, existingEndMinutes)) {
+                return NextResponse.json(
+                  { 
+                    error: "Time slot already booked",
+                    details: `The selected time ${newServiceTime} conflicts with an existing booking. Please choose a different time.`
+                  },
+                  { status: 409 } // 409 Conflict
+                );
+              }
+            }
+          } else {
+            // Single-service booking
+            if (!existingBooking.time) continue;
+
+            const existingStaffId = existingBooking.staffId || null;
+            
+            // Only check if same staff (or both are "any staff")
+            if (newServiceStaffId && existingStaffId) {
+              if (newServiceStaffId !== existingStaffId) continue;
+            } else if (newServiceStaffId || existingStaffId) {
+              // If one has staff and other doesn't, they might conflict
+              // For safety, we'll check them
+            }
+
+            const existingStartMinutes = timeToMinutes(existingBooking.time);
+            const existingDuration = existingBooking.duration || 60;
+            const existingEndMinutes = existingStartMinutes + existingDuration;
+
+            // Check for overlap
+            if (timeRangesOverlap(newStartMinutes, newEndMinutes, existingStartMinutes, existingEndMinutes)) {
+              return NextResponse.json(
+                { 
+                  error: "Time slot already booked",
+                  details: `The selected time ${newServiceTime} conflicts with an existing booking. Please choose a different time.`
+                },
+                { status: 409 } // 409 Conflict
+              );
+            }
+          }
+        }
+      }
+    } catch (validationError: any) {
+      // Log the error but don't fail the booking if validation query fails
+      // This is a safety check, so we'll proceed if we can't verify
+      console.error("Error validating booking availability:", validationError);
+      // In production, you might want to be more strict and reject the booking
+      // For now, we'll proceed but log the error
     }
 
     const bookingCode = generateBookingCode();
