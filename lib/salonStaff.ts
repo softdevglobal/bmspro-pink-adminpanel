@@ -53,6 +53,7 @@ export type SalonStaffInput = {
   authUid?: string; // This should now be mandatory or strongly encouraged for 'users' model
   systemRole?: string;
   weeklySchedule?: WeeklySchedule;
+  mobile?: string;
 };
 
 // Creates a staff member directly in the 'users' collection using the authUid as the document key
@@ -78,6 +79,7 @@ export async function createSalonStaffForOwner(ownerUid: string, data: SalonStaf
     authUid: data.authUid, // Redundant but keeps schema consistent if UI expects it
     systemRole: data.systemRole || "salon_staff",
     weeklySchedule: data.weeklySchedule || null,
+    mobile: data.mobile || null,
     
     createdAt: serverTimestamp(),
     updatedAt: serverTimestamp(),
@@ -123,6 +125,7 @@ export async function updateSalonStaff(staffId: string, data: Partial<SalonStaff
   if (data.role && data.role !== currentData?.staffRole) changes.push(`Role: ${currentData?.staffRole} → ${data.role}`);
   if (data.branchName && data.branchName !== currentData?.branchName) changes.push(`Branch: ${currentData?.branchName} → ${data.branchName}`);
   if (data.email && data.email !== currentData?.email) changes.push(`Email updated`);
+  if (data.mobile && data.mobile !== currentData?.mobile) changes.push(`Mobile updated`);
   if (data.weeklySchedule) changes.push(`Schedule updated`);
 
   await updateDoc(staffRef, updatePayload);

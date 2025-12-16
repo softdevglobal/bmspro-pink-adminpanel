@@ -53,6 +53,7 @@ export default function SettingsPage() {
     branch: string;
     branchId?: string;
     email?: string | null;
+    mobile?: string | null;
     authUid?: string | null;
     status: "Active" | "Suspended";
     avatar: string;
@@ -118,6 +119,7 @@ export default function SettingsPage() {
         branch: String(r.branchName || ""),
         branchId: String((r as any).branchId || ""),
         email: (r as any).email || null,
+        mobile: (r as any).mobile || null,
         authUid: (r as any).authUid || null,
         systemRole: (r as any).systemRole || "salon_staff",
         status: (r.status as any) === "Suspended" ? "Suspended" : "Active",
@@ -200,11 +202,12 @@ export default function SettingsPage() {
     const name = String(formData.get("name") || "").trim();
     const role = String(formData.get("role") || "").trim();
     const email = String(formData.get("email") || "").trim().toLowerCase();
+    const mobile = String(formData.get("mobile") || "").trim();
     const password = String(formData.get("password") || "").trim();
     const branchId = String(formData.get("branch") || "").trim();
     const systemRole = String(formData.get("system_role") || "salon_staff");
 
-    if (!name || !role || !email || !ownerUid) return;
+    if (!name || !role || !email || !mobile || !ownerUid) return;
     
     // Branch Admin must have a branch assigned
     if (systemRole === "salon_branch_admin" && !branchId) {
@@ -286,6 +289,7 @@ export default function SettingsPage() {
             authUid: newAuthUid,
             systemRole,
             avatar: name,
+            mobile,
             training: {
               ohs: formData.get("train_ohs") === "on",
               prod: formData.get("train_prod") === "on",
@@ -319,7 +323,8 @@ export default function SettingsPage() {
               branchId,
               branchName: branchRow?.name || "",
               systemRole,
-              authUid: newAuthUid || undefined, 
+              authUid: newAuthUid || undefined,
+              mobile,
               training: {
                 ohs: formData.get("train_ohs") === "on",
                 prod: formData.get("train_prod") === "on",
@@ -435,6 +440,7 @@ export default function SettingsPage() {
             authUid: authUid,
             systemRole,
             avatar: name,
+            mobile,
             training: {
               ohs: formData.get("train_ohs") === "on",
               prod: formData.get("train_prod") === "on",
@@ -646,6 +652,12 @@ export default function SettingsPage() {
                           </p>
                           {s.email && (
                             <p className="text-[11px] text-slate-400 mt-0.5">{s.email}</p>
+                          )}
+                          {s.mobile && (
+                            <p className="text-[11px] text-slate-400 mt-0.5">
+                              <i className="fas fa-phone text-slate-300 mr-1" />
+                              {s.mobile}
+                            </p>
                           )}
                         </div>
                         <div className="flex items-center gap-3">
@@ -1090,6 +1102,19 @@ export default function SettingsPage() {
                       defaultValue={editingStaff?.email || ""}
                     />
                   </div>
+                  <div>
+                    <label className="block text-xs font-bold text-slate-600 mb-1">
+                      Mobile Number <span className="text-rose-500">*</span>
+                    </label>
+                    <input
+                      type="tel"
+                      name="mobile"
+                      required
+                      className="w-full border border-slate-300 rounded-lg p-2 sm:p-2.5 text-xs sm:text-sm focus:ring-2 focus:ring-pink-500 focus:outline-none"
+                      placeholder="+1234567890"
+                      defaultValue={editingStaff?.mobile || ""}
+                    />
+                  </div>
                   {(!editingStaffId || (editingStaffId && !editingStaff?.authUid)) && (
                     <div>
                       <label className="block text-xs font-bold text-slate-600 mb-1">Password</label>
@@ -1322,6 +1347,12 @@ export default function SettingsPage() {
                   </div>
                     {previewStaff.email && (
                       <div className="text-xs text-slate-500 mt-0.5">{previewStaff.email}</div>
+                    )}
+                    {previewStaff.mobile && (
+                      <div className="text-xs text-slate-500 mt-0.5">
+                        <i className="fas fa-phone text-slate-300 mr-1" />
+                        {previewStaff.mobile}
+                      </div>
                     )}
                   <div className={`text-xs font-bold mt-1 ${previewStaff.status === "Active" ? "text-green-600" : "text-red-600"}`}>
                     {previewStaff.status}
