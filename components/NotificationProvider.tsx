@@ -17,6 +17,7 @@ interface Notification {
   price?: number;
   createdAt: Date;
   read: boolean;
+  status?: string;
 }
 
 interface NotificationContextType {
@@ -219,8 +220,8 @@ export default function NotificationProvider({ children }: NotificationProviderP
       unsubNotifications = onSnapshot(
         notificationsQuery,
         async (snapshot) => {
-          const allNotifications = await Promise.all(
-            snapshot.docs.map(async (docSnapshot) => {
+          const allNotifications: (Notification | null)[] = await Promise.all(
+            snapshot.docs.map(async (docSnapshot): Promise<Notification | null> => {
               const data = docSnapshot.data();
               const notifId = docSnapshot.id;
               
@@ -247,7 +248,7 @@ export default function NotificationProvider({ children }: NotificationProviderP
                 return null;
               }
 
-              return {
+              const notification: Notification = {
                 id: notifId,
                 bookingId: data.bookingId || "",
                 type: data.type || "booking_request",
@@ -262,6 +263,8 @@ export default function NotificationProvider({ children }: NotificationProviderP
                 read: data.read || false,
                 status: bookingStatus || data.status,
               };
+              
+              return notification;
             })
           );
 
