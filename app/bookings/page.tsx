@@ -390,6 +390,7 @@ function BookingsPageContent() {
         const selectedOption = serviceSelect && serviceSelect.options[serviceSelect.selectedIndex];
         const date = (document.getElementById("booking-date-input") as HTMLInputElement | null)?.value || "";
         const duration = selectedOption ? parseInt(selectedOption.getAttribute("data-duration") || "0") : 0;
+        const branchId = (document.getElementById("booking-branch-select") as HTMLSelectElement | null)?.value || "";
         const slotsContainer = document.getElementById("time-slots-container") as HTMLDivElement | null;
         const timeInput = document.getElementById("booking-time-input") as HTMLInputElement | null;
         const durationLabel = document.getElementById("service-duration-label") as HTMLSpanElement | null;
@@ -403,11 +404,51 @@ function BookingsPageContent() {
           if (eet) eet.textContent = "--";
           return;
         }
-        const startHour = 9;
-        const endHour = 17;
+
+        // Get branch hours for the selected date
+        const selectedBranch = this.data.branches?.find((b: any) => b.id === branchId);
+        const dayNames = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+        const selectedDate = new Date(date);
+        const dayOfWeek = dayNames[selectedDate.getDay()];
+        
+        // Get branch hours for this day
+        let startHour = 9; // Default fallback
+        let endHour = 17; // Default fallback
+        let isClosed = false;
+        
+        if (selectedBranch?.hours && typeof selectedBranch.hours === 'object') {
+          const dayHours = selectedBranch.hours[dayOfWeek as keyof typeof selectedBranch.hours];
+          if (dayHours) {
+            if (dayHours.closed) {
+              isClosed = true;
+            } else {
+              if (dayHours.open) {
+                const [openH, openM] = dayHours.open.split(':').map(Number);
+                startHour = openH + (openM || 0) / 60;
+              }
+              if (dayHours.close) {
+                const [closeH, closeM] = dayHours.close.split(':').map(Number);
+                endHour = closeH + (closeM || 0) / 60;
+              }
+            }
+          }
+        }
+
+        if (isClosed) {
+          slotsContainer.innerHTML = '<p class="col-span-4 text-center text-red-500 text-xs py-2">Branch is closed on this day.</p>';
+          const eet = document.getElementById("estimated-end-time");
+          if (eet) eet.textContent = "--";
+          return;
+        }
+
         const interval = 15;
-        let currentTime = startHour * 60;
-        const maxTime = endHour * 60;
+        let currentTime = Math.floor(startHour) * 60 + ((startHour % 1) * 60);
+        const maxTime = Math.floor(endHour) * 60 + ((endHour % 1) * 60);
+        
+        // Check if date is today to filter past times
+        const today = new Date();
+        const isToday = date === today.toISOString().split('T')[0];
+        const currentMinutes = isToday ? (today.getHours() * 60 + today.getMinutes()) : -1;
         
         // Get all bookings for this date (excluding cancelled, completed, rejected)
         // Use centralized helper to ensure consistency
@@ -524,6 +565,18 @@ function BookingsPageContent() {
         };
         
         while (currentTime < maxTime) {
+          // Check if slot + duration fits before closing time
+          const slotEndTime = currentTime + duration;
+          if (slotEndTime > maxTime) {
+            break; // Stop if slot doesn't fit
+          }
+
+          // Skip past times if date is today
+          if (isToday && currentTime <= currentMinutes) {
+            currentTime += interval;
+            continue;
+          }
+
           const slotStartTime = formatTime(currentTime);
           const isOccupied = isSlotOccupied(currentTime);
           
