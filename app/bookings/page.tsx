@@ -52,7 +52,7 @@ function BookingsPageContent() {
   const [ownerUid, setOwnerUid] = useState<string | null>(null);
   const [userBranchId, setUserBranchId] = useState<string | null>(null);
   const [userRole, setUserRole] = useState<string | null>(null);
-  const [branches, setBranches] = useState<Array<{ id: string; name: string; address?: string }>>([]);
+  const [branches, setBranches] = useState<Array<{ id: string; name: string; address?: string; hours?: any }>>([]);
   const [servicesList, setServicesList] = useState<Array<{ id: string | number; name: string; price?: number; duration?: number; icon?: string; branches?: string[]; staffIds?: string[]; imageUrl?: string }>>([]);
   const [staffList, setStaffList] = useState<Array<{ id: string; name: string; role?: string; status?: string; avatar?: string; branchId?: string; branch?: string; weeklySchedule?: Record<string, { branchId: string; branchName: string } | null> | null }>>([]);
 
@@ -932,7 +932,7 @@ function BookingsPageContent() {
       if (userRole === "salon_branch_admin" && userBranchId) {
         filteredBranches = rows.filter((r) => String(r.id) === String(userBranchId));
       }
-      setBranches(filteredBranches.map((r) => ({ id: String(r.id), name: String(r.name || ""), address: (r as any).address })));
+      setBranches(filteredBranches.map((r) => ({ id: String(r.id), name: String(r.name || ""), address: (r as any).address, hours: (r as any).hours })));
     });
     const unsubServices = subscribeServicesForOwner(ownerUid, (rows) => {
       setServicesList(
@@ -1500,19 +1500,75 @@ function BookingsPageContent() {
       return false;
     };
     
-    const startHour = 9;
-    const endHour = 17;
+    // Get branch hours for the selected date
+    const selectedBranch = branches.find((b: any) => b.id === bkBranchId) || app?.data.branches?.find((b: any) => b.id === bkBranchId);
+    const dayNames = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+    const dayOfWeek = dayNames[bkDate.getDay()];
+    
+    // Get branch hours for this day
+    let startHour = 9; // Default fallback
+    let endHour = 17; // Default fallback
+    let isClosed = false;
+    
+    if (selectedBranch?.hours && typeof selectedBranch.hours === 'object' && !Array.isArray(selectedBranch.hours)) {
+      const dayHours = (selectedBranch.hours as any)[dayOfWeek];
+      if (dayHours) {
+        if (dayHours.closed) {
+          isClosed = true;
+        } else {
+          if (dayHours.open) {
+            const [openH, openM] = dayHours.open.split(':').map(Number);
+            startHour = openH + (openM || 0) / 60;
+          }
+          if (dayHours.close) {
+            const [closeH, closeM] = dayHours.close.split(':').map(Number);
+            endHour = closeH + (closeM || 0) / 60;
+          }
+        }
+      }
+    }
+
+    if (isClosed) {
+      return []; // Return empty slots if branch is closed
+    }
+
+    // Get service duration
+    let serviceDuration = 60;
+    if (forServiceId) {
+      const service = servicesList.find((s) => String(s.id) === String(forServiceId)) ||
+        (app ? app.data.services.find((s: any) => String(s.id) === String(forServiceId)) : null);
+      serviceDuration = Number((service as any)?.duration) || 60;
+    }
+
+    // Calculate the latest possible slot start time
+    // The service must finish by closing time, so: slotStart + duration <= endTime
+    const startMinutes = Math.floor(startHour) * 60 + Math.round((startHour % 1) * 60);
+    const endMinutes = Math.floor(endHour) * 60 + Math.round((endHour % 1) * 60);
+    const latestSlotStart = endMinutes - serviceDuration;
+    
+    // Check if date is today to filter past times
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const selectedDateOnly = new Date(bkDate);
+    selectedDateOnly.setHours(0, 0, 0, 0);
+    const isToday = selectedDateOnly.getTime() === today.getTime();
+    const currentMinutes = isToday ? (new Date().getHours() * 60 + new Date().getMinutes()) : -1;
+    
     const interval = 15;
     const slots: Array<{ time: string; available: boolean; reason?: string }> = [];
-    let current = startHour * 60;
-    const max = endHour * 60;
     const format = (minutes: number) => {
       const h = Math.floor(minutes / 60) % 24;
       const m = minutes % 60;
       return `${h.toString().padStart(2, "0")}:${m.toString().padStart(2, "0")}`;
     };
     
-    while (current < max) {
+    // Only generate slots that can finish by closing time
+    for (let current = startMinutes; current <= latestSlotStart; current += interval) {
+      // Skip past times if date is today
+      if (isToday && current <= currentMinutes) {
+        continue;
+      }
+      
       const timeStr = format(current);
       const occupiedByBooking = isSlotOccupied(current);
       const blockedBySelection = isSlotBlockedByCurrentSelection(current);
@@ -1524,8 +1580,6 @@ function BookingsPageContent() {
       } else {
         slots.push({ time: timeStr, available: true });
       }
-      
-      current += interval;
     }
     return slots;
   };
