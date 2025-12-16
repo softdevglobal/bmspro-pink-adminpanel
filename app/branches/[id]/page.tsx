@@ -98,7 +98,9 @@ function AnalyticsTab({
   const filteredBookings = useMemo(() => {
     return branchBookings.filter((b) => {
       if (!b.date) return false;
-      const bookingDate = new Date(b.date);
+      // Parse date string as local date to avoid timezone shifts
+      const [year, month, day] = b.date.split('-').map(Number);
+      const bookingDate = new Date(year, month - 1, day);
       return bookingDate >= dateRange.start && bookingDate <= dateRange.end;
     });
   }, [branchBookings, dateRange.start, dateRange.end]);
@@ -137,7 +139,9 @@ function AnalyticsTab({
     
     filteredBookings.forEach((b) => {
       if (!b.date) return;
-      const date = new Date(b.date);
+      // Parse date string as local date to avoid timezone shifts
+      const [year, month, day] = b.date.split('-').map(Number);
+      const date = new Date(year, month - 1, day);
       const dayName = dayNames[date.getDay()] as keyof typeof days;
       days[dayName]++;
     });
@@ -386,6 +390,14 @@ function AnalyticsTab({
   );
 }
 
+// Helper function to format date as YYYY-MM-DD in local time (avoids timezone shifts)
+const formatLocalDate = (date: Date): string => {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+};
+
 // Schedule Tab Component
 function ScheduleTab({
   branch,
@@ -414,7 +426,7 @@ function ScheduleTab({
   const SHORT_DAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 
   // Get bookings for the selected date
-  const selectedDateStr = selectedDate.toISOString().slice(0, 10);
+  const selectedDateStr = formatLocalDate(selectedDate);
   const dayBookings = branchBookings.filter((b) => b.date === selectedDateStr);
   
   // Sort by time
@@ -459,7 +471,7 @@ function ScheduleTab({
     
     for (let d = 1; d <= numDays; d++) {
       const dt = new Date(monthYear.year, monthYear.month, d);
-      const dateStr = dt.toISOString().slice(0, 10);
+      const dateStr = formatLocalDate(dt);
       const h = getHoursForWeekday(dt.getDay());
       const closed = Boolean(h?.closed);
       const bookingCount = bookingsPerDay[dateStr] || 0;
@@ -1224,7 +1236,7 @@ export default function BranchDetailsPage() {
                           <tbody className="divide-y divide-slate-50">
                             {[...branchBookings]
                               .filter((b) => {
-                                const today = new Date().toISOString().slice(0, 10);
+                                const today = formatLocalDate(new Date());
                                 return String(b.date || "") === today;
                               })
                               .sort((a, b) => {
@@ -1308,7 +1320,7 @@ export default function BranchDetailsPage() {
                         {Array.from(
                           new Map(
                             [...branchBookings]
-                              .filter((b) => String(b.date || "") === new Date().toISOString().slice(0, 10))
+                              .filter((b) => String(b.date || "") === formatLocalDate(new Date()))
                               .sort((a, b) => {
                                 const ams = a.createdAt?.toMillis ? a.createdAt.toMillis() : 0;
                                 const bms = b.createdAt?.toMillis ? b.createdAt.toMillis() : 0;

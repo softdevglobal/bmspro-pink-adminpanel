@@ -22,9 +22,11 @@ export async function POST(req: NextRequest) {
       uid = existingUser.uid;
       
       // If user exists, update password if provided, and ensure account is enabled
+      // IMPORTANT: Do not automatically sign in - require explicit login
       const updateData: any = {
         disabled: false,
         displayName: displayName || existingUser.displayName,
+        emailVerified: false, // Ensure email is not verified to prevent auto-login
       };
       if (password && password.length >= 6) {
         updateData.password = password;
@@ -35,15 +37,25 @@ export async function POST(req: NextRequest) {
     } catch (error: any) {
       if (error.code === "auth/user-not-found") {
         // Create new user
+        // IMPORTANT: Ensure account requires explicit login - do not auto-login
         try {
           const user = await auth.createUser({
             email: email.trim().toLowerCase(),
             displayName: displayName || "",
             password: (password && password.length >= 6) ? password : Math.random().toString(36).slice(2, 10) + Math.random().toString(36).slice(2, 10),
-            emailVerified: false,
+            emailVerified: false, // Require email verification before allowing login
             disabled: false,
           });
           uid = user.uid;
+          
+          // Revoke all existing sessions to prevent auto-login
+          // This ensures the newly created staff must explicitly sign in
+          try {
+            await auth.revokeRefreshTokens(uid);
+          } catch (revokeError) {
+            // Ignore errors if no tokens exist (new account)
+            console.log("No existing tokens to revoke for new user");
+          }
         } catch (createError: any) {
           console.error("Error creating user:", createError);
           return NextResponse.json({ 
@@ -59,6 +71,15 @@ export async function POST(req: NextRequest) {
         }
         throw error;
       }
+    }
+    
+    // For existing users being updated, also revoke existing sessions to prevent auto-login
+    // This ensures staff must explicitly sign in after account creation/update
+    try {
+      await auth.revokeRefreshTokens(uid);
+    } catch (revokeError) {
+      // Ignore errors - this is a safeguard, not critical
+      console.log("Could not revoke tokens (may not exist)");
     }
 
     return NextResponse.json({ uid }, { status: 200 });
