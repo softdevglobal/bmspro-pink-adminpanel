@@ -461,6 +461,19 @@ function ScheduleTab({
     return counts;
   }, [branchBookings]);
 
+  // Calculate total bookings for the displayed month
+  const totalBookingsForMonth = useMemo(() => {
+    const firstDay = new Date(monthYear.year, monthYear.month, 1);
+    const lastDay = new Date(monthYear.year, monthYear.month + 1, 0);
+    const firstDayStr = formatLocalDate(firstDay);
+    const lastDayStr = formatLocalDate(lastDay);
+    
+    return branchBookings.filter((b) => {
+      if (!b.date) return false;
+      return b.date >= firstDayStr && b.date <= lastDayStr;
+    }).length;
+  }, [branchBookings, monthYear.year, monthYear.month]);
+
   // Build calendar cells
   const buildMonthCells = () => {
     const firstDayWeekIdx = new Date(monthYear.year, monthYear.month, 1).getDay();
@@ -521,7 +534,7 @@ function ScheduleTab({
             <span>Closed</span>
           </div>
           <div className="flex items-center gap-1">
-            <div className="w-4 h-4 rounded bg-pink-100 text-pink-600 text-[10px] flex items-center justify-center font-bold">3</div>
+            <div className="w-4 h-4 rounded bg-pink-100 text-pink-600 text-[10px] flex items-center justify-center font-bold">{totalBookingsForMonth}</div>
             <span>Bookings</span>
           </div>
         </div>
