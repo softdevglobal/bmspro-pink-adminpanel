@@ -7,6 +7,7 @@ import { onAuthStateChanged, signOut } from "firebase/auth";
 import { auth, db } from "@/lib/firebase";
 import { doc, getDoc } from "firebase/firestore";
 import { logUserLogout } from "@/lib/auditLog";
+import Clock from "./Clock";
 
 type SidebarProps = {
   mobile?: boolean;
@@ -34,6 +35,7 @@ export default function Sidebar({ mobile = false, onClose }: SidebarProps) {
   const isSettings = pathname?.startsWith("/settings");
   const isOwnerSettings = pathname?.startsWith("/owner-settings");
   const isAuditLogs = pathname?.startsWith("/audit-logs");
+  const isSubscription = pathname?.startsWith("/subscription");
   const [role, setRole] = useState<string | null>(null);
   const [userName, setUserName] = useState<string>("");
   const [userEmail, setUserEmail] = useState<string>("");
@@ -433,6 +435,12 @@ export default function Sidebar({ mobile = false, onClose }: SidebarProps) {
           </Link>
         )}
         {mounted && role === "salon_owner" && (
+          <Link href="/subscription" className={`flex items-center space-x-3 px-4 py-3 rounded-xl text-sm transition ${isSubscription ? "bg-pink-500 text-white shadow-lg" : "hover:bg-slate-800 text-slate-400 hover:text-white"}`}>
+            <i className="fas fa-crown w-5" />
+            <span>Subscription</span>
+          </Link>
+        )}
+        {mounted && role === "salon_owner" && (
           <Link href="/owner-settings" className={`flex items-center space-x-3 px-4 py-3 rounded-xl text-sm transition ${isOwnerSettings ? "bg-pink-500 text-white shadow-lg" : "hover:bg-slate-800 text-slate-400 hover:text-white"}`}>
             <i className="fas fa-cog w-5" />
             <span>Settings</span>
@@ -501,6 +509,9 @@ export default function Sidebar({ mobile = false, onClose }: SidebarProps) {
         </div>
       </div>
     )}
+
+    {/* Global Clock Widget - Shows on all pages */}
+    {!mobile && <Clock />}
     </>
   );
 }
