@@ -526,11 +526,19 @@ export default function BranchesPage() {
                             className="w-full pl-10 pr-4 py-2.5 bg-white border border-purple-200 rounded-lg text-sm focus:border-purple-500 focus:ring-4 focus:ring-purple-500/10 transition-all outline-none appearance-none text-slate-700"
                           >
                             <option value="">-- No Admin Assigned --</option>
-                            {staffOptions.map((s) => (
-                              <option key={s.id} value={s.id}>
-                                {s.name} {s.branch ? `(${s.branch})` : ""}
-                              </option>
-                            ))}
+                            {staffOptions.map((s) => {
+                              // Check if this staff is already a branch admin
+                              const adminBranch = branches.find(
+                                (b) => b.adminStaffId === s.id && b.id !== editingId
+                              );
+                              const branchName = adminBranch ? adminBranch.name : s.branch;
+                              
+                              return (
+                                <option key={s.id} value={s.id}>
+                                  {s.name} {branchName ? `(${branchName})` : ""}
+                                </option>
+                              );
+                            })}
                           </select>
                           <div className="absolute right-3 top-3 pointer-events-none text-purple-400">
                             <i className="fas fa-chevron-down" />
