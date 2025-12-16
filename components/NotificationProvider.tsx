@@ -428,30 +428,49 @@ export default function NotificationProvider({ children }: NotificationProviderP
   // Combine notifications from Firestore with pending bookings
   const combinedNotifications = useMemo(() => {
     // Convert pending bookings to notification format
-    const pendingNotifications: Notification[] = pendingBookings.map((booking: any) => ({
-      id: `pending-${booking.id}`,
-      bookingId: booking.id,
-      type: "booking_request",
-      title: "New Booking Request",
-      message: `${booking.customerName || booking.clientName || "A customer"} requested a booking`,
-      serviceName: booking.serviceName || booking.services?.[0]?.name || "Service",
-      branchName: booking.branchName || "",
-      date: booking.date,
-      time: booking.time,
-      price: booking.price || booking.totalPrice,
-      createdAt: booking.createdAt?.toDate ? booking.createdAt.toDate() : new Date(booking.createdAt?.seconds * 1000 || Date.now()),
-      read: readPendingBookings.has(booking.id),
-      status: "Pending",
-    }));
+    // Only include bookings that are still Pending (filter out confirmed/canceled)
+    const pendingNotifications: Notification[] = pendingBookings
+      .filter((booking: any) => {
+        // Only include if status is still Pending
+        const status = booking.status || "Pending";
+        return status === "Pending";
+      })
+      .map((booking: any) => ({
+        id: `pending-${booking.id}`,
+        bookingId: booking.id,
+        type: "booking_request",
+        title: "New Booking Request",
+        message: `${booking.customerName || booking.clientName || "A customer"} requested a booking`,
+        serviceName: booking.serviceName || booking.services?.[0]?.name || "Service",
+        branchName: booking.branchName || "",
+        date: booking.date,
+        time: booking.time,
+        price: booking.price || booking.totalPrice,
+        createdAt: booking.createdAt?.toDate ? booking.createdAt.toDate() : new Date(booking.createdAt?.seconds * 1000 || Date.now()),
+        read: readPendingBookings.has(booking.id),
+        status: "Pending",
+      }));
 
-      // Combine and deduplicate by bookingId (prefer Firestore notifications over pending)
-      const allNotifications = [...pendingNotifications, ...notifications];
-      const unique = Array.from(
-        new Map(allNotifications.map((n) => [n.bookingId, n])).values()
-      ).sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
+    // Filter notifications to exclude those with confirmed/canceled bookings
+    // Also show admin notifications (staff_rejected, staff_accepted) regardless of status
+    const validNotifications = notifications.filter((notif) => {
+      const isAdminNotification = notif.type === "staff_rejected" || notif.type === "staff_accepted";
+      if (isAdminNotification) return true;
+      
+      // Exclude if status is Confirmed, Canceled, or Completed
+      return notif.status !== "Confirmed" && 
+             notif.status !== "Canceled" && 
+             notif.status !== "Completed";
+    });
 
-      return unique.slice(0, 50);
-    }, [notifications, pendingBookings, readPendingBookings]);
+    // Combine and deduplicate by bookingId (prefer Firestore notifications over pending)
+    const allNotifications = [...pendingNotifications, ...validNotifications];
+    const unique = Array.from(
+      new Map(allNotifications.map((n) => [n.bookingId, n])).values()
+    ).sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
+
+    return unique.slice(0, 50);
+  }, [notifications, pendingBookings, readPendingBookings]);
 
   // Calculate unread count from combined notifications
   const combinedUnreadCount = useMemo(() => {

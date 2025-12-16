@@ -41,29 +41,29 @@ export default function ToastNotification({
 
   return (
     <div
-      className="bg-white rounded-xl shadow-2xl border border-slate-200 p-4 min-w-[320px] max-w-sm animate-slideInRight cursor-pointer hover:shadow-3xl transition-all duration-300 hover:scale-[1.02]"
+      className="bg-slate-800 rounded-xl shadow-2xl border border-slate-700 p-4 min-w-[320px] max-w-sm animate-slideInRight cursor-pointer hover:shadow-3xl hover:bg-slate-750 transition-all duration-300 hover:scale-[1.02]"
       onClick={handleClick}
     >
       <div className="flex items-start gap-3">
         {/* Icon */}
-        <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-pink-500 to-rose-500 flex items-center justify-center flex-shrink-0">
+        <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-pink-500 to-rose-500 flex items-center justify-center flex-shrink-0 shadow-lg">
           <i className="fas fa-bell text-white text-lg" />
         </div>
 
         {/* Content */}
         <div className="flex-1 min-w-0">
-          <h4 className="font-bold text-slate-900 text-sm mb-1">{title}</h4>
-          <p className="text-xs text-slate-600 mb-2 line-clamp-2">{message}</p>
+          <h4 className="font-bold text-white text-sm mb-1">{title}</h4>
+          <p className="text-xs text-slate-300 mb-2 line-clamp-2">{message}</p>
           
           {/* Service and Price Info */}
           <div className="flex items-center gap-2 text-xs">
             {serviceName && (
-              <span className="px-2 py-1 bg-slate-100 text-slate-700 rounded-md font-medium">
+              <span className="px-2 py-1 bg-slate-700 text-slate-200 rounded-md font-medium">
                 {serviceName}
               </span>
             )}
             {price && (
-              <span className="px-2 py-1 bg-green-100 text-green-700 rounded-md font-semibold">
+              <span className="px-2 py-1 bg-green-600 text-white rounded-md font-semibold">
                 ${price.toFixed(2)}
               </span>
             )}
@@ -76,10 +76,10 @@ export default function ToastNotification({
             e.stopPropagation();
             onClose();
           }}
-          className="w-6 h-6 rounded-lg hover:bg-slate-100 flex items-center justify-center flex-shrink-0 transition-colors"
+          className="w-6 h-6 rounded-lg hover:bg-slate-700 flex items-center justify-center flex-shrink-0 transition-colors"
           title="Close"
         >
-          <i className="fas fa-times text-slate-400 text-xs" />
+          <i className="fas fa-times text-slate-400 hover:text-slate-200 text-xs" />
         </button>
       </div>
     </div>
