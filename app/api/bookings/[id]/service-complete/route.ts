@@ -161,7 +161,6 @@ export async function POST(req: NextRequest, context: { params: Promise<{ id: st
       if (allCompleted) {
         updateData.status = "Completed";
         updateData.completedAt = FieldValue.serverTimestamp();
-        updateData.autoCompletedReason = "All services completed by staff";
       }
 
       await bookingRef.update(updateData);
