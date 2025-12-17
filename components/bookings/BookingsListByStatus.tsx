@@ -1111,7 +1111,7 @@ export default function BookingsListByStatus({ status, title }: { status: Bookin
                                 </div>
                                 <div className="flex items-center gap-2">
                                   {/* Show approval status badge for multi-service bookings during approval workflow */}
-                                  {previewRow.services && previewRow.services.length > 0 && (previewRow.status === "AwaitingStaffApproval" || previewRow.status === "PartiallyApproved" || previewRow.status === "StaffRejected") && (
+                                  {previewRow.services && previewRow.services.length > 0 && (previewRow.status === "AwaitingStaffApproval" || previewRow.status === "PartiallyApproved" || previewRow.status === "StaffRejected" || previewRow.status === "Pending") && (
                                     <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold ${approvalBadge.bg} ${approvalBadge.text}`}>
                                       <i className={`fas ${approvalBadge.icon} text-[8px]`} />
                                       {approvalBadge.label}
@@ -1355,14 +1355,14 @@ export default function BookingsListByStatus({ status, title }: { status: Bookin
                                 <>
                                   {r.services.map((svc, idx) => {
                                     // Determine approval status badge
-                                    const approvalStatus = (svc.approvalStatus || "pending") as "pending" | "accepted" | "rejected";
+                                    const approvalStatus = (svc.approvalStatus || "pending") as "pending" | "accepted" | "rejected" | "needs_assignment";
                                     const tableBadgeMap = {
                                       pending: { bg: "bg-amber-100", text: "text-amber-700", icon: "fa-clock", label: "Pending" },
                                       accepted: { bg: "bg-emerald-100", text: "text-emerald-700", icon: "fa-check", label: "Accepted" },
                                       rejected: { bg: "bg-rose-100", text: "text-rose-700", icon: "fa-times", label: "Rejected" },
                                       needs_assignment: { bg: "bg-purple-100", text: "text-purple-700", icon: "fa-user-plus", label: "Needs Staff" },
                                     };
-                                    const approvalBadge = tableBadgeMap[approvalStatus as keyof typeof tableBadgeMap] || tableBadgeMap.pending;
+                                    const approvalBadge = tableBadgeMap[approvalStatus] || tableBadgeMap.pending;
                                     
                                     return (
                                       <div key={idx} className="flex items-center justify-between py-1 px-2 rounded-lg bg-slate-50 border border-slate-100">
@@ -1374,8 +1374,8 @@ export default function BookingsListByStatus({ status, title }: { status: Bookin
                                           <i className="fas fa-user text-[9px] text-slate-400" />
                                           <span className="text-xs font-medium text-slate-600 truncate">{svc.staffName || "Any Staff"}</span>
                                         </div>
-                                        {/* Show approval status badge for multi-service bookings */}
-                                        {(r.status === "AwaitingStaffApproval" || r.status === "PartiallyApproved" || r.status === "StaffRejected") && (
+                                        {/* Show approval status badge for multi-service bookings or pending with needs_assignment */}
+                                        {(r.status === "AwaitingStaffApproval" || r.status === "PartiallyApproved" || r.status === "StaffRejected" || r.status === "Pending") && (
                                           <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold shrink-0 ml-2 ${approvalBadge.bg} ${approvalBadge.text}`}>
                                             <i className={`fas ${approvalBadge.icon} text-[8px]`} />
                                             {approvalBadge.label}
@@ -1400,25 +1400,37 @@ export default function BookingsListByStatus({ status, title }: { status: Bookin
                           <div className="font-medium text-slate-700">{r.date}</div>
                           <div className="text-xs text-slate-500">{r.time}</div>
                         </td>
-                        {/* Staff Column - show consolidated or main staff */}
+                        {/* Staff Column - show all staff names in one line */}
                         <td className="p-4">
                           {(() => {
                             // Determine staff display from services
                             if (r.services && r.services.length > 0) {
-                              const uniqueStaff = new Set<string>();
+                              const staffNames: string[] = [];
                               r.services.forEach((s: any) => {
                                 const name = s.staffName;
                                 if (name && name !== "Any Available" && name !== "Any Staff" && name !== "null") {
-                                  uniqueStaff.add(name);
+                                  if (!staffNames.includes(name)) {
+                                    staffNames.push(name);
+                                  }
                                 }
                               });
                               
-                              if (uniqueStaff.size === 0) {
-                                return <span className="text-xs font-medium text-slate-500">Any Available</span>;
-                              } else if (uniqueStaff.size === 1) {
-                                return <span className="text-xs font-medium text-slate-700">{Array.from(uniqueStaff)[0]}</span>;
+                              // Check if any service needs assignment
+                              const hasUnassigned = r.services.some((s: any) => 
+                                !s.staffId || s.staffName === "Any Available" || s.staffName === "Any Staff" || s.approvalStatus === "needs_assignment"
+                              );
+                              
+                              if (staffNames.length === 0) {
+                                return <span className="text-xs font-medium text-slate-500 italic">Any Available</span>;
                               } else {
-                                return <span className="text-xs font-medium text-slate-700">Multiple Staff</span>;
+                                return (
+                                  <div className="flex flex-col">
+                                    <span className="text-xs font-medium text-slate-700">{staffNames.join(", ")}</span>
+                                    {hasUnassigned && (
+                                      <span className="text-[10px] text-purple-600 font-medium">+ Needs Assignment</span>
+                                    )}
+                                  </div>
+                                );
                               }
                             }
                             return <span>{r.staffName || "-"}</span>;
@@ -1812,7 +1824,7 @@ export default function BookingsListByStatus({ status, title }: { status: Bookin
                   </div>
                 ) : (
                   <>
-                    {/* Multiple Services - Only show rejected services for reassignment */}
+                    {/* Multiple Services */}
                     {Array.isArray(bookingToReassign.services) && bookingToReassign.services.length > 0 ? (
                       <div className="space-y-4 max-h-64 overflow-y-auto">
                         {/* First show accepted services (read-only) */}
@@ -1842,15 +1854,62 @@ export default function BookingsListByStatus({ status, title }: { status: Bookin
                           </div>
                         )}
                         
-                        {/* Show rejected/pending services for reassignment */}
-                        {bookingToReassign.services.filter(s => s.approvalStatus === "rejected" || s.approvalStatus === "pending" || !s.approvalStatus).length > 0 && (
+                        {/* Show services with assigned staff pending approval (read-only) */}
+                        {bookingToReassign.services.filter(s => 
+                          s.approvalStatus === "pending" && 
+                          s.staffId && 
+                          s.staffName && 
+                          s.staffName !== "Any Available" && 
+                          s.staffName !== "Any Staff"
+                        ).length > 0 && (
+                          <div className="mb-4">
+                            <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-2">
+                              <i className="fas fa-clock text-blue-500 mr-1"></i>
+                              Assigned - Pending Staff Approval
+                            </p>
+                            <div className="space-y-2">
+                              {bookingToReassign.services.filter(s => 
+                                s.approvalStatus === "pending" && 
+                                s.staffId && 
+                                s.staffName && 
+                                s.staffName !== "Any Available" && 
+                                s.staffName !== "Any Staff"
+                              ).map((service) => (
+                                <div key={String(service.id || service.name)} className="flex items-center justify-between p-3 rounded-lg bg-blue-50 border border-blue-200">
+                                  <div className="flex items-center gap-2">
+                                    <i className="fas fa-spa text-blue-600 text-sm"></i>
+                                    <span className="font-medium text-slate-800">{service.name}</span>
+                                  </div>
+                                  <div className="flex items-center gap-2">
+                                    <span className="text-xs font-medium text-blue-700">{service.staffName}</span>
+                                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-blue-100 text-blue-700 text-xs font-semibold">
+                                      <i className="fas fa-hourglass-half text-[8px]"></i>
+                                      Awaiting
+                                    </span>
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+                        
+                        {/* Show rejected services or services needing assignment */}
+                        {bookingToReassign.services.filter(s => 
+                          s.approvalStatus === "rejected" || 
+                          s.approvalStatus === "needs_assignment" ||
+                          (!s.staffId || s.staffName === "Any Available" || s.staffName === "Any Staff")
+                        ).length > 0 && (
                           <div>
                             <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-2">
                               <i className="fas fa-user-plus text-amber-500 mr-1"></i>
                               Select New Staff For
                             </p>
                             {bookingToReassign.services
-                              .filter(s => s.approvalStatus === "rejected" || s.approvalStatus === "pending" || !s.approvalStatus)
+                              .filter(s => 
+                                s.approvalStatus === "rejected" || 
+                                s.approvalStatus === "needs_assignment" ||
+                                (!s.staffId || s.staffName === "Any Available" || s.staffName === "Any Staff")
+                              )
                               .map((service) => {
                                 const serviceKey = String(service.id || service.serviceId || service.name);
                                 const serviceStaff = availableStaffPerService[serviceKey] || [];
@@ -1866,6 +1925,12 @@ export default function BookingsListByStatus({ status, title }: { status: Bookin
                                         <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-rose-100 text-rose-700 text-xs font-semibold">
                                           <i className="fas fa-times text-[8px]"></i>
                                           Rejected
+                                        </span>
+                                      )}
+                                      {(service.approvalStatus === "needs_assignment" || !service.staffId || service.staffName === "Any Available" || service.staffName === "Any Staff") && service.approvalStatus !== "rejected" && (
+                                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-purple-100 text-purple-700 text-xs font-semibold">
+                                          <i className="fas fa-user-clock text-[8px]"></i>
+                                          Needs Staff
                                         </span>
                                       )}
                                     </div>
