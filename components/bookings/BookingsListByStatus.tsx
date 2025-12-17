@@ -8,7 +8,7 @@ import { normalizeBookingStatus, getStatusLabel, getStatusColor } from "@/lib/bo
 import Sidebar from "@/components/Sidebar";
 import { updateBookingStatus } from "@/lib/bookings";
 
-type ServiceApprovalStatus = "pending" | "accepted" | "rejected";
+type ServiceApprovalStatus = "pending" | "accepted" | "rejected" | "needs_assignment";
 type ServiceCompletionStatus = "pending" | "completed";
 
 type ServiceRow = {
@@ -221,12 +221,33 @@ export default function BookingsListByStatus({ status, title }: { status: Bookin
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [updatingState, setUpdatingState] = useState<Record<string, string | null>>({});
   
+  // Check if a booking has services that need staff assignment
+  const hasServicesNeedingAssignment = (row: Row): boolean => {
+    if (!row.services || row.services.length === 0) return false;
+    return row.services.some(s => 
+      s.approvalStatus === "needs_assignment" || 
+      (!s.staffId && s.approvalStatus !== "accepted" && s.approvalStatus !== "rejected")
+    );
+  };
+
   // Get allowed actions per row based on the row's actual status
-  const getAllowedActions = (rowStatus: BookingStatus | string | null | undefined): ReadonlyArray<"Confirm" | "Cancel" | "Complete" | "Reassign"> => {
+  const getAllowedActions = (rowStatus: BookingStatus | string | null | undefined, row?: Row): ReadonlyArray<"Confirm" | "Cancel" | "Complete" | "Reassign" | "AssignStaff"> => {
     const normalizedStatus = normalizeBookingStatus(rowStatus ?? null);
     if (normalizedStatus === "Pending") return ["Confirm", "Cancel"];
-    if (normalizedStatus === "AwaitingStaffApproval") return ["Cancel"]; // Admin can only cancel, waiting for staff action
-    if (normalizedStatus === "PartiallyApproved") return ["Cancel"]; // Waiting for remaining staff to respond
+    if (normalizedStatus === "AwaitingStaffApproval") {
+      // If some services need staff assignment, show AssignStaff action
+      if (row && hasServicesNeedingAssignment(row)) {
+        return ["AssignStaff", "Cancel"];
+      }
+      return ["Cancel"]; // Admin can only cancel, waiting for staff action
+    }
+    if (normalizedStatus === "PartiallyApproved") {
+      // If some services need staff assignment, show AssignStaff action
+      if (row && hasServicesNeedingAssignment(row)) {
+        return ["AssignStaff", "Cancel"];
+      }
+      return ["Cancel"]; // Waiting for remaining staff to respond
+    }
     if (normalizedStatus === "StaffRejected") return ["Reassign", "Cancel"]; // Admin must reassign rejected service(s) or cancel
     if (normalizedStatus === "Confirmed") return ["Complete", "Cancel"];
     return [];
@@ -1042,18 +1063,19 @@ export default function BookingsListByStatus({ status, title }: { status: Bookin
                             completionStatus: undefined
                           }]).map((svc, idx) => {
                             // Determine approval status badge colors
-                            const approvalStatus = ((svc as any).approvalStatus || "pending") as "pending" | "accepted" | "rejected";
+                            const approvalStatus = ((svc as any).approvalStatus || "pending") as "pending" | "accepted" | "rejected" | "needs_assignment";
                             const completionStatus = ((svc as any).completionStatus || "pending") as "pending" | "completed";
                             const badgeMap = {
                               pending: { bg: "bg-amber-100", text: "text-amber-700", icon: "fa-clock", label: "Pending", border: "border-amber-200" },
                               accepted: { bg: "bg-emerald-100", text: "text-emerald-700", icon: "fa-check", label: "Accepted", border: "border-emerald-200" },
                               rejected: { bg: "bg-rose-100", text: "text-rose-700", icon: "fa-times", label: "Rejected", border: "border-rose-200" },
+                              needs_assignment: { bg: "bg-purple-100", text: "text-purple-700", icon: "fa-user-plus", label: "Needs Staff", border: "border-purple-200" },
                             };
                             const completionBadgeMap = {
                               pending: { bg: "bg-blue-100", text: "text-blue-700", icon: "fa-hourglass-half", label: "In Progress", border: "border-blue-200" },
                               completed: { bg: "bg-indigo-100", text: "text-indigo-700", icon: "fa-check-circle", label: "Done", border: "border-indigo-200" },
                             };
-                            const approvalBadge = badgeMap[approvalStatus] || badgeMap.pending;
+                            const approvalBadge = badgeMap[approvalStatus as keyof typeof badgeMap] || badgeMap.pending;
                             const completionBadge = completionBadgeMap[completionStatus] || completionBadgeMap.pending;
                             
                             // Determine border color based on status
@@ -1063,12 +1085,14 @@ export default function BookingsListByStatus({ status, title }: { status: Bookin
                             return (
                             <div key={idx} className={`group relative overflow-hidden rounded-xl border bg-white p-3 shadow-sm hover:shadow-md transition-all duration-200 ${
                               approvalStatus === "rejected" ? "border-rose-200 hover:border-rose-300" : 
+                              approvalStatus === "needs_assignment" ? "border-purple-200 hover:border-purple-300" :
                               isConfirmed && isServiceCompleted ? "border-indigo-200 hover:border-indigo-300" :
                               approvalStatus === "accepted" ? "border-emerald-200 hover:border-emerald-300" : 
                               "border-slate-200 hover:border-pink-200"
                             }`}>
                               <div className={`absolute left-0 top-0 bottom-0 w-1 ${
                                 approvalStatus === "rejected" ? "bg-gradient-to-b from-rose-500 to-red-500" :
+                                approvalStatus === "needs_assignment" ? "bg-gradient-to-b from-purple-500 to-violet-500" :
                                 isConfirmed && isServiceCompleted ? "bg-gradient-to-b from-indigo-500 to-purple-500" :
                                 approvalStatus === "accepted" ? "bg-gradient-to-b from-emerald-500 to-green-500" :
                                 "bg-gradient-to-b from-pink-500 to-purple-500 opacity-0 group-hover:opacity-100"
@@ -1190,7 +1214,7 @@ export default function BookingsListByStatus({ status, title }: { status: Bookin
                     >
                       Close
                     </button>
-                    {previewRow && getAllowedActions(previewRow.status).includes("Confirm") && (
+                    {previewRow && getAllowedActions(previewRow.status, previewRow).includes("Confirm") && (
                       <button
                         disabled={!!updatingState[previewRow.id]}
                         onClick={() => {
@@ -1204,7 +1228,7 @@ export default function BookingsListByStatus({ status, title }: { status: Bookin
                         {updatingState[previewRow.id] === "Confirm" ? "Confirming..." : "Confirm"}
                       </button>
                     )}
-                    {previewRow && getAllowedActions(previewRow.status).includes("Reassign") && (
+                    {previewRow && getAllowedActions(previewRow.status, previewRow).includes("Reassign") && (
                       <button
                         disabled={!!updatingState[previewRow.id]}
                         onClick={() => {
@@ -1218,7 +1242,21 @@ export default function BookingsListByStatus({ status, title }: { status: Bookin
                         {updatingState[previewRow.id] === "Reassign" ? "Reassigning..." : "Reassign"}
                       </button>
                     )}
-                    {previewRow && getAllowedActions(previewRow.status).includes("Complete") && (
+                    {previewRow && getAllowedActions(previewRow.status, previewRow).includes("AssignStaff") && (
+                      <button
+                        disabled={!!updatingState[previewRow.id]}
+                        onClick={() => {
+                          closePreview();
+                          handleReassignClick(previewRow);
+                        }}
+                        className={`px-4 py-2 rounded-full text-sm font-semibold inline-flex items-center gap-2 ${updatingState[previewRow.id] === "AssignStaff" ? "bg-purple-300 text-white" : "bg-gradient-to-r from-purple-500 to-violet-600 hover:from-purple-600 hover:to-violet-700 text-white shadow-sm"}`}
+                        aria-busy={!!updatingState[previewRow.id]}
+                      >
+                        {updatingState[previewRow.id] === "AssignStaff" ? <i className="fas fa-spinner fa-spin" /> : <i className="fas fa-user-plus" />}
+                        {updatingState[previewRow.id] === "AssignStaff" ? "Assigning..." : "Assign Staff"}
+                      </button>
+                    )}
+                    {previewRow && getAllowedActions(previewRow.status, previewRow).includes("Complete") && (
                       <button
                         disabled={!!updatingState[previewRow.id]}
                         onClick={() => onAction(previewRow.id, "Complete")}
@@ -1229,7 +1267,7 @@ export default function BookingsListByStatus({ status, title }: { status: Bookin
                         {updatingState[previewRow.id] === "Complete" ? "Completing..." : "Complete"}
                       </button>
                     )}
-                    {previewRow && getAllowedActions(previewRow.status).includes("Cancel") && (
+                    {previewRow && getAllowedActions(previewRow.status, previewRow).includes("Cancel") && (
                       <button
                         disabled={!!updatingState[previewRow.id]}
                         onClick={() => onAction(previewRow.id, "Cancel")}
@@ -1284,7 +1322,7 @@ export default function BookingsListByStatus({ status, title }: { status: Bookin
                         .slice(0, 2)
                         .map((s) => s[0]?.toUpperCase() || "")
                         .join("");
-                      const rowActions = getAllowedActions(r.status);
+                      const rowActions = getAllowedActions(r.status, r);
                       const statusColor = getStatusColor(normalizeBookingStatus(r.status));
                       const statusLabel = getStatusLabel(normalizeBookingStatus(r.status));
                       return (
@@ -1322,8 +1360,9 @@ export default function BookingsListByStatus({ status, title }: { status: Bookin
                                       pending: { bg: "bg-amber-100", text: "text-amber-700", icon: "fa-clock", label: "Pending" },
                                       accepted: { bg: "bg-emerald-100", text: "text-emerald-700", icon: "fa-check", label: "Accepted" },
                                       rejected: { bg: "bg-rose-100", text: "text-rose-700", icon: "fa-times", label: "Rejected" },
+                                      needs_assignment: { bg: "bg-purple-100", text: "text-purple-700", icon: "fa-user-plus", label: "Needs Staff" },
                                     };
-                                    const approvalBadge = tableBadgeMap[approvalStatus] || tableBadgeMap.pending;
+                                    const approvalBadge = tableBadgeMap[approvalStatus as keyof typeof tableBadgeMap] || tableBadgeMap.pending;
                                     
                                     return (
                                       <div key={idx} className="flex items-center justify-between py-1 px-2 rounded-lg bg-slate-50 border border-slate-100">
@@ -1439,6 +1478,17 @@ export default function BookingsListByStatus({ status, title }: { status: Bookin
                                 >
                                   {updatingState[r.id] === "Reassign" ? <i className="fas fa-spinner fa-spin" /> : <i className="fas fa-user-plus" />}
                                   {updatingState[r.id] === "Reassign" ? "Reassigning..." : "Reassign"}
+                                </button>
+                              )}
+                              {rowActions.includes("AssignStaff" as any) && (
+                                <button
+                                  disabled={!!updatingState[r.id]}
+                                  onClick={() => handleReassignClick(r)}
+                                  className={`px-3 py-1.5 rounded-full text-xs font-semibold transition inline-flex items-center gap-1 ${updatingState[r.id] === "AssignStaff" ? "bg-purple-300 text-white" : "bg-gradient-to-r from-purple-500 to-violet-600 hover:from-purple-600 hover:to-violet-700 text-white shadow-sm"}`}
+                                  aria-busy={!!updatingState[r.id]}
+                                >
+                                  {updatingState[r.id] === "AssignStaff" ? <i className="fas fa-spinner fa-spin" /> : <i className="fas fa-user-plus" />}
+                                  {updatingState[r.id] === "AssignStaff" ? "Assigning..." : "Assign Staff"}
                                 </button>
                               )}
                               {rowActions.includes("Cancel" as any) && (
