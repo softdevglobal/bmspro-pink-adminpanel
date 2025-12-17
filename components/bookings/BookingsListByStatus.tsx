@@ -1088,8 +1088,8 @@ export default function BookingsListByStatus({ status, title }: { status: Bookin
                                       {approvalBadge.label}
                                     </span>
                                   )}
-                                  {/* Show completion status badge for confirmed bookings with multiple services */}
-                                  {previewRow.services && previewRow.services.length > 0 && previewRow.status === "Confirmed" && (
+                                  {/* Show completion status badge for ALL confirmed bookings */}
+                                  {previewRow.status === "Confirmed" && (
                                     <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold ${completionBadge.bg} ${completionBadge.text}`}>
                                       <i className={`fas ${completionBadge.icon} text-[8px]`} />
                                       {completionBadge.label}
@@ -1393,6 +1393,19 @@ export default function BookingsListByStatus({ status, title }: { status: Bookin
                             <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${statusColor}`}>
                               {statusLabel}
                             </span>
+                            {/* Show completion progress for confirmed bookings with services */}
+                            {normalizeBookingStatus(r.status) === "Confirmed" && r.services && r.services.length > 0 && (() => {
+                              const services = r.services || [];
+                              const completedCount = services.filter((s: any) => s.completionStatus === "completed").length;
+                              const totalCount = services.length;
+                              const allDone = completedCount === totalCount;
+                              return (
+                                <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${allDone ? "bg-indigo-100 text-indigo-700" : "bg-blue-100 text-blue-700"}`}>
+                                  <i className={`fas ${allDone ? "fa-check-circle" : "fa-hourglass-half"} mr-1`} />
+                                  {completedCount}/{totalCount}
+                                </span>
+                              );
+                            })()}
                             <button
                               aria-label="Preview"
                               title="Preview"
