@@ -169,6 +169,11 @@ function useBookingsByStatus(statuses: BookingStatus | BookingStatus[]) {
                 rejectionReason: s.rejectionReason,
                 respondedByStaffUid: s.respondedByStaffUid,
                 respondedByStaffName: s.respondedByStaffName,
+                // Service completion tracking
+                completionStatus: s.completionStatus || "pending",
+                completedAt: s.completedAt,
+                completedByStaffUid: s.completedByStaffUid,
+                completedByStaffName: s.completedByStaffName,
               })) || null,
             });
           }
