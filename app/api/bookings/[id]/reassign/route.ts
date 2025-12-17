@@ -269,7 +269,7 @@ export async function POST(req: NextRequest, context: { params: Promise<{ id: st
         customerEmail: bookingData.clientEmail,
         customerPhone: bookingData.clientPhone,
         clientName: clientName,
-        staffName: staffToNotify.length > 0 ? staffToNotify.map(s => s.name).join(", ") : null,
+        staffName: staffToNotify.length > 0 ? staffToNotify.map(s => s.name).join(", ") : undefined,
         serviceName: finalServiceName,
         services: (updateData.services || bookingData.services)?.map((s: any) => ({
           name: s.name || "Service",
