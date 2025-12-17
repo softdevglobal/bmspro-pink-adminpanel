@@ -332,6 +332,58 @@ export function getNotificationContent(
 }
 
 /**
+ * Create a customer notification for when the booking is completed
+ * This is sent when all services in a booking are marked as completed by staff
+ */
+export async function createCustomerCompletionNotification(data: {
+  bookingId: string;
+  bookingCode?: string;
+  customerUid?: string;
+  customerEmail?: string;
+  customerPhone?: string;
+  clientName?: string;
+  staffName?: string;
+  serviceName?: string;
+  services?: Array<{ name: string; staffName?: string }>;
+  branchName?: string;
+  bookingDate?: string;
+  bookingTime?: string;
+  ownerUid: string;
+}): Promise<string> {
+  const content = getNotificationContent(
+    "Completed",
+    data.bookingCode,
+    data.staffName,
+    data.serviceName,
+    data.bookingDate,
+    data.bookingTime,
+    data.services
+  );
+
+  const notificationData: Omit<CustomerNotification, "id" | "createdAt" | "read"> = {
+    bookingId: data.bookingId,
+    bookingCode: data.bookingCode,
+    type: content.type,
+    title: content.title,
+    message: content.message,
+    status: "Completed",
+    ownerUid: data.ownerUid,
+    customerUid: data.customerUid,
+    customerEmail: data.customerEmail,
+    customerPhone: data.customerPhone,
+    clientName: data.clientName,
+    staffName: data.staffName,
+    serviceName: data.serviceName,
+    services: data.services,
+    branchName: data.branchName,
+    bookingDate: data.bookingDate,
+    bookingTime: data.bookingTime,
+  };
+
+  return createNotification(notificationData);
+}
+
+/**
  * Get staff-facing notification content
  */
 export function getStaffNotificationContent(

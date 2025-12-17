@@ -9,6 +9,7 @@ import Sidebar from "@/components/Sidebar";
 import { updateBookingStatus } from "@/lib/bookings";
 
 type ServiceApprovalStatus = "pending" | "accepted" | "rejected";
+type ServiceCompletionStatus = "pending" | "completed";
 
 type ServiceRow = {
   id: string | number;
@@ -27,6 +28,11 @@ type ServiceRow = {
   rejectionReason?: string;
   respondedByStaffUid?: string;
   respondedByStaffName?: string;
+  // Per-service completion tracking
+  completionStatus?: ServiceCompletionStatus;
+  completedAt?: any;
+  completedByStaffUid?: string;
+  completedByStaffName?: string;
 };
 
 type Row = {
@@ -1027,25 +1033,38 @@ export default function BookingsListByStatus({ status, title }: { status: Bookin
                             time: previewRow.time,
                             duration: previewRow.duration,
                             price: previewRow.price,
-                            approvalStatus: undefined
+                            approvalStatus: undefined,
+                            completionStatus: undefined
                           }]).map((svc, idx) => {
                             // Determine approval status badge colors
                             const approvalStatus = ((svc as any).approvalStatus || "pending") as "pending" | "accepted" | "rejected";
+                            const completionStatus = ((svc as any).completionStatus || "pending") as "pending" | "completed";
                             const badgeMap = {
                               pending: { bg: "bg-amber-100", text: "text-amber-700", icon: "fa-clock", label: "Pending", border: "border-amber-200" },
                               accepted: { bg: "bg-emerald-100", text: "text-emerald-700", icon: "fa-check", label: "Accepted", border: "border-emerald-200" },
                               rejected: { bg: "bg-rose-100", text: "text-rose-700", icon: "fa-times", label: "Rejected", border: "border-rose-200" },
                             };
+                            const completionBadgeMap = {
+                              pending: { bg: "bg-blue-100", text: "text-blue-700", icon: "fa-hourglass-half", label: "In Progress", border: "border-blue-200" },
+                              completed: { bg: "bg-indigo-100", text: "text-indigo-700", icon: "fa-check-circle", label: "Done", border: "border-indigo-200" },
+                            };
                             const approvalBadge = badgeMap[approvalStatus] || badgeMap.pending;
+                            const completionBadge = completionBadgeMap[completionStatus] || completionBadgeMap.pending;
+                            
+                            // Determine border color based on status
+                            const isConfirmed = previewRow.status === "Confirmed";
+                            const isServiceCompleted = completionStatus === "completed";
 
                             return (
                             <div key={idx} className={`group relative overflow-hidden rounded-xl border bg-white p-3 shadow-sm hover:shadow-md transition-all duration-200 ${
                               approvalStatus === "rejected" ? "border-rose-200 hover:border-rose-300" : 
+                              isConfirmed && isServiceCompleted ? "border-indigo-200 hover:border-indigo-300" :
                               approvalStatus === "accepted" ? "border-emerald-200 hover:border-emerald-300" : 
                               "border-slate-200 hover:border-pink-200"
                             }`}>
                               <div className={`absolute left-0 top-0 bottom-0 w-1 ${
                                 approvalStatus === "rejected" ? "bg-gradient-to-b from-rose-500 to-red-500" :
+                                isConfirmed && isServiceCompleted ? "bg-gradient-to-b from-indigo-500 to-purple-500" :
                                 approvalStatus === "accepted" ? "bg-gradient-to-b from-emerald-500 to-green-500" :
                                 "bg-gradient-to-b from-pink-500 to-purple-500 opacity-0 group-hover:opacity-100"
                               } transition-opacity`} />
@@ -1053,19 +1072,27 @@ export default function BookingsListByStatus({ status, title }: { status: Bookin
                                 <div className="font-bold text-slate-800 text-sm flex items-center gap-2">
                                    <div className={`w-5 h-5 rounded-full flex items-center justify-center shrink-0 ${
                                      approvalStatus === "rejected" ? "bg-rose-50 text-rose-500" :
+                                     isConfirmed && isServiceCompleted ? "bg-indigo-50 text-indigo-500" :
                                      approvalStatus === "accepted" ? "bg-emerald-50 text-emerald-500" :
                                      "bg-pink-50 text-pink-500"
                                    }`}>
-                                     <i className="fas fa-magic text-[10px]" />
+                                     <i className={`fas ${isServiceCompleted ? "fa-check-circle" : "fa-magic"} text-[10px]`} />
                                    </div>
                                    {svc.name || "Service"}
                                 </div>
                                 <div className="flex items-center gap-2">
-                                  {/* Show approval status badge for multi-service bookings */}
+                                  {/* Show approval status badge for multi-service bookings during approval workflow */}
                                   {previewRow.services && previewRow.services.length > 0 && (previewRow.status === "AwaitingStaffApproval" || previewRow.status === "PartiallyApproved" || previewRow.status === "StaffRejected") && (
                                     <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold ${approvalBadge.bg} ${approvalBadge.text}`}>
                                       <i className={`fas ${approvalBadge.icon} text-[8px]`} />
                                       {approvalBadge.label}
+                                    </span>
+                                  )}
+                                  {/* Show completion status badge for confirmed bookings with multiple services */}
+                                  {previewRow.services && previewRow.services.length > 0 && previewRow.status === "Confirmed" && (
+                                    <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold ${completionBadge.bg} ${completionBadge.text}`}>
+                                      <i className={`fas ${completionBadge.icon} text-[8px]`} />
+                                      {completionBadge.label}
                                     </span>
                                   )}
                                   {svc.price !== undefined && <div className="font-bold text-slate-900 text-sm">${svc.price}</div>}
@@ -1094,6 +1121,15 @@ export default function BookingsListByStatus({ status, title }: { status: Bookin
                                       by {(svc as any).respondedByStaffName}
                                     </p>
                                   )}
+                                </div>
+                              )}
+                              {/* Show completion info if service was completed */}
+                              {isConfirmed && isServiceCompleted && (svc as any).completedByStaffName && (
+                                <div className="mt-2 p-2 bg-indigo-50 rounded-lg border border-indigo-100 pl-7">
+                                  <p className="text-xs text-indigo-700 flex items-start gap-1.5">
+                                    <i className="fas fa-check-circle mt-0.5 shrink-0" />
+                                    <span>Completed by {(svc as any).completedByStaffName}</span>
+                                  </p>
                                 </div>
                               )}
                             </div>

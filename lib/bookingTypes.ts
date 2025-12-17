@@ -20,7 +20,10 @@ export const BOOKING_STATUSES: BookingStatus[] = [
 // Per-service approval status for multi-service bookings
 export type ServiceApprovalStatus = "pending" | "accepted" | "rejected";
 
-// Service structure with approval tracking
+// Per-service completion status for tracking when staff finishes their work
+export type ServiceCompletionStatus = "pending" | "completed";
+
+// Service structure with approval and completion tracking
 export interface BookingService {
   id: string | number;
   name?: string;
@@ -36,6 +39,11 @@ export interface BookingService {
   rejectionReason?: string;
   respondedByStaffUid?: string;
   respondedByStaffName?: string;
+  // Per-service completion tracking (for staff to mark their work as done)
+  completionStatus?: ServiceCompletionStatus;
+  completedAt?: any; // Firestore timestamp or ISO string
+  completedByStaffUid?: string;
+  completedByStaffName?: string;
 }
 
 export function normalizeBookingStatus(value: string | null | undefined): BookingStatus {
@@ -156,6 +164,42 @@ export function calculateBookingStatusFromServices(services: BookingService[]): 
   if (anyRejected) return "StaffRejected";
   if (anyAccepted && !allPending) return "PartiallyApproved";
   return "AwaitingStaffApproval";
+}
+
+/**
+ * Check if all services in a booking are completed
+ * Returns true if all services have completionStatus === "completed"
+ */
+export function areAllServicesCompleted(services: BookingService[]): boolean {
+  if (!services || services.length === 0) return false;
+  return services.every(s => s.completionStatus === "completed");
+}
+
+/**
+ * Get completion progress for a booking
+ * Returns { completed: number, total: number, percentage: number }
+ */
+export function getServiceCompletionProgress(services: BookingService[]): { completed: number; total: number; percentage: number } {
+  if (!services || services.length === 0) return { completed: 0, total: 0, percentage: 0 };
+  
+  const total = services.length;
+  const completed = services.filter(s => s.completionStatus === "completed").length;
+  const percentage = Math.round((completed / total) * 100);
+  
+  return { completed, total, percentage };
+}
+
+/**
+ * Get color for service completion status
+ */
+export function getServiceCompletionColor(status: ServiceCompletionStatus | undefined): { bg: string; text: string; border: string } {
+  switch (status) {
+    case "completed":
+      return { bg: "bg-emerald-50", text: "text-emerald-700", border: "border-emerald-200" };
+    case "pending":
+    default:
+      return { bg: "bg-amber-50", text: "text-amber-700", border: "border-amber-200" };
+  }
 }
 
 /**
