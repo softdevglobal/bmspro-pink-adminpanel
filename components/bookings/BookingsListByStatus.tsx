@@ -320,8 +320,14 @@ export default function BookingsListByStatus({ status, title }: { status: Bookin
               // Use consistent key format
               const serviceKey = String(bookingService.id || bookingService.serviceId || bookingService.name);
               
-              // Find service details
-              const service = servicesData.find((s: any) => String(s.id) === String(bookingService.id || bookingService.serviceId));
+              // Find service details by ID first, then by name fallback
+              let service = servicesData.find((s: any) => String(s.id) === String(bookingService.id || bookingService.serviceId));
+              // Fallback: find by name if ID lookup fails
+              if (!service && bookingService.name) {
+                service = servicesData.find((s: any) => 
+                  s.name?.toLowerCase() === bookingService.name?.toLowerCase()
+                );
+              }
               const qualifiedStaffIds = (service && Array.isArray(service.staffIds)) ? service.staffIds.map(String) : [];
               
               // Start with active staff
@@ -362,8 +368,14 @@ export default function BookingsListByStatus({ status, title }: { status: Bookin
             
             setAvailableStaffPerService(staffPerService);
           } else {
-            // Single service
-            const service = servicesData.find((s: any) => String(s.id) === String(bookingToConfirm.serviceId));
+            // Single service - find by ID first, then by name fallback
+            let service = servicesData.find((s: any) => String(s.id) === String(bookingToConfirm.serviceId));
+            // Fallback: find by name if ID lookup fails
+            if (!service && bookingToConfirm.serviceName) {
+              service = servicesData.find((s: any) => 
+                s.name?.toLowerCase() === bookingToConfirm.serviceName?.toLowerCase()
+              );
+            }
             const qualifiedStaffIds = (service && Array.isArray(service.staffIds)) ? service.staffIds.map(String) : [];
             
             let filtered = staffData.filter((s: any) => s.status === "Active");
@@ -464,51 +476,88 @@ export default function BookingsListByStatus({ status, title }: { status: Bookin
           if (hasMultipleServices) {
             const staffPerService: Record<string, Array<{ id: string; name: string; branchId?: string; avatar?: string }>> = {};
             
-            // Only process rejected/pending services - skip accepted ones
+            // Process services that need assignment: rejected, needs_assignment, or no staff assigned
             bookingToReassign.services!
-              .filter(bs => bs.approvalStatus === "rejected" || bs.approvalStatus === "pending" || !bs.approvalStatus)
+              .filter(bs => 
+                bs.approvalStatus === "rejected" || 
+                bs.approvalStatus === "needs_assignment" ||
+                !bs.staffId ||
+                bs.staffName === "Any Available" ||
+                bs.staffName === "Any Staff"
+              )
               .forEach(bookingService => {
               // Use consistent key format
               const serviceKey = String(bookingService.id || bookingService.serviceId || bookingService.name);
               
-              const service = servicesData.find((s: any) => String(s.id) === String(bookingService.id || bookingService.serviceId));
+              // Find service by ID first, then by name fallback
+              let service = servicesData.find((s: any) => 
+                String(s.id) === String(bookingService.id || bookingService.serviceId)
+              );
+              // Fallback: find by name if ID lookup fails
+              if (!service && bookingService.name) {
+                service = servicesData.find((s: any) => 
+                  s.name?.toLowerCase() === bookingService.name?.toLowerCase()
+                );
+              }
+              
               const qualifiedStaffIds = (service && Array.isArray(service.staffIds)) ? service.staffIds.map(String) : [];
               
               let filtered = staffData.filter((s: any) => s.status === "Active");
               
-              // Exclude the staff member who rejected this specific service
-              // Check respondedByStaffUid (who actually responded), staffId (originally assigned), and staffAuthUid
-              const rejectorUids: string[] = [];
-              if (bookingService.respondedByStaffUid) rejectorUids.push(bookingService.respondedByStaffUid);
-              if (bookingService.approvalStatus === "rejected" && bookingService.staffId) rejectorUids.push(bookingService.staffId);
-              if (bookingService.approvalStatus === "rejected" && bookingService.staffAuthUid) rejectorUids.push(bookingService.staffAuthUid);
-              if (bookingToReassign.rejectedByStaffUid) rejectorUids.push(bookingToReassign.rejectedByStaffUid);
-              
-              if (rejectorUids.length > 0) {
-                filtered = filtered.filter((s: any) => !rejectorUids.includes(s.id) && !rejectorUids.includes(s.authUid));
+              // Exclude the staff member who rejected this specific service (only for rejected services)
+              if (bookingService.approvalStatus === "rejected") {
+                const rejectorUids: string[] = [];
+                if (bookingService.respondedByStaffUid) rejectorUids.push(bookingService.respondedByStaffUid);
+                if (bookingService.staffId) rejectorUids.push(bookingService.staffId);
+                if (bookingService.staffAuthUid) rejectorUids.push(bookingService.staffAuthUid);
+                if (bookingToReassign.rejectedByStaffUid) rejectorUids.push(bookingToReassign.rejectedByStaffUid);
+                
+                if (rejectorUids.length > 0) {
+                  filtered = filtered.filter((s: any) => !rejectorUids.includes(s.id) && !rejectorUids.includes(s.authUid));
+                }
               }
               
+              // Filter by service qualification if service has specific staff assigned
               if (qualifiedStaffIds.length > 0) {
                 filtered = filtered.filter((s: any) => qualifiedStaffIds.includes(String(s.id)));
               }
               
-              if (bookingToReassign.branchId && bookingToReassign.date) {
-                const bookingDate = new Date(bookingToReassign.date);
-                const daysOfWeek = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
-                const dayName = daysOfWeek[bookingDate.getDay()];
-                
-                filtered = filtered.filter((s: any) => {
-                  if (s.weeklySchedule && typeof s.weeklySchedule === 'object') {
-                    const daySchedule = s.weeklySchedule[dayName];
-                    if (daySchedule && daySchedule.branchId) {
-                      return daySchedule.branchId === bookingToReassign.branchId;
+              // For rejected services, apply strict branch/schedule filtering
+              // For needs_assignment services, be more lenient (show all qualified staff at the branch)
+              const isRejected = bookingService.approvalStatus === "rejected";
+              
+              if (bookingToReassign.branchId) {
+                if (isRejected && bookingToReassign.date) {
+                  // Strict schedule check for rejected services
+                  const bookingDate = new Date(bookingToReassign.date);
+                  const daysOfWeek = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+                  const dayName = daysOfWeek[bookingDate.getDay()];
+                  
+                  filtered = filtered.filter((s: any) => {
+                    if (s.weeklySchedule && typeof s.weeklySchedule === 'object') {
+                      const daySchedule = s.weeklySchedule[dayName];
+                      if (daySchedule && daySchedule.branchId) {
+                        return daySchedule.branchId === bookingToReassign.branchId;
+                      }
+                      if (daySchedule === null || daySchedule === undefined) {
+                        return false;
+                      }
                     }
-                    if (daySchedule === null || daySchedule === undefined) {
-                      return false;
+                    return s.branchId === bookingToReassign.branchId;
+                  });
+                } else {
+                  // Lenient: just check branch assignment (any day)
+                  filtered = filtered.filter((s: any) => {
+                    // Check if staff works at this branch on any day
+                    if (s.weeklySchedule && typeof s.weeklySchedule === 'object') {
+                      const worksAtBranch = Object.values(s.weeklySchedule).some((daySchedule: any) => 
+                        daySchedule && daySchedule.branchId === bookingToReassign.branchId
+                      );
+                      if (worksAtBranch) return true;
                     }
-                  }
-                  return s.branchId === bookingToReassign.branchId;
-                });
+                    return s.branchId === bookingToReassign.branchId;
+                  });
+                }
               }
               
               staffPerService[serviceKey] = filtered.map((s: any) => ({
@@ -521,7 +570,14 @@ export default function BookingsListByStatus({ status, title }: { status: Bookin
             
             setAvailableStaffPerService(staffPerService);
           } else {
-            const service = servicesData.find((s: any) => String(s.id) === String(bookingToReassign.serviceId));
+            // Single service - find by ID first, then by name fallback
+            let service = servicesData.find((s: any) => String(s.id) === String(bookingToReassign.serviceId));
+            // Fallback: find by name if ID lookup fails
+            if (!service && bookingToReassign.serviceName) {
+              service = servicesData.find((s: any) => 
+                s.name?.toLowerCase() === bookingToReassign.serviceName?.toLowerCase()
+              );
+            }
             const qualifiedStaffIds = (service && Array.isArray(service.staffIds)) ? service.staffIds.map(String) : [];
             
             let filtered = staffData.filter((s: any) => s.status === "Active");
@@ -798,9 +854,13 @@ export default function BookingsListByStatus({ status, title }: { status: Bookin
     const hasMultipleServices = Array.isArray(bookingToReassign.services) && bookingToReassign.services.length > 0;
 
     if (hasMultipleServices) {
-      // Only check rejected/pending services - accepted ones are already done
+      // Only check services that need assignment: rejected, needs_assignment, or no staff
       const servicesToReassign = bookingToReassign.services!.filter(s => 
-        s.approvalStatus === "rejected" || s.approvalStatus === "pending" || !s.approvalStatus
+        s.approvalStatus === "rejected" || 
+        s.approvalStatus === "needs_assignment" ||
+        !s.staffId ||
+        s.staffName === "Any Available" ||
+        s.staffName === "Any Staff"
       );
       
       const allAssigned = servicesToReassign.every(s => {
@@ -808,7 +868,7 @@ export default function BookingsListByStatus({ status, title }: { status: Bookin
         return selectedStaffPerService[serviceKey];
       });
       if (!allAssigned && servicesToReassign.length > 0) {
-        alert("Please assign staff to all rejected services");
+        alert("Please assign staff to all services that need assignment");
         return;
       }
     } else {
