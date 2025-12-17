@@ -384,6 +384,110 @@ export async function createCustomerCompletionNotification(data: {
 }
 
 /**
+ * Create a customer notification for when the booking is being rescheduled
+ * This is a customer-friendly way to inform them about reassignment
+ * (without exposing internal workflow details like staff rejection)
+ */
+export async function createCustomerReschedulingNotification(data: {
+  bookingId: string;
+  bookingCode?: string;
+  customerUid?: string;
+  customerEmail?: string;
+  customerPhone?: string;
+  clientName?: string;
+  staffName?: string;
+  serviceName?: string;
+  services?: Array<{ name: string; staffName?: string }>;
+  branchName?: string;
+  bookingDate: string;
+  bookingTime: string;
+  ownerUid: string;
+}): Promise<string> {
+  const content = getNotificationContent(
+    "StaffRejected", // This will show as "Being Rescheduled" to customer
+    data.bookingCode,
+    data.staffName,
+    data.serviceName,
+    data.bookingDate,
+    data.bookingTime,
+    data.services
+  );
+
+  const notificationData: Omit<CustomerNotification, "id" | "createdAt" | "read"> = {
+    bookingId: data.bookingId,
+    bookingCode: data.bookingCode,
+    type: content.type,
+    title: content.title,
+    message: content.message,
+    status: "StaffRejected",
+    ownerUid: data.ownerUid,
+    customerUid: data.customerUid,
+    customerEmail: data.customerEmail,
+    customerPhone: data.customerPhone,
+    clientName: data.clientName,
+    staffName: data.staffName,
+    serviceName: data.serviceName,
+    services: data.services,
+    branchName: data.branchName,
+    bookingDate: data.bookingDate,
+    bookingTime: data.bookingTime,
+  };
+
+  return createNotification(notificationData);
+}
+
+/**
+ * Create a customer notification for when the booking is canceled
+ */
+export async function createCustomerCancellationNotification(data: {
+  bookingId: string;
+  bookingCode?: string;
+  customerUid?: string;
+  customerEmail?: string;
+  customerPhone?: string;
+  clientName?: string;
+  staffName?: string;
+  serviceName?: string;
+  services?: Array<{ name: string; staffName?: string }>;
+  branchName?: string;
+  bookingDate?: string;
+  bookingTime?: string;
+  ownerUid: string;
+}): Promise<string> {
+  const content = getNotificationContent(
+    "Canceled",
+    data.bookingCode,
+    data.staffName,
+    data.serviceName,
+    data.bookingDate,
+    data.bookingTime,
+    data.services
+  );
+
+  const notificationData: Omit<CustomerNotification, "id" | "createdAt" | "read"> = {
+    bookingId: data.bookingId,
+    bookingCode: data.bookingCode,
+    type: content.type,
+    title: content.title,
+    message: content.message,
+    status: "Canceled",
+    ownerUid: data.ownerUid,
+    customerUid: data.customerUid,
+    customerEmail: data.customerEmail,
+    customerPhone: data.customerPhone,
+    clientName: data.clientName,
+    staffName: data.staffName,
+    serviceName: data.serviceName,
+    services: data.services,
+    branchName: data.branchName,
+    bookingDate: data.bookingDate,
+    bookingTime: data.bookingTime,
+  };
+
+  return createNotification(notificationData);
+}
+
+/**
  * Get staff-facing notification content
  */
 export function getStaffNotificationContent(

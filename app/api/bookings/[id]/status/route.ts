@@ -6,7 +6,9 @@ import {
   createNotification, 
   getNotificationContent, 
   createStaffAssignmentNotification,
-  createCustomerConfirmationNotification 
+  createCustomerConfirmationNotification,
+  createCustomerCancellationNotification,
+  createCustomerReschedulingNotification
 } from "@/lib/notifications";
 import { 
   logBookingStatusChangedServer, 
@@ -404,8 +406,32 @@ export async function PATCH(req: NextRequest, context: { params: Promise<{ id: s
         console.log("Sent admin rejection notification");
       }
       
-      // CASE 4: Other status changes (completed, canceled) -> Send customer notification
-      else if (actualNextStatus === "Completed" || actualNextStatus === "Canceled") {
+      // CASE 4: Booking canceled -> Send cancellation notification to CUSTOMER
+      else if (actualNextStatus === "Canceled") {
+        await createCustomerCancellationNotification({
+          bookingId: id,
+          bookingCode: data.bookingCode,
+          customerUid: data.customerUid,
+          customerEmail: data.clientEmail,
+          customerPhone: data.clientPhone,
+          clientName: clientName,
+          staffName: finalStaffName,
+          serviceName: finalServiceName,
+          services: finalServices?.map((s: any) => ({
+            name: s.name || "Service",
+            staffName: s.staffName || "Any Available"
+          })),
+          branchName: data.branchName,
+          bookingDate: finalBookingDate,
+          bookingTime: finalBookingTime,
+          ownerUid: ownerUid,
+        });
+        
+        console.log("Sent customer cancellation notification");
+      }
+      
+      // CASE 5: Booking completed -> Send completion notification to CUSTOMER
+      else if (actualNextStatus === "Completed") {
         const notificationContent = getNotificationContent(
           actualNextStatus, 
           data.bookingCode,
@@ -446,6 +472,8 @@ export async function PATCH(req: NextRequest, context: { params: Promise<{ id: s
         }
         
         await createNotification(notificationData);
+        
+        console.log("Sent customer completion notification");
       }
     } catch (notifError) {
       console.error("Failed to create notification:", notifError);

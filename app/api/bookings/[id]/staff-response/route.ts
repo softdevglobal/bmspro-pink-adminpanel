@@ -4,7 +4,8 @@ import { FieldValue } from "firebase-admin/firestore";
 import { normalizeBookingStatus, type BookingService, type ServiceApprovalStatus } from "@/lib/bookingTypes";
 import { 
   createCustomerConfirmationNotification, 
-  createAdminRejectionNotification 
+  createAdminRejectionNotification,
+  createCustomerReschedulingNotification
 } from "@/lib/notifications";
 import { logBookingStaffResponseServer } from "@/lib/auditLogServer";
 
@@ -314,6 +315,31 @@ export async function POST(req: NextRequest, context: { params: Promise<{ id: st
         } catch (e) {
           console.error("Failed to send admin notification:", e);
         }
+        
+        // Also notify customer that their booking is being rescheduled
+        // (Customer-friendly notification without exposing staff rejection details)
+        try {
+          await createCustomerReschedulingNotification({
+            bookingId: id,
+            bookingCode: bookingData.bookingCode,
+            customerUid: bookingData.customerUid,
+            customerEmail: bookingData.clientEmail,
+            customerPhone: bookingData.clientPhone,
+            clientName: clientName,
+            serviceName: bookingData.serviceName,
+            services: updatedServices.map((s: any) => ({
+              name: s.name || "Service",
+              staffName: s.staffName,
+            })),
+            branchName: bookingData.branchName,
+            bookingDate: finalBookingDate,
+            bookingTime: finalBookingTime,
+            ownerUid: ownerUid,
+          });
+          console.log("Sent customer rescheduling notification (multi-service)");
+        } catch (e) {
+          console.error("Failed to send customer notification:", e);
+        }
       }
 
       // Determine response message
@@ -492,6 +518,27 @@ export async function POST(req: NextRequest, context: { params: Promise<{ id: st
         console.log("Sent admin rejection notification");
       } catch (e) {
         console.error("Failed to send admin notification:", e);
+      }
+      
+      // Also notify customer that their booking is being rescheduled
+      // (Customer-friendly notification without exposing staff rejection details)
+      try {
+        await createCustomerReschedulingNotification({
+          bookingId: id,
+          bookingCode: bookingData.bookingCode,
+          customerUid: bookingData.customerUid,
+          customerEmail: bookingData.clientEmail,
+          customerPhone: bookingData.clientPhone,
+          clientName: clientName,
+          serviceName: finalServiceName,
+          branchName: bookingData.branchName,
+          bookingDate: finalBookingDate,
+          bookingTime: finalBookingTime,
+          ownerUid: ownerUid,
+        });
+        console.log("Sent customer rescheduling notification (single service)");
+      } catch (e) {
+        console.error("Failed to send customer notification:", e);
       }
 
       // Create audit log for staff rejection (single service)

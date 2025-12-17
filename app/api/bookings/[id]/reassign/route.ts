@@ -2,7 +2,10 @@ import { NextRequest, NextResponse } from "next/server";
 import { adminAuth, adminDb } from "@/lib/firebaseAdmin";
 import { FieldValue } from "firebase-admin/firestore";
 import { normalizeBookingStatus, type BookingService } from "@/lib/bookingTypes";
-import { createStaffAssignmentNotification } from "@/lib/notifications";
+import { 
+  createStaffAssignmentNotification, 
+  createCustomerReschedulingNotification 
+} from "@/lib/notifications";
 
 export const runtime = "nodejs";
 
@@ -255,6 +258,32 @@ export async function POST(req: NextRequest, context: { params: Promise<{ id: st
 
     // Update the booking
     await bookingRef.update(updateData);
+
+    // Send notification to customer that their booking is being rescheduled
+    // (customer-friendly notification without exposing internal workflow)
+    try {
+      await createCustomerReschedulingNotification({
+        bookingId: id,
+        bookingCode: bookingData.bookingCode,
+        customerUid: bookingData.customerUid,
+        customerEmail: bookingData.clientEmail,
+        customerPhone: bookingData.clientPhone,
+        clientName: clientName,
+        staffName: staffToNotify.length > 0 ? staffToNotify.map(s => s.name).join(", ") : null,
+        serviceName: finalServiceName,
+        services: (updateData.services || bookingData.services)?.map((s: any) => ({
+          name: s.name || "Service",
+          staffName: s.staffName || undefined,
+        })),
+        branchName: bookingData.branchName,
+        bookingDate: finalBookingDate,
+        bookingTime: finalBookingTime,
+        ownerUid: ownerUid,
+      });
+      console.log("Sent customer rescheduling notification");
+    } catch (customerNotifError) {
+      console.error("Failed to send customer rescheduling notification:", customerNotifError);
+    }
 
     // Create activity log
     try {
