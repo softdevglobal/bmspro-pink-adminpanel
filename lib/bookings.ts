@@ -2,6 +2,7 @@ import { auth, db } from "@/lib/firebase";
 import { addDoc, collection, serverTimestamp, doc, updateDoc } from "firebase/firestore";
 import type { BookingStatus } from "./bookingTypes";
 import { getCurrentUserForAudit, logBookingCreated, logBookingStatusChanged } from "@/lib/auditLog";
+import { localToUTC } from "@/lib/timezone";
 
 /**
  * Generate a readable booking code
@@ -31,8 +32,10 @@ export type BookingInput = {
   staffName?: string;
   branchId: string;
   branchName?: string;
-  date: string; // YYYY-MM-DD
-  time: string; // HH:mm
+  branchTimezone?: string; // IANA timezone of the branch
+  date: string; // YYYY-MM-DD in branch's local timezone
+  time: string; // HH:mm in branch's local timezone
+  dateTimeUtc?: string; // UTC ISO string for storage
   duration: number; // minutes
   status?: BookingStatus;
   price: number;
@@ -48,6 +51,12 @@ export async function createBooking(input: BookingInput): Promise<{ id: string }
   let bookingId: string = "";
   let bookingCode: string | undefined;
   
+  // Convert local time to UTC if timezone is provided
+  let dateTimeUtc: string | undefined;
+  if (input.branchTimezone && input.date && input.time) {
+    dateTimeUtc = localToUTC(input.date, input.time, input.branchTimezone);
+  }
+  
   try {
     const res = await fetch("/api/bookings", {
       method: "POST",
@@ -57,6 +66,7 @@ export async function createBooking(input: BookingInput): Promise<{ id: string }
       },
       body: JSON.stringify({
         ...input,
+        dateTimeUtc, // Include UTC timestamp for consistent storage
         status: input.status || "Pending",
       }),
     });
@@ -73,6 +83,7 @@ export async function createBooking(input: BookingInput): Promise<{ id: string }
       const payload = {
         ownerUid: user?.uid || null,
         ...input,
+        dateTimeUtc, // Store UTC timestamp
         bookingCode: newCode,
         status: input.status || "Pending",
         createdAt: serverTimestamp(),
@@ -91,6 +102,7 @@ export async function createBooking(input: BookingInput): Promise<{ id: string }
     const payload = {
       ownerUid: user?.uid || null,
       ...input,
+      dateTimeUtc, // Store UTC timestamp
       bookingCode: newCode,
       status: input.status || "Pending",
       createdAt: serverTimestamp(),

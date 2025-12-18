@@ -40,6 +40,7 @@ export type BranchInput = {
   address: string;
   phone?: string;
   email?: string;
+  timezone?: string; // IANA timezone (e.g., 'Australia/Sydney', 'Australia/Melbourne')
   staffIds?: string[];
   staffByDay?: StaffByDay;
   serviceIds?: string[];

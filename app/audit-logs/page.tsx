@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { auth, db } from "@/lib/firebase";
 import { onAuthStateChanged } from "firebase/auth";
 import { collection, doc, getDoc, onSnapshot, query, where, orderBy, limit, Timestamp } from "firebase/firestore";
+import { formatInTimezone } from "@/lib/timezone";
 
 type AuditLog = {
   id: string;
@@ -49,6 +50,7 @@ export default function AuditLogsPage() {
   const router = useRouter();
   const [mobileOpen, setMobileOpen] = useState(false);
   const [ownerUid, setOwnerUid] = useState<string | null>(null);
+  const [adminTimezone, setAdminTimezone] = useState<string>("Australia/Sydney");
   const [logs, setLogs] = useState<AuditLog[]>([]);
   const [loading, setLoading] = useState(true);
   const [filterType, setFilterType] = useState<string>("all");
@@ -73,12 +75,16 @@ export default function AuditLogsPage() {
       }
       try {
         const snap = await getDoc(doc(db, "users", user.uid));
-        const role = (snap.data()?.role || "").toString();
+        const data = snap.data();
+        const role = (data?.role || "").toString();
         // Only salon_owner can access audit logs
         if (role !== "salon_owner") {
           router.replace("/dashboard");
           return;
         }
+        // Get admin's timezone from their profile
+        const timezone = data?.timezone || "Australia/Sydney";
+        setAdminTimezone(timezone);
         setOwnerUid(user.uid);
       } catch {
         router.replace("/login");
@@ -219,23 +225,33 @@ export default function AuditLogsPage() {
     if (diffHours < 24) return `${diffHours}h ago`;
     if (diffDays < 7) return `${diffDays}d ago`;
     
-    return date.toLocaleDateString("en-AU", {
-      day: "numeric",
-      month: "short",
-      year: date.getFullYear() !== now.getFullYear() ? "numeric" : undefined,
-    });
+    // Format in admin's timezone
+    try {
+      return formatInTimezone(date.toISOString(), adminTimezone, "d MMM yyyy");
+    } catch {
+      return date.toLocaleDateString("en-AU", {
+        day: "numeric",
+        month: "short",
+        year: date.getFullYear() !== now.getFullYear() ? "numeric" : undefined,
+      });
+    }
   };
 
   const formatFullTimestamp = (date: Date) => {
-    return date.toLocaleString("en-AU", {
-      weekday: "long",
-      year: "numeric",
-      month: "long",
-      day: "numeric",
-      hour: "2-digit",
-      minute: "2-digit",
-      second: "2-digit",
-    });
+    // Format in admin's timezone
+    try {
+      return formatInTimezone(date.toISOString(), adminTimezone, "EEEE d MMMM yyyy 'at' h:mm:ss a");
+    } catch {
+      return date.toLocaleString("en-AU", {
+        weekday: "long",
+        year: "numeric",
+        month: "long",
+        day: "numeric",
+        hour: "2-digit",
+        minute: "2-digit",
+        second: "2-digit",
+      });
+    }
   };
 
   const getActionConfig = (type: string) => ACTION_TYPE_CONFIG[type] || ACTION_TYPE_CONFIG.other;
@@ -570,6 +586,10 @@ export default function AuditLogsPage() {
                   </h5>
                   <div className="text-sm text-slate-900 font-medium">
                     {formatFullTimestamp(previewLog.timestamp)}
+                  </div>
+                  <div className="mt-2 text-xs text-slate-400 flex items-center gap-1">
+                    <i className="fas fa-globe" />
+                    {adminTimezone.replace(/_/g, " ")}
                   </div>
                 </div>
 

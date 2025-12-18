@@ -8,6 +8,7 @@ import { doc, getDoc } from "firebase/firestore";
 import { BranchInput, createBranchForOwner, subscribeBranchesForOwner } from "@/lib/branches";
 import { subscribeSalonStaffForOwner } from "@/lib/salonStaff";
 import { subscribeServicesForOwner } from "@/lib/services";
+import { TIMEZONES } from "@/lib/timezone";
 
 type Branch = {
   id: string;
@@ -16,6 +17,7 @@ type Branch = {
   revenue: number;
   phone?: string;
   email?: string;
+  timezone?: string;
   staffIds?: string[];
   serviceIds?: string[];
   hours?:
@@ -61,6 +63,7 @@ export default function BranchesPage() {
   const [address, setAddress] = useState("");
   const [phone, setPhone] = useState("");
   const [email, setEmail] = useState(""); // Added email state
+  const [timezone, setTimezone] = useState("Australia/Sydney"); // Default timezone
   const [role, setRole] = useState<string | null>(null); // Added role state
   // structured hours builder state
   const [hoursObj, setHoursObj] = useState<HoursMap>({
@@ -199,6 +202,7 @@ export default function BranchesPage() {
     setAddress("");
     setPhone("");
     setEmail(""); // Reset email state
+    setTimezone("Australia/Sydney"); // Reset to default timezone
     setHoursObj({
       Monday: { open: "09:00", close: "17:00", closed: false },
       Tuesday: { open: "09:00", close: "17:00", closed: false },
@@ -223,6 +227,7 @@ export default function BranchesPage() {
     setAddress((b as any).address || "");
     setPhone((b as any).phone || "");
     setEmail(b.email || ""); // Set email state
+    setTimezone(b.timezone || "Australia/Sydney"); // Set timezone state
     // prefill assignments
     const staffMap: Record<string, boolean> = {};
     const serviceMap: Record<string, boolean> = {};
@@ -272,6 +277,7 @@ export default function BranchesPage() {
         address: address.trim(),
         phone: phone.trim() || undefined,
         email: derivedEmail,
+        timezone: timezone || "Australia/Sydney", // Include timezone
         staffIds: Object.keys(selectedStaffIds).filter((id) => selectedStaffIds[id]),
         serviceIds: Object.keys(selectedServiceIds).filter((id) => selectedServiceIds[id]),
         hours: hoursObj,
@@ -484,6 +490,34 @@ export default function BranchesPage() {
                             placeholder="e.g. 12 stations"
                           />
                         </div>
+                      </div>
+
+                      <div>
+                        <label className="block text-xs font-bold text-slate-500 uppercase mb-1">
+                          Time Zone <span className="text-rose-500">*</span>
+                        </label>
+                        <div className="relative">
+                          <i className="fas fa-globe absolute left-3 top-3 text-slate-400" />
+                          <select
+                            value={timezone}
+                            onChange={(e) => setTimezone(e.target.value)}
+                            required
+                            className="w-full pl-10 pr-4 py-2.5 bg-slate-50 border border-slate-200 rounded-lg text-sm focus:bg-white focus:border-purple-500 focus:ring-4 focus:ring-purple-500/10 transition-all outline-none appearance-none"
+                          >
+                            {TIMEZONES.map((tz) => (
+                              <option key={tz.value} value={tz.value}>
+                                {tz.label}
+                              </option>
+                            ))}
+                          </select>
+                          <div className="absolute right-3 top-3 pointer-events-none text-slate-400">
+                            <i className="fas fa-chevron-down" />
+                          </div>
+                        </div>
+                        <p className="text-xs text-slate-500 mt-1">
+                          <i className="fas fa-info-circle mr-1" />
+                          All booking times will be shown in this timezone
+                        </p>
                       </div>
                     </div>
                   </div>
@@ -729,7 +763,7 @@ export default function BranchesPage() {
               {/* Body */}
               <div className="p-6 grid grid-cols-1 md:grid-cols-2 gap-6">
                 <div className="space-y-3">
-                  <div className="text-xs font-bold text-slate-600">Contact</div>
+                  <div className="text-xs font-bold text-slate-600">Contact & Details</div>
                   <div className="text-sm text-slate-700 space-y-2">
                     {previewBranch.phone && (
                       <div className="flex items-center gap-2">
@@ -749,6 +783,11 @@ export default function BranchesPage() {
                     {typeof previewBranch.capacity !== "undefined" && previewBranch.capacity !== null && previewBranch.capacity !== ("" as any) && (
                       <div className="flex items-center gap-2">
                         <i className="fas fa-chair text-slate-400" /> Capacity: {String(previewBranch.capacity)}
+                      </div>
+                    )}
+                    {previewBranch.timezone && (
+                      <div className="flex items-center gap-2">
+                        <i className="fas fa-globe text-slate-400" /> {previewBranch.timezone}
                       </div>
                     )}
                   </div>

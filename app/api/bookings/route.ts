@@ -17,8 +17,10 @@ type CreateBookingInput = {
   staffName?: string;
   branchId: string;
   branchName?: string;
-  date: string; // YYYY-MM-DD
-  time: string; // HH:mm
+  branchTimezone?: string; // IANA timezone for the branch
+  date: string; // YYYY-MM-DD in branch's local timezone
+  time: string; // HH:mm in branch's local timezone
+  dateTimeUtc?: string; // ISO string in UTC for consistent storage
   duration: number;
   status?: string;
   price: number;
@@ -68,10 +70,11 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    // Enrich names if not provided
+    // Enrich names and timezone if not provided
     let serviceName = body.serviceName || null;
     let staffName = body.staffName || null;
     let branchName = body.branchName || null;
+    let branchTimezone = body.branchTimezone || null;
 
     try {
       if (!serviceName && body.serviceId) {
@@ -91,9 +94,11 @@ export async function POST(req: NextRequest) {
       }
     } catch {}
     try {
-      if (!branchName && body.branchId) {
+      if ((!branchName || !branchTimezone) && body.branchId) {
         const b = await adminDb().doc(`branches/${String(body.branchId)}`).get();
-        branchName = (b.data() as any)?.name || null;
+        const branchData = b.data() as any;
+        if (!branchName) branchName = branchData?.name || null;
+        if (!branchTimezone) branchTimezone = branchData?.timezone || "Australia/Sydney"; // Default fallback
       }
     } catch {}
 
@@ -276,8 +281,10 @@ export async function POST(req: NextRequest) {
       staffName: staffName,
       branchId: String(body.branchId),
       branchName: branchName,
-      date: String(body.date), // YYYY-MM-DD
-      time: String(body.time), // HH:mm
+      branchTimezone: branchTimezone, // Store branch timezone
+      date: String(body.date), // YYYY-MM-DD in branch's local timezone (for backward compatibility)
+      time: String(body.time), // HH:mm in branch's local timezone (for backward compatibility)
+      dateTimeUtc: body.dateTimeUtc || null, // UTC ISO string for consistent storage
       duration: Number(body.duration) || 0,
       status: normalizeBookingStatus(body.status || "Pending"),
       price: Number(body.price) || 0,

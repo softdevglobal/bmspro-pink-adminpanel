@@ -47,6 +47,7 @@ export type SalonStaffInput = {
   role: string;
   branchId: string;
   branchName: string;
+  timezone?: string; // IANA timezone (especially important for branch admins)
   status?: StaffStatus;
   avatar?: string;
   training?: StaffTraining;
@@ -73,6 +74,7 @@ export async function createSalonStaffForOwner(ownerUid: string, data: SalonStaf
     ownerUid,
     branchId: data.branchId,
     branchName: data.branchName,
+    timezone: data.timezone || null, // Store timezone (especially for branch admins)
     status: data.status || "Active",
     avatar: data.avatar || data.name,
     training: data.training || { ohs: false, prod: false, tool: false },
@@ -118,6 +120,7 @@ export async function updateSalonStaff(staffId: string, data: Partial<SalonStaff
   if (data.name) updatePayload.displayName = data.name;
   if (data.role) updatePayload.staffRole = data.role; // Update job title
   if (data.systemRole) updatePayload.role = data.systemRole; // Update system access level
+  if (data.timezone !== undefined) updatePayload.timezone = data.timezone; // Update timezone
 
   // Build change description for audit log
   const changes: string[] = [];

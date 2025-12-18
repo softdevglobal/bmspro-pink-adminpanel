@@ -15,6 +15,7 @@ import {
 import { updateBranch } from "@/lib/branches";
 import { deleteDoc } from "firebase/firestore";
 import WeeklyScheduleSelector, { WeeklySchedule } from "@/components/staff/WeeklyScheduleSelector";
+import { TIMEZONES } from "@/lib/timezone";
 
 export default function SettingsPage() {
   const router = useRouter();
@@ -34,6 +35,7 @@ export default function SettingsPage() {
   const [suspending, setSuspending] = useState(false);
   const [weeklySchedule, setWeeklySchedule] = useState<WeeklySchedule>({});
   const [selectedSystemRole, setSelectedSystemRole] = useState<string>("salon_staff");
+  const [selectedTimezone, setSelectedTimezone] = useState<string>("Australia/Sydney");
 
   type StaffTraining = { ohs: boolean; prod: boolean; tool: boolean };
   type HoursDay = { open?: string; close?: string; closed?: boolean };
@@ -54,6 +56,7 @@ export default function SettingsPage() {
     branchId?: string;
     email?: string | null;
     mobile?: string | null;
+    timezone?: string | null;
     authUid?: string | null;
     status: "Active" | "Suspended";
     avatar: string;
@@ -120,6 +123,7 @@ export default function SettingsPage() {
         branchId: String((r as any).branchId || ""),
         email: (r as any).email || null,
         mobile: (r as any).mobile || null,
+        timezone: (r as any).timezone || null,
         authUid: (r as any).authUid || null,
         systemRole: (r as any).systemRole || "salon_staff",
         status: (r.status as any) === "Suspended" ? "Suspended" : "Active",
@@ -206,6 +210,7 @@ export default function SettingsPage() {
     const password = String(formData.get("password") || "").trim();
     const branchId = String(formData.get("branch") || "").trim();
     const systemRole = String(formData.get("system_role") || "salon_staff");
+    const timezone = String(formData.get("timezone") || "Australia/Sydney");
 
     if (!name || !role || !email || !mobile || !ownerUid) return;
     
@@ -285,6 +290,7 @@ export default function SettingsPage() {
             role,
             branchId,
             branchName: branchRow?.name || "",
+            timezone: systemRole === "salon_branch_admin" ? timezone : undefined,
             status: "Active",
             authUid: newAuthUid,
             systemRole,
@@ -323,6 +329,7 @@ export default function SettingsPage() {
               branchId,
               branchName: branchRow?.name || "",
               systemRole,
+              timezone: systemRole === "salon_branch_admin" ? timezone : undefined,
               authUid: newAuthUid || undefined,
               mobile,
               training: {
@@ -347,10 +354,12 @@ export default function SettingsPage() {
                     role,
                     branchId,
                     branchName: branchRow?.name || "",
+                    timezone: systemRole === "salon_branch_admin" ? timezone : undefined,
                     status: "Active",
                     authUid: newAuthUid,
                     systemRole,
                     avatar: name,
+                    mobile,
                     training: {
                       ohs: formData.get("train_ohs") === "on",
                       prod: formData.get("train_prod") === "on",
@@ -436,6 +445,7 @@ export default function SettingsPage() {
             role,
             branchId,
             branchName: branchRow?.name || "",
+            timezone: systemRole === "salon_branch_admin" ? timezone : undefined,
             status: "Active",
             authUid: authUid,
             systemRole,
@@ -482,6 +492,7 @@ export default function SettingsPage() {
     setEditingStaff(s);
     setWeeklySchedule(s.weeklySchedule || {});
     setSelectedSystemRole(s.systemRole || "salon_staff");
+    setSelectedTimezone(s.timezone || "Australia/Sydney");
     setIsStaffModalOpen(true);
   };
 
@@ -1191,34 +1202,59 @@ export default function SettingsPage() {
                   
                   {/* Branch Selection - Only shown for Branch Admin */}
                   {selectedSystemRole === "salon_branch_admin" && (
-                    <div>
-                      <label className="block text-xs font-bold text-slate-600 mb-1">
-                        Assigned Branch <span className="text-rose-500">*</span>
-                      </label>
-                      <select
-                        name="branch"
-                        className="w-full border border-indigo-300 rounded-lg p-2 sm:p-2.5 text-xs sm:text-sm bg-white focus:ring-2 focus:ring-indigo-500 focus:outline-none"
-                        defaultValue={editingStaff?.branchId || ""}
-                        required
-                      >
-                        <option value="">-- Select Branch --</option>
-                        {data.branches.length > 0 ? (
-                          data.branches.map((b) => (
-                            <option key={b.id} value={b.id}>
-                              {b.name}
+                    <>
+                      <div>
+                        <label className="block text-xs font-bold text-slate-600 mb-1">
+                          Assigned Branch <span className="text-rose-500">*</span>
+                        </label>
+                        <select
+                          name="branch"
+                          className="w-full border border-indigo-300 rounded-lg p-2 sm:p-2.5 text-xs sm:text-sm bg-white focus:ring-2 focus:ring-indigo-500 focus:outline-none"
+                          defaultValue={editingStaff?.branchId || ""}
+                          required
+                        >
+                          <option value="">-- Select Branch --</option>
+                          {data.branches.length > 0 ? (
+                            data.branches.map((b) => (
+                              <option key={b.id} value={b.id}>
+                                {b.name}
+                              </option>
+                            ))
+                          ) : (
+                            <option value="" disabled>
+                              No Branches Configured
                             </option>
-                          ))
-                        ) : (
-                          <option value="" disabled>
-                            No Branches Configured
-                          </option>
-                        )}
-                      </select>
-                      <p className="text-[10px] text-indigo-600 mt-1 font-medium">
-                        <i className="fas fa-info-circle mr-1" />
-                        This admin will manage this branch on all opening days.
-                      </p>
-                    </div>
+                          )}
+                        </select>
+                        <p className="text-[10px] text-indigo-600 mt-1 font-medium">
+                          <i className="fas fa-info-circle mr-1" />
+                          This admin will manage this branch on all opening days.
+                        </p>
+                      </div>
+                      
+                      <div>
+                        <label className="block text-xs font-bold text-slate-600 mb-1">
+                          Time Zone <span className="text-rose-500">*</span>
+                        </label>
+                        <select
+                          name="timezone"
+                          value={selectedTimezone}
+                          onChange={(e) => setSelectedTimezone(e.target.value)}
+                          className="w-full border border-indigo-300 rounded-lg p-2 sm:p-2.5 text-xs sm:text-sm bg-white focus:ring-2 focus:ring-indigo-500 focus:outline-none"
+                          required
+                        >
+                          {TIMEZONES.map((tz) => (
+                            <option key={tz.value} value={tz.value}>
+                              {tz.label}
+                            </option>
+                          ))}
+                        </select>
+                        <p className="text-[10px] text-indigo-600 mt-1 font-medium">
+                          <i className="fas fa-globe mr-1" />
+                          Branch admin timezone for viewing booking times
+                        </p>
+                      </div>
+                    </>
                   )}
                   
                   {/* Hidden field for Standard Staff - no branch required */}

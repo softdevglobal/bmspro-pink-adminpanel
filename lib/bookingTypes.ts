@@ -29,7 +29,8 @@ export interface BookingService {
   name?: string;
   price?: number;
   duration?: number;
-  time?: string;
+  time?: string; // Time in branch's local timezone (HH:mm)
+  timeUtc?: string; // Time stored in UTC ISO format
   staffId?: string | null;
   staffName?: string | null;
   // Per-service approval tracking

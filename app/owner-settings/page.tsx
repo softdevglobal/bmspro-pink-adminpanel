@@ -6,6 +6,7 @@ import { onAuthStateChanged } from "firebase/auth";
 import { auth, db, storage } from "@/lib/firebase";
 import { doc, getDoc, updateDoc, serverTimestamp } from "firebase/firestore";
 import { ref, uploadBytes, getDownloadURL } from "firebase/storage";
+import { TIMEZONES } from "@/lib/timezone";
 
 type UserData = {
   uid: string;
@@ -19,6 +20,7 @@ type UserData = {
   businessStructure?: string;
   gstRegistered?: boolean;
   state?: string;
+  timezone?: string; // IANA timezone (e.g., 'Australia/Sydney')
   plan?: string;
   price?: string;
   role: string;
@@ -39,6 +41,7 @@ export default function OwnerSettingsPage() {
   const [abn, setAbn] = useState("");
   const [address, setAddress] = useState("");
   const [phone, setPhone] = useState("");
+  const [timezone, setTimezone] = useState("Australia/Sydney");
   const [logoUrl, setLogoUrl] = useState("");
   const [termsAndConditions, setTermsAndConditions] = useState("");
   const [uploadingLogo, setUploadingLogo] = useState(false);
@@ -93,6 +96,7 @@ export default function OwnerSettingsPage() {
           businessStructure: data?.businessStructure || "",
           gstRegistered: data?.gstRegistered ?? false,
           state: data?.state || "",
+          timezone: data?.timezone || "Australia/Sydney",
           plan: data?.plan || "",
           price: data?.price || "",
           role: role,
@@ -107,6 +111,7 @@ export default function OwnerSettingsPage() {
         setAbn(userData.abn || "");
         setAddress(userData.locationText || userData.address || "");
         setPhone(userData.contactPhone || userData.phone || "");
+        setTimezone(userData.timezone || "Australia/Sydney");
         setLogoUrl(userData.logoUrl || "");
         setTermsAndConditions(userData.termsAndConditions || "");
         
@@ -130,9 +135,10 @@ export default function OwnerSettingsPage() {
         abn: abn,
         locationText: address,
         contactPhone: phone,
+        timezone: timezone,
         updatedAt: serverTimestamp(),
       });
-      setUserData({ ...userData, name: salonName, abn, address, locationText: address, phone, contactPhone: phone });
+      setUserData({ ...userData, name: salonName, abn, address, locationText: address, phone, contactPhone: phone, timezone });
       showToast("Profile saved successfully!");
     } catch (error) {
       console.error("Error saving profile:", error);
@@ -341,6 +347,30 @@ export default function OwnerSettingsPage() {
                           onChange={(e) => setAddress(e.target.value)}
                         />
                       </div>
+                      <div className="sm:col-span-2">
+                        <label className="block text-sm font-medium text-slate-700 mb-2">
+                          <i className="fas fa-globe mr-2 text-slate-400" />
+                          Time Zone
+                        </label>
+                        <div className="relative">
+                          <select
+                            value={timezone}
+                            onChange={(e) => setTimezone(e.target.value)}
+                            className="w-full px-4 py-3 border border-slate-300 rounded-lg focus:ring-2 focus:ring-pink-500 focus:border-transparent appearance-none pr-10"
+                          >
+                            {TIMEZONES.map((tz) => (
+                              <option key={tz.value} value={tz.value}>
+                                {tz.label}
+                              </option>
+                            ))}
+                          </select>
+                          <i className="fas fa-chevron-down absolute right-4 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
+                        </div>
+                        <p className="mt-1 text-xs text-slate-500">
+                          <i className="fas fa-info-circle mr-1" />
+                          This timezone will be used for all bookings and operations across your salon
+                        </p>
+                      </div>
                     </div>
                     <div className="mt-4 flex justify-end">
                       <button 
@@ -489,6 +519,13 @@ Example:
                           <span className="text-slate-800">{userData.state}</span>
                         </div>
                       )}
+                      <div className="flex items-center justify-between py-2 border-b border-pink-100">
+                        <span className="text-slate-600">
+                          <i className="fas fa-globe mr-1 text-slate-400" />
+                          Time Zone
+                        </span>
+                        <span className="text-slate-800 text-xs">{timezone || "Australia/Sydney"}</span>
+                      </div>
                       <div className="flex items-center justify-between py-2 border-b border-pink-100">
                         <span className="text-slate-600">GST Registered</span>
                         <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${userData.gstRegistered ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-600'}`}>

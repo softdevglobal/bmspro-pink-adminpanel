@@ -6,6 +6,7 @@ import { auth, db } from "@/lib/firebase";
 import { collection, onSnapshot, orderBy, query, addDoc, serverTimestamp, doc, getDoc, where, updateDoc, deleteDoc } from "firebase/firestore";
 import { initializeApp, getApp } from "firebase/app";
 import { getAuth, createUserWithEmailAndPassword, signOut as signOutSecondary, onAuthStateChanged } from "firebase/auth";
+import { TIMEZONES } from "@/lib/timezone";
 
 type TenantRow = {
   initials: string;
@@ -99,6 +100,7 @@ type TenantDoc = {
   price?: string;
   status?: string;
   locationText?: string;
+  timezone?: string; // IANA timezone (e.g., 'Australia/Sydney')
 };
 
 export default function TenantsPage() {
@@ -121,6 +123,7 @@ export default function TenantsPage() {
   const [formEmail, setFormEmail] = useState("");
   const [formOwnerPassword, setFormOwnerPassword] = useState("");
   const [showOwnerPassword, setShowOwnerPassword] = useState(false);
+  const [formTimezone, setFormTimezone] = useState("Australia/Sydney"); // Default timezone
   const [tenants, setTenants] = useState<Array<{ id: string; data: TenantDoc }>>([]);
   const [loadingTenants, setLoadingTenants] = useState(true);
   const [creating, setCreating] = useState(false);
@@ -136,6 +139,7 @@ export default function TenantsPage() {
   const [editStatus, setEditStatus] = useState("");
   const [editLocation, setEditLocation] = useState("");
   const [editPhone, setEditPhone] = useState("");
+  const [editTimezone, setEditTimezone] = useState("Australia/Sydney");
   const [deleteId, setDeleteId] = useState<string | null>(null);
   const [suspendTarget, setSuspendTarget] = useState<{ id: string; isSuspended: boolean } | null>(null);
   const [suspending, setSuspending] = useState(false);
@@ -209,6 +213,7 @@ export default function TenantsPage() {
         name: formBusinessName.trim(),
         abn: formAbn.trim() || null,
         state: formState || null,
+        timezone: formTimezone || "Australia/Sydney", // Salon owner's timezone
         plan: planLabel,
         price: price || null,
         status: formAbn.trim() ? "Active" : "Pending ABN",
@@ -250,6 +255,7 @@ export default function TenantsPage() {
       setFormPhone("");
       setFormEmail("");
       setFormOwnerPassword("");
+      setFormTimezone("Australia/Sydney");
       setSelectedPlan(null);
     } catch (e: any) {
       alert(e?.message || "Failed to save tenant");
@@ -569,6 +575,7 @@ export default function TenantsPage() {
                                 setEditStatus(data.status || "");
                                 setEditLocation(data.locationText || "");
                                 setEditPhone((data as any).contactPhone || "");
+                                setEditTimezone(data.timezone || "Australia/Sydney");
                                 setEditOpen(true);
                               }}
                               title="Edit"
@@ -690,6 +697,13 @@ export default function TenantsPage() {
                     <div className="mt-1 font-medium text-slate-900">{previewTenant.data.price || "—"}</div>
                   </div>
                   <div className="bg-white border border-slate-200 rounded-xl p-4 shadow-sm sm:col-span-2">
+                    <div className="text-xs text-slate-500">Time Zone</div>
+                    <div className="mt-1 font-medium text-slate-900 flex items-center gap-2">
+                      <i className="fas fa-globe text-slate-400" />
+                      {previewTenant.data.timezone || "Australia/Sydney"}
+                    </div>
+                  </div>
+                  <div className="bg-white border border-slate-200 rounded-xl p-4 shadow-sm sm:col-span-2">
                     <div className="text-xs text-slate-500">Contact Phone</div>
                     <div className="mt-1 font-medium text-slate-900">{(previewTenant.data as any).contactPhone || "—"}</div>
                   </div>
@@ -711,6 +725,7 @@ export default function TenantsPage() {
                         setEditStatus(d.status || "");
                         setEditLocation(d.locationText || "");
                         setEditPhone((d as any).contactPhone || "");
+                        setEditTimezone(d.timezone || "Australia/Sydney");
                         setEditOpen(true);
                       }}
                     >
@@ -817,6 +832,24 @@ export default function TenantsPage() {
                   <label className="block text-sm font-medium text-slate-700 mb-1">Contact Phone</label>
                   <input className="w-full px-4 py-3 border border-slate-300 rounded-lg focus:ring-2 focus:ring-pink-500 focus:border-transparent" value={editPhone} onChange={(e) => setEditPhone(e.target.value)} />
                 </div>
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-1">Time Zone</label>
+                  <div className="relative">
+                    <i className="fas fa-globe absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" />
+                    <select
+                      className="w-full pl-10 pr-10 py-3 border border-slate-300 rounded-lg focus:ring-2 focus:ring-pink-500 focus:border-transparent appearance-none"
+                      value={editTimezone}
+                      onChange={(e) => setEditTimezone(e.target.value)}
+                    >
+                      {TIMEZONES.map((tz) => (
+                        <option key={tz.value} value={tz.value}>
+                          {tz.label}
+                        </option>
+                      ))}
+                    </select>
+                    <i className="fas fa-chevron-down absolute right-4 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
+                  </div>
+                </div>
               </div>
               <div className="px-6 py-4 border-t border-slate-200 flex items-center justify-end gap-2">
                 <button
@@ -837,6 +870,7 @@ export default function TenantsPage() {
                         name: editName.trim(),
                         abn: editAbn.trim() || null,
                         state: editState || null,
+                        timezone: editTimezone || "Australia/Sydney",
                         status: editStatus || null,
                         locationText: editLocation || null,
                         contactPhone: editPhone || null,
@@ -1140,6 +1174,29 @@ export default function TenantsPage() {
                           className="w-full px-4 py-3 border border-slate-300 rounded-lg focus:ring-2 focus:ring-pink-500 focus:border-transparent"
                         />
                       </div>
+                    </div>
+                    <div>
+                      <label className="block text-sm font-semibold text-slate-700 mb-2">
+                        Time Zone *
+                      </label>
+                      <div className="relative">
+                        <i className="fas fa-globe absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" />
+                        <select
+                          className="w-full pl-10 pr-4 py-3 border border-slate-300 rounded-lg focus:ring-2 focus:ring-pink-500 focus:border-transparent appearance-none"
+                          value={formTimezone}
+                          onChange={(e) => setFormTimezone(e.target.value)}
+                        >
+                          {TIMEZONES.map((tz) => (
+                            <option key={tz.value} value={tz.value}>
+                              {tz.label}
+                            </option>
+                          ))}
+                        </select>
+                        <i className="fas fa-chevron-down absolute right-4 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
+                      </div>
+                      <p className="text-xs text-slate-500 mt-1">
+                        This timezone will be used for all bookings and operations
+                      </p>
                     </div>
                     <div>
                       <label className="block text-sm font-semibold text-slate-700 mb-2">

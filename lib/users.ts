@@ -109,6 +109,7 @@ export type SalonStaffInput = {
   state: string;
   fullTime?: boolean;
   username?: string | null;
+  timezone?: string; // IANA timezone (e.g., 'Australia/Sydney')
   status?: "Active" | "Onboarding" | "Inactive";
   systemRole?: AppUserRole;
 };

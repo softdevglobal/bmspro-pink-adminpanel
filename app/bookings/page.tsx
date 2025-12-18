@@ -52,7 +52,7 @@ function BookingsPageContent() {
   const [ownerUid, setOwnerUid] = useState<string | null>(null);
   const [userBranchId, setUserBranchId] = useState<string | null>(null);
   const [userRole, setUserRole] = useState<string | null>(null);
-  const [branches, setBranches] = useState<Array<{ id: string; name: string; address?: string; hours?: any }>>([]);
+  const [branches, setBranches] = useState<Array<{ id: string; name: string; address?: string; hours?: any; timezone?: string }>>([]);
   const [servicesList, setServicesList] = useState<Array<{ id: string | number; name: string; price?: number; duration?: number; icon?: string; branches?: string[]; staffIds?: string[]; imageUrl?: string }>>([]);
   const [staffList, setStaffList] = useState<Array<{ id: string; name: string; role?: string; status?: string; avatar?: string; branchId?: string; branch?: string; weeklySchedule?: Record<string, { branchId: string; branchName: string } | null> | null }>>([]);
 
@@ -1609,7 +1609,9 @@ function BookingsPageContent() {
     const firstServiceId = bkSelectedServices[0];
     const mainTime = bkServiceTimes[String(firstServiceId)];
     
-    const branchName = branches.find((b: any) => String(b.id) === String(bkBranchId))?.name || "";
+    const selectedBranch = branches.find((b: any) => String(b.id) === String(bkBranchId));
+    const branchName = selectedBranch?.name || "";
+    const branchTimezone = selectedBranch?.timezone || "Australia/Sydney"; // Default to Australia/Sydney if not set
     
     // Determine main staff info
     const uniqueStaffIds = new Set(Object.values(bkServiceStaff).filter(Boolean));
@@ -1673,6 +1675,7 @@ function BookingsPageContent() {
           staffName: newBooking.staffName,
           branchId: newBooking.branchId,
           branchName: newBooking.branchName,
+          branchTimezone: branchTimezone, // Include branch timezone for proper conversion
           date: newBooking.date,
           time: newBooking.time,
           duration: newBooking.duration,
