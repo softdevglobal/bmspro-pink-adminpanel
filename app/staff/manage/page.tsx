@@ -36,6 +36,7 @@ export default function SettingsPage() {
   const [weeklySchedule, setWeeklySchedule] = useState<WeeklySchedule>({});
   const [selectedSystemRole, setSelectedSystemRole] = useState<string>("salon_staff");
   const [selectedTimezone, setSelectedTimezone] = useState<string>("Australia/Sydney");
+  const [selectedBranchId, setSelectedBranchId] = useState<string>("");
 
   type StaffTraining = { ohs: boolean; prod: boolean; tool: boolean };
   type HoursDay = { open?: string; close?: string; closed?: boolean };
@@ -64,7 +65,7 @@ export default function SettingsPage() {
     systemRole?: string;
     weeklySchedule?: WeeklySchedule;
   };
-  type Branch = { id: string; name: string; address?: string; revenue?: number; hours?: HoursMap };
+  type Branch = { id: string; name: string; address?: string; revenue?: number; hours?: HoursMap; timezone?: string };
 
   const [data, setData] = useState<{ staff: Staff[]; branches: Branch[] }>({
     staff: [],
@@ -111,6 +112,7 @@ export default function SettingsPage() {
         id: String(r.id),
         name: String(r.name || ""),
         hours: (r as any).hours as HoursMap | undefined,
+        timezone: (r as any).timezone as string | undefined,
       }));
       setData((prev) => ({ ...prev, branches }));
     });
@@ -142,6 +144,18 @@ export default function SettingsPage() {
       unsubStaff();
     };
   }, [ownerUid]);
+
+  // Auto-update timezone when branch is selected for Branch Admin
+  useEffect(() => {
+    if (selectedSystemRole === "salon_branch_admin" && selectedBranchId) {
+      const selectedBranch = data.branches.find((b) => b.id === selectedBranchId);
+      if (selectedBranch?.timezone) {
+        setSelectedTimezone(selectedBranch.timezone);
+      } else {
+        setSelectedTimezone("Australia/Sydney"); // Default fallback
+      }
+    }
+  }, [selectedBranchId, selectedSystemRole, data.branches]);
 
   const showToast = (message: string) => {
     const id = `${Date.now()}`;
@@ -208,9 +222,13 @@ export default function SettingsPage() {
     const email = String(formData.get("email") || "").trim().toLowerCase();
     const mobile = String(formData.get("mobile") || "").trim();
     const password = String(formData.get("password") || "").trim();
-    const branchId = String(formData.get("branch") || "").trim();
+    const branchId = String(formData.get("branch") || selectedBranchId || "").trim();
     const systemRole = String(formData.get("system_role") || "salon_staff");
-    const timezone = String(formData.get("timezone") || "Australia/Sydney");
+    // For Branch Admin, get timezone from the selected branch; otherwise use default
+    const branchRow = data.branches.find((b) => b.id === branchId);
+    const timezone = systemRole === "salon_branch_admin" && branchRow?.timezone 
+      ? branchRow.timezone 
+      : (String(formData.get("timezone") || selectedTimezone || "Australia/Sydney"));
 
     if (!name || !role || !email || !mobile || !ownerUid) return;
     
@@ -219,8 +237,6 @@ export default function SettingsPage() {
       showToast("Branch Admins must be assigned to a branch");
       return;
     }
-    
-    const branchRow = data.branches.find((b) => b.id === branchId);
     
     // For Branch Admins, create a schedule ONLY for days when the branch is open
     let finalSchedule: WeeklySchedule = {};
@@ -479,6 +495,8 @@ export default function SettingsPage() {
       setEditingStaff(null);
       setWeeklySchedule({});
       setSelectedSystemRole("salon_staff");
+      setSelectedBranchId("");
+      setSelectedTimezone("Australia/Sydney");
       showToast(editingStaffId ? "Staff updated successfully!" : "Staff onboarded successfully!");
     } catch {
       showToast(editingStaffId ? "Failed to update staff" : "Failed to onboard staff");
@@ -492,7 +510,12 @@ export default function SettingsPage() {
     setEditingStaff(s);
     setWeeklySchedule(s.weeklySchedule || {});
     setSelectedSystemRole(s.systemRole || "salon_staff");
-    setSelectedTimezone(s.timezone || "Australia/Sydney");
+    setSelectedBranchId(s.branchId || "");
+    // For Branch Admin, timezone will be auto-set from branch via useEffect
+    // For regular staff, use their saved timezone or default
+    if (s.systemRole !== "salon_branch_admin") {
+      setSelectedTimezone(s.timezone || "Australia/Sydney");
+    }
     setIsStaffModalOpen(true);
   };
 
@@ -1087,6 +1110,8 @@ export default function SettingsPage() {
                   setEditingStaff(null);
                   setWeeklySchedule({});
                   setSelectedSystemRole("salon_staff");
+                  setSelectedBranchId("");
+                  setSelectedTimezone("Australia/Sydney");
                 }} 
                 className="text-white/60 hover:text-white transition w-8 h-8 rounded-lg hover:bg-white/10 flex items-center justify-center"
               >
@@ -1202,59 +1227,41 @@ export default function SettingsPage() {
                   
                   {/* Branch Selection - Only shown for Branch Admin */}
                   {selectedSystemRole === "salon_branch_admin" && (
-                    <>
-                      <div>
-                        <label className="block text-xs font-bold text-slate-600 mb-1">
-                          Assigned Branch <span className="text-rose-500">*</span>
-                        </label>
-                        <select
-                          name="branch"
-                          className="w-full border border-indigo-300 rounded-lg p-2 sm:p-2.5 text-xs sm:text-sm bg-white focus:ring-2 focus:ring-indigo-500 focus:outline-none"
-                          defaultValue={editingStaff?.branchId || ""}
-                          required
-                        >
-                          <option value="">-- Select Branch --</option>
-                          {data.branches.length > 0 ? (
-                            data.branches.map((b) => (
-                              <option key={b.id} value={b.id}>
-                                {b.name}
-                              </option>
-                            ))
-                          ) : (
-                            <option value="" disabled>
-                              No Branches Configured
+                    <div>
+                      <label className="block text-xs font-bold text-slate-600 mb-1">
+                        Assigned Branch <span className="text-rose-500">*</span>
+                      </label>
+                      <select
+                        name="branch"
+                        className="w-full border border-indigo-300 rounded-lg p-2 sm:p-2.5 text-xs sm:text-sm bg-white focus:ring-2 focus:ring-indigo-500 focus:outline-none"
+                        value={selectedBranchId}
+                        onChange={(e) => setSelectedBranchId(e.target.value)}
+                        required
+                      >
+                        <option value="">-- Select Branch --</option>
+                        {data.branches.length > 0 ? (
+                          data.branches.map((b) => (
+                            <option key={b.id} value={b.id}>
+                              {b.name}
                             </option>
-                          )}
-                        </select>
-                        <p className="text-[10px] text-indigo-600 mt-1 font-medium">
-                          <i className="fas fa-info-circle mr-1" />
-                          This admin will manage this branch on all opening days.
-                        </p>
-                      </div>
-                      
-                      <div>
-                        <label className="block text-xs font-bold text-slate-600 mb-1">
-                          Time Zone <span className="text-rose-500">*</span>
-                        </label>
-                        <select
-                          name="timezone"
-                          value={selectedTimezone}
-                          onChange={(e) => setSelectedTimezone(e.target.value)}
-                          className="w-full border border-indigo-300 rounded-lg p-2 sm:p-2.5 text-xs sm:text-sm bg-white focus:ring-2 focus:ring-indigo-500 focus:outline-none"
-                          required
-                        >
-                          {TIMEZONES.map((tz) => (
-                            <option key={tz.value} value={tz.value}>
-                              {tz.label}
-                            </option>
-                          ))}
-                        </select>
-                        <p className="text-[10px] text-indigo-600 mt-1 font-medium">
+                          ))
+                        ) : (
+                          <option value="" disabled>
+                            No Branches Configured
+                          </option>
+                        )}
+                      </select>
+                      <p className="text-[10px] text-indigo-600 mt-1 font-medium">
+                        <i className="fas fa-info-circle mr-1" />
+                        This admin will manage this branch on all opening days. Timezone will be automatically set from the branch.
+                      </p>
+                      {selectedBranchId && (
+                        <p className="text-[10px] text-emerald-600 mt-1 font-medium">
                           <i className="fas fa-globe mr-1" />
-                          Branch admin timezone for viewing booking times
+                          Timezone: {data.branches.find(b => b.id === selectedBranchId)?.timezone || "Australia/Sydney"}
                         </p>
-                      </div>
-                    </>
+                      )}
+                    </div>
                   )}
                   
                   {/* Hidden field for Standard Staff - no branch required */}
