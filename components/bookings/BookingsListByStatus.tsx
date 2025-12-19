@@ -178,12 +178,12 @@ function useBookingsByStatus(statuses: BookingStatus | BookingStatus[]) {
             });
           }
         });
-        // Sort by date desc, then time desc
+        // Sort by date asc, then time asc (upcoming bookings first - soonest at top)
         next = next.sort((a, b) => {
           if (a.date === b.date) {
-            return a.time < b.time ? 1 : a.time > b.time ? -1 : 0;
+            return a.time < b.time ? -1 : a.time > b.time ? 1 : 0;
           }
-          return a.date < b.date ? 1 : -1;
+          return a.date < b.date ? -1 : 1;
         });
         setRows(next);
         setLoading(false);
