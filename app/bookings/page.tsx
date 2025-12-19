@@ -11,6 +11,7 @@ import { createBooking } from "@/lib/bookings";
 import { collection, onSnapshot, query, where } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import { shouldBlockSlots } from "@/lib/bookingTypes";
+import { getCurrentDateTimeInTimezone } from "@/lib/timezone";
 
 // Wrapper component to handle search params with Suspense
 function BookingsPageContent() {
@@ -37,6 +38,9 @@ function BookingsPageContent() {
   const [bkClientPhone, setBkClientPhone] = useState<string>("");
   const [bkNotes, setBkNotes] = useState<string>("");
   const [submittingBooking, setSubmittingBooking] = useState<boolean>(false);
+  
+  // Branch timezone time - refreshes every minute to keep time slots accurate
+  const [branchCurrentTime, setBranchCurrentTime] = useState<{ date: string; time: string }>({ date: '', time: '' });
 
   // Staff assignment modal state for confirming bookings
   const [staffAssignModalOpen, setStaffAssignModalOpen] = useState(false);
@@ -932,7 +936,13 @@ function BookingsPageContent() {
       if (userRole === "salon_branch_admin" && userBranchId) {
         filteredBranches = rows.filter((r) => String(r.id) === String(userBranchId));
       }
-      setBranches(filteredBranches.map((r) => ({ id: String(r.id), name: String(r.name || ""), address: (r as any).address, hours: (r as any).hours })));
+      setBranches(filteredBranches.map((r) => ({ 
+        id: String(r.id), 
+        name: String(r.name || ""), 
+        address: (r as any).address, 
+        hours: (r as any).hours,
+        timezone: (r as any).timezone // Include timezone for proper time slot calculation
+      })));
     });
     const unsubServices = subscribeServicesForOwner(ownerUid, (rows) => {
       setServicesList(
@@ -977,6 +987,27 @@ function BookingsPageContent() {
       unsubStaff();
     };
   }, [ownerUid, userRole, userBranchId]);
+
+  // Update branch current time every minute for accurate slot availability
+  useEffect(() => {
+    if (!bkBranchId) return;
+    
+    const selectedBranch = branches.find((b) => b.id === bkBranchId);
+    const branchTimezone = selectedBranch?.timezone || 'Australia/Sydney';
+    
+    // Update immediately
+    const updateTime = () => {
+      const branchTime = getCurrentDateTimeInTimezone(branchTimezone);
+      setBranchCurrentTime({ date: branchTime.date, time: branchTime.time });
+    };
+    
+    updateTime();
+    
+    // Update every minute
+    const interval = setInterval(updateTime, 60000);
+    
+    return () => clearInterval(interval);
+  }, [bkBranchId, branches]);
 
   // Listen for staff assignment modal event from app.updateBookingStatus
   useEffect(() => {
@@ -1546,13 +1577,24 @@ function BookingsPageContent() {
     const endMinutes = Math.floor(endHour) * 60 + Math.round((endHour % 1) * 60);
     const latestSlotStart = endMinutes - serviceDuration;
     
-    // Check if date is today to filter past times
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-    const selectedDateOnly = new Date(bkDate);
-    selectedDateOnly.setHours(0, 0, 0, 0);
-    const isToday = selectedDateOnly.getTime() === today.getTime();
-    const currentMinutes = isToday ? (new Date().getHours() * 60 + new Date().getMinutes()) : -1;
+    // Get the branch's timezone (default to Australia/Sydney if not set)
+    const branchTimezone = selectedBranch?.timezone || 'Australia/Sydney';
+    
+    // Get current date and time in the BRANCH's timezone (not user's local time)
+    // This ensures that if user is in Sri Lanka but branch is in Perth,
+    // we use Perth's current time to determine which slots have passed
+    const branchNow = getCurrentDateTimeInTimezone(branchTimezone);
+    const branchTodayDate = branchNow.date; // YYYY-MM-DD in branch timezone
+    const branchNowTime = branchNow.time; // HH:mm in branch timezone
+    
+    // Check if selected date is today IN THE BRANCH'S TIMEZONE
+    const selectedDateStr = formatLocalYmd(bkDate);
+    const isToday = selectedDateStr === branchTodayDate;
+    
+    // Calculate current minutes based on branch's local time
+    const currentMinutes = isToday 
+      ? parseInt(branchNowTime.split(':')[0]) * 60 + parseInt(branchNowTime.split(':')[1])
+      : -1;
     
     const interval = 15;
     const slots: Array<{ time: string; available: boolean; reason?: string }> = [];
@@ -2014,9 +2056,19 @@ function BookingsPageContent() {
                       {buildMonthCells().map((c, idx) => {
                         const isSelected =
                           c.date && bkDate && bkDate.getFullYear() === c.date.getFullYear() && bkDate.getMonth() === c.date.getMonth() && bkDate.getDate() === c.date.getDate();
-                        const today = new Date();
-                        today.setHours(0, 0, 0, 0);
-                        const isPast = !!(c.date && c.date.getTime() < today.getTime());
+                        
+                        // Use branch timezone to determine "today" and past dates
+                        const selectedBranch = branches.find((b) => b.id === bkBranchId);
+                        const branchTimezone = selectedBranch?.timezone || 'Australia/Sydney';
+                        const branchCurrentDate = getCurrentDateTimeInTimezone(branchTimezone).date;
+                        
+                        // Compare cell date with branch's current date
+                        let isPast = false;
+                        if (c.date) {
+                          const cellDateStr = formatLocalYmd(c.date);
+                          isPast = cellDateStr < branchCurrentDate;
+                        }
+                        
                         const baseClickable = c.date && !isPast ? "cursor-pointer hover:bg-slate-50" : "bg-slate-50/40 cursor-not-allowed opacity-60";
                         return (
                           <div
@@ -2038,6 +2090,38 @@ function BookingsPageContent() {
                     <i className="fas fa-clock text-purple-600" />
                     Select Staff & Time for Each Service
                   </div>
+                  
+                  {/* Branch Timezone Indicator */}
+                  {bkBranchId && (() => {
+                    const selectedBranch = branches.find((b) => b.id === bkBranchId);
+                    const branchTimezone = selectedBranch?.timezone || 'Australia/Sydney';
+                    
+                    // Get timezone display name
+                    const tzLabel = branchTimezone.split('/').pop()?.replace(/_/g, ' ') || branchTimezone;
+                    
+                    return (
+                      <div className="mb-4 p-3 bg-gradient-to-r from-blue-50 to-indigo-50 rounded-lg border border-blue-200">
+                        <div className="flex items-center justify-between flex-wrap gap-2">
+                          <div className="flex items-center gap-2">
+                            <i className="fas fa-globe text-blue-600"></i>
+                            <span className="text-xs font-medium text-blue-800">
+                              Branch Time Zone: <span className="font-bold">{tzLabel}</span>
+                            </span>
+                          </div>
+                          <div className="flex items-center gap-2 bg-white px-3 py-1 rounded-full border border-blue-200">
+                            <i className="fas fa-clock text-blue-500 text-xs"></i>
+                            <span className="text-xs font-bold text-blue-700">
+                              Current Time: {branchCurrentTime.time || '--:--'}
+                            </span>
+                          </div>
+                        </div>
+                        <p className="text-[10px] text-blue-600 mt-2">
+                          <i className="fas fa-info-circle mr-1"></i>
+                          Times shown are in the branch's local timezone. Past slots are automatically hidden.
+                        </p>
+                      </div>
+                    );
+                  })()}
                   
                   {!bkDate ? (
                     <div className="text-center text-slate-400 text-xs py-8 bg-slate-50 rounded-lg border border-slate-200 border-dashed">
