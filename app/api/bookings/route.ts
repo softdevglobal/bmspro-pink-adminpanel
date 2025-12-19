@@ -40,9 +40,27 @@ export async function POST(req: NextRequest) {
     if (!token) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
     let ownerUid: string;
+    let currentUserId: string;
     try {
       const decoded = await adminAuth().verifyIdToken(token);
-      ownerUid = decoded.uid;
+      currentUserId = decoded.uid;
+      
+      // Check if user is a branch admin or staff - if so, use their ownerUid
+      const userDoc = await adminDb().doc(`users/${currentUserId}`).get();
+      const userData = userDoc.data();
+      
+      if (userData) {
+        const userRole = userData.role || userData.systemRole;
+        // For branch admins and staff, use their ownerUid field (the salon owner's UID)
+        if ((userRole === "salon_branch_admin" || userRole === "salon_staff") && userData.ownerUid) {
+          ownerUid = userData.ownerUid;
+        } else {
+          // For salon owners, use their own UID
+          ownerUid = currentUserId;
+        }
+      } else {
+        ownerUid = currentUserId;
+      }
     } catch (e) {
       // In development, allow no-op response so the client-side fallback can persist
       if (process.env.NODE_ENV !== "production") {
@@ -103,14 +121,15 @@ export async function POST(req: NextRequest) {
     } catch {}
 
     // Determine booking source based on user role
+    // We need to fetch the current user's data (not the owner) for the booking source
     let bookingSource = "AdminBooking";
     try {
-      const userDoc = await adminDb().doc(`users/${ownerUid}`).get();
-      const userData = userDoc.data();
-      if (userData) {
-        const userRole = userData.role || userData.systemRole;
-        const userBranchName = userData.branchName || branchName;
-        const userName = userData.displayName || userData.name || "Staff";
+      const currentUserDoc = await adminDb().doc(`users/${currentUserId}`).get();
+      const currentUserData = currentUserDoc.data();
+      if (currentUserData) {
+        const userRole = currentUserData.role || currentUserData.systemRole;
+        const userBranchName = currentUserData.branchName || branchName;
+        const userName = currentUserData.displayName || currentUserData.name || "Staff";
         
         if (userRole === "salon_branch_admin") {
           bookingSource = `Branch Admin Booking - ${userBranchName || "Unknown Branch"}`;

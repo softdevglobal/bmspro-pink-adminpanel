@@ -1,8 +1,36 @@
 import { auth, db } from "@/lib/firebase";
-import { addDoc, collection, serverTimestamp, doc, updateDoc } from "firebase/firestore";
+import { addDoc, collection, serverTimestamp, doc, updateDoc, getDoc } from "firebase/firestore";
 import type { BookingStatus } from "./bookingTypes";
 import { getCurrentUserForAudit, logBookingCreated, logBookingStatusChanged } from "@/lib/auditLog";
 import { localToUTC } from "@/lib/timezone";
+
+/**
+ * Get the correct ownerUid for bookings
+ * For salon owners, this is their own UID
+ * For branch admins and staff, this is their ownerUid field
+ */
+async function getOwnerUidForBooking(): Promise<string | null> {
+  const user = auth.currentUser;
+  if (!user) return null;
+  
+  try {
+    const userDoc = await getDoc(doc(db, "users", user.uid));
+    const userData = userDoc.data();
+    
+    if (userData) {
+      const userRole = userData.role || userData.systemRole;
+      // For branch admins and staff, use their ownerUid field
+      if ((userRole === "salon_branch_admin" || userRole === "salon_staff") && userData.ownerUid) {
+        return userData.ownerUid;
+      }
+    }
+    // For salon owners or if no special role, use their own UID
+    return user.uid;
+  } catch (e) {
+    console.error("Error getting owner UID:", e);
+    return user.uid;
+  }
+}
 
 /**
  * Generate a readable booking code
@@ -80,8 +108,10 @@ export async function createBooking(input: BookingInput): Promise<{ id: string }
     // If API was a dev no-op, also persist from client
     if (json?.devNoop) {
       const newCode = generateBookingCode();
+      // Get the correct ownerUid (salon owner's UID for branch admins/staff)
+      const ownerUid = await getOwnerUidForBooking();
       const payload = {
-        ownerUid: user?.uid || null,
+        ownerUid: ownerUid,
         ...input,
         dateTimeUtc, // Store UTC timestamp
         bookingCode: newCode,
@@ -99,8 +129,10 @@ export async function createBooking(input: BookingInput): Promise<{ id: string }
   } catch {
     // Fallback: write from client (requires Firestore rules allow authenticated writes)
     const newCode = generateBookingCode();
+    // Get the correct ownerUid (salon owner's UID for branch admins/staff)
+    const ownerUid = await getOwnerUidForBooking();
     const payload = {
-      ownerUid: user?.uid || null,
+      ownerUid: ownerUid,
       ...input,
       dateTimeUtc, // Store UTC timestamp
       bookingCode: newCode,
