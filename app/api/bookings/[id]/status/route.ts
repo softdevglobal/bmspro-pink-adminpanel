@@ -15,6 +15,7 @@ import {
   logBookingSentToStaffServer,
   logBookingReassignedServer 
 } from "@/lib/auditLogServer";
+import { checkRateLimit, getClientIdentifier, RateLimiters } from "@/lib/rateLimiter";
 
 // Helper to get activity type from status
 function getActivityType(status: string): string {
@@ -33,6 +34,20 @@ export const runtime = "nodejs";
 
 export async function PATCH(req: NextRequest, context: { params: Promise<{ id: string }> }) {
   try {
+    // Security: Rate limiting to prevent status update spam
+    const clientId = getClientIdentifier(req);
+    const rateLimitResult = checkRateLimit(clientId, RateLimiters.statusUpdate);
+    
+    if (!rateLimitResult.success) {
+      return NextResponse.json(
+        { 
+          error: "Too many requests. Please try again later.",
+          retryAfter: rateLimitResult.retryAfter,
+        },
+        { status: 429 }
+      );
+    }
+
     const { id } = await context.params;
     const authHeader = req.headers.get("authorization") || "";
     const token = authHeader.startsWith("Bearer ") ? authHeader.slice(7) : null;

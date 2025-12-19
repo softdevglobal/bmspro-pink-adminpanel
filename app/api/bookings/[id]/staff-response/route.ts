@@ -8,6 +8,7 @@ import {
   createCustomerReschedulingNotification
 } from "@/lib/notifications";
 import { logBookingStaffResponseServer } from "@/lib/auditLogServer";
+import { checkRateLimit, getClientIdentifier, RateLimiters } from "@/lib/rateLimiter";
 
 export const runtime = "nodejs";
 
@@ -47,6 +48,20 @@ function calculateBookingStatus(services: BookingService[]): string {
  */
 export async function POST(req: NextRequest, context: { params: Promise<{ id: string }> }) {
   try {
+    // Security: Rate limiting to prevent response spam
+    const clientId = getClientIdentifier(req);
+    const rateLimitResult = checkRateLimit(clientId, RateLimiters.statusUpdate);
+    
+    if (!rateLimitResult.success) {
+      return NextResponse.json(
+        { 
+          error: "Too many requests. Please try again later.",
+          retryAfter: rateLimitResult.retryAfter,
+        },
+        { status: 429, headers: corsHeaders }
+      );
+    }
+
     const { id } = await context.params;
     const authHeader = req.headers.get("authorization") || "";
     const token = authHeader.startsWith("Bearer ") ? authHeader.slice(7) : null;
