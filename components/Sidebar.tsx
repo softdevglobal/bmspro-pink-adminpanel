@@ -40,6 +40,7 @@ export default function Sidebar({ mobile = false, onClose }: SidebarProps) {
   const [userEmail, setUserEmail] = useState<string>("");
   const [mounted, setMounted] = useState(false);
   const [confirmOpen, setConfirmOpen] = useState(false);
+  const [signingOut, setSigningOut] = useState(false); // Loading state for sign out
   const [openBookings, setOpenBookings] = useState(pathname?.startsWith("/bookings") || false);
   const [openStaff, setOpenStaff] = useState(pathname?.startsWith("/staff") || false); // Staff Toggle State
   // Do not auto-open based on route; keep user preference until manually changed
@@ -188,6 +189,7 @@ export default function Sidebar({ mobile = false, onClose }: SidebarProps) {
   };
 
   const confirmSignOut = async () => {
+    setSigningOut(true);
     try {
       // Log logout before clearing data
       const currentUser = auth.currentUser;
@@ -207,8 +209,10 @@ export default function Sidebar({ mobile = false, onClose }: SidebarProps) {
         localStorage.removeItem("role");
         localStorage.removeItem("userName");
       }
-      signOut(auth).catch(() => {});
-    } catch {}
+      await signOut(auth);
+    } catch (e) {
+      console.error("Sign out error:", e);
+    }
     router.replace("/login");
   };
 
@@ -484,26 +488,39 @@ export default function Sidebar({ mobile = false, onClose }: SidebarProps) {
     {/* Sign-out confirmation modal */}
     {confirmOpen && (
       <div className="fixed inset-0 z-50">
-        <div className="absolute inset-0 bg-black/50" onClick={cancelSignOut} />
+        <div className="absolute inset-0 bg-black/50" onClick={signingOut ? undefined : cancelSignOut} />
         <div className="absolute inset-0 flex items-center justify-center p-4">
           <div className="w-full max-w-sm bg-white rounded-2xl shadow-2xl border border-slate-200">
             <div className="px-5 py-4 border-b border-slate-200 flex items-center justify-between">
-              <h3 className="text-base font-semibold text-slate-900">Sign out</h3>
-              <button className="text-slate-400 hover:text-slate-600" onClick={cancelSignOut}>
-                <i className="fas fa-times" />
-              </button>
+              <h3 className="text-base font-semibold text-slate-900">
+                {signingOut ? "Signing out..." : "Sign out"}
+              </h3>
+              {!signingOut && (
+                <button className="text-slate-400 hover:text-slate-600" onClick={cancelSignOut}>
+                  <i className="fas fa-times" />
+                </button>
+              )}
             </div>
             <div className="px-5 py-4">
-              <p className="text-sm text-slate-600">Are you sure you want to sign out?</p>
+              {signingOut ? (
+                <div className="flex items-center justify-center gap-3 py-2">
+                  <div className="w-5 h-5 border-2 border-rose-600 border-t-transparent rounded-full animate-spin" />
+                  <p className="text-sm text-slate-600">Please wait while we sign you out...</p>
+                </div>
+              ) : (
+                <p className="text-sm text-slate-600">Are you sure you want to sign out?</p>
+              )}
             </div>
-            <div className="px-5 py-4 border-t border-slate-200 flex items-center justify-end gap-2">
-              <button onClick={cancelSignOut} className="px-4 py-2 rounded-lg text-slate-700 hover:bg-slate-100 text-sm font-semibold">
-                Cancel
-              </button>
-              <button onClick={confirmSignOut} className="px-4 py-2 rounded-lg bg-rose-600 hover:bg-rose-700 text-white text-sm font-semibold">
-                Sign Out
-              </button>
-            </div>
+            {!signingOut && (
+              <div className="px-5 py-4 border-t border-slate-200 flex items-center justify-end gap-2">
+                <button onClick={cancelSignOut} className="px-4 py-2 rounded-lg text-slate-700 hover:bg-slate-100 text-sm font-semibold">
+                  Cancel
+                </button>
+                <button onClick={confirmSignOut} className="px-4 py-2 rounded-lg bg-rose-600 hover:bg-rose-700 text-white text-sm font-semibold">
+                  Sign Out
+                </button>
+              </div>
+            )}
           </div>
         </div>
       </div>
