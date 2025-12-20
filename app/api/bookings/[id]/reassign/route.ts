@@ -6,7 +6,7 @@ import {
   createStaffAssignmentNotification, 
   createCustomerReschedulingNotification 
 } from "@/lib/notifications";
-import { checkRateLimit, getClientIdentifier, RateLimiters } from "@/lib/rateLimiter";
+import { checkRateLimit, getClientIdentifier, RateLimiters, getRateLimitHeaders } from "@/lib/rateLimiterDistributed";
 
 export const runtime = "nodejs";
 
@@ -36,9 +36,9 @@ function calculateBookingStatus(services: BookingService[]): string {
  */
 export async function POST(req: NextRequest, context: { params: Promise<{ id: string }> }) {
   try {
-    // Security: Rate limiting to prevent reassignment spam
+    // Security: Distributed rate limiting to prevent reassignment spam
     const clientId = getClientIdentifier(req);
-    const rateLimitResult = checkRateLimit(clientId, RateLimiters.statusUpdate);
+    const rateLimitResult = await checkRateLimit(clientId, RateLimiters.statusUpdate);
     
     if (!rateLimitResult.success) {
       return NextResponse.json(
@@ -46,7 +46,7 @@ export async function POST(req: NextRequest, context: { params: Promise<{ id: st
           error: "Too many requests. Please try again later.",
           retryAfter: rateLimitResult.retryAfter,
         },
-        { status: 429 }
+        { status: 429, headers: getRateLimitHeaders(rateLimitResult) }
       );
     }
 

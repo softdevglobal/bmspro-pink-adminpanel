@@ -2,15 +2,15 @@ import { NextRequest, NextResponse } from "next/server";
 import { adminAuth, adminDb } from "@/lib/firebaseAdmin";
 import { logStaffSuspendedServer } from "@/lib/auditLogServer";
 import { verifyAdminAuth, STAFF_MANAGEMENT_ROLES, canManageStaff } from "@/lib/authHelpers";
-import { checkRateLimit, getClientIdentifier, RateLimiters } from "@/lib/rateLimiter";
+import { checkRateLimit, getClientIdentifier, RateLimiters, getRateLimitHeaders } from "@/lib/rateLimiterDistributed";
 
 export const runtime = "nodejs";
 
 export async function POST(req: NextRequest) {
   try {
-    // Security: Rate limiting to prevent abuse
+    // Security: Distributed rate limiting to prevent abuse
     const clientId = getClientIdentifier(req);
-    const rateLimitResult = checkRateLimit(clientId, RateLimiters.staffAuth);
+    const rateLimitResult = await checkRateLimit(clientId, RateLimiters.staffAuth);
     
     if (!rateLimitResult.success) {
       return NextResponse.json(
@@ -20,9 +20,7 @@ export async function POST(req: NextRequest) {
         },
         { 
           status: 429,
-          headers: {
-            "Retry-After": String(rateLimitResult.retryAfter),
-          },
+          headers: getRateLimitHeaders(rateLimitResult),
         }
       );
     }

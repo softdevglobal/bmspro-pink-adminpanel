@@ -9,11 +9,13 @@ import { formatInTimezone } from "@/lib/timezone";
 
 type AuditLog = {
   id: string;
+  ownerUid?: string;
   action: string;
   actionType: "create" | "update" | "delete" | "status_change" | "login" | "logout" | "other";
   entityType: string;
   entityId?: string;
   entityName?: string;
+  bookingCode?: string;
   performedBy: string;
   performedByName?: string;
   performedByRole?: string;
@@ -115,11 +117,13 @@ export default function AuditLogsPage() {
           const timestampValue = d.createdAt || d.timestamp;
           logsList.push({
             id: doc.id,
+            ownerUid: d.ownerUid,
             action: d.action || "Unknown action",
             actionType: d.actionType || "other",
             entityType: d.entityType || "other",
             entityId: d.entityId,
             entityName: d.entityName,
+            bookingCode: d.bookingCode,
             performedBy: d.performedBy || "Unknown",
             performedByName: d.performedByName,
             performedByRole: d.performedByRole,
@@ -154,11 +158,13 @@ export default function AuditLogsPage() {
               const timestampValue = d.createdAt || d.timestamp;
               logsList.push({
                 id: doc.id,
+                ownerUid: d.ownerUid,
                 action: d.action || "Unknown action",
                 actionType: d.actionType || "other",
                 entityType: d.entityType || "other",
                 entityId: d.entityId,
                 entityName: d.entityName,
+                bookingCode: d.bookingCode,
                 performedBy: d.performedBy || "Unknown",
                 performedByName: d.performedByName,
                 performedByRole: d.performedByRole,
@@ -266,6 +272,18 @@ export default function AuditLogsPage() {
       case "super_admin": return "Super Admin";
       default: return role;
     }
+  };
+
+  // Helper to check if a string is a valid booking code (starts with "BK-")
+  const isBookingCode = (value?: string) => {
+    return value && value.startsWith("BK-");
+  };
+
+  // Get display value for booking - only show booking code, not booking ID
+  const getBookingDisplayValue = (log: AuditLog) => {
+    if (isBookingCode(log.bookingCode)) return log.bookingCode;
+    if (isBookingCode(log.entityName)) return log.entityName;
+    return null; // Don't show booking IDs
   };
 
   // Stats
@@ -472,7 +490,11 @@ export default function AuditLogsPage() {
                               <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-slate-100 text-slate-600">
                                 <i className={`fas ${entityConfig.icon} text-[10px]`} />
                                 {entityConfig.label}
-                                {log.entityName && <span className="font-medium">: {log.entityName}</span>}
+                                {/* For bookings: show booking code only, for others: show entity name */}
+                                {log.entityType === "booking" 
+                                  ? getBookingDisplayValue(log) && <span className="font-medium">: {getBookingDisplayValue(log)}</span>
+                                  : log.entityName && <span className="font-medium">: {log.entityName}</span>
+                                }
                               </span>
                               
                               {/* User Badge */}
@@ -614,26 +636,36 @@ export default function AuditLogsPage() {
                   </div>
                 </div>
 
-                {/* Entity Details */}
-                {(previewLog.entityId || previewLog.entityName) && (
+                {/* Booking Details - Only show if we have a valid booking code */}
+                {previewLog.entityType === "booking" && getBookingDisplayValue(previewLog) && (
+                  <div className="bg-white rounded-xl p-4 border-2 border-slate-200">
+                    <h5 className="font-semibold text-sm text-slate-800 mb-3 flex items-center gap-2">
+                      <i className="fas fa-calendar-check text-pink-600" />
+                      Booking Details
+                    </h5>
+                    <div className="space-y-2 text-sm">
+                      <div className="flex justify-between">
+                        <span className="text-slate-500">Booking Code</span>
+                        <span className="font-medium text-slate-900">
+                          {getBookingDisplayValue(previewLog)}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* Entity Details - For non-booking types */}
+                {previewLog.entityType !== "booking" && previewLog.entityName && (
                   <div className="bg-white rounded-xl p-4 border-2 border-slate-200">
                     <h5 className="font-semibold text-sm text-slate-800 mb-3 flex items-center gap-2">
                       <i className={`fas ${getEntityConfig(previewLog.entityType).icon} text-pink-600`} />
                       {getEntityConfig(previewLog.entityType).label} Details
                     </h5>
                     <div className="space-y-2 text-sm">
-                      {previewLog.entityName && (
-                        <div className="flex justify-between">
-                          <span className="text-slate-500">Name</span>
-                          <span className="font-medium text-slate-900">{previewLog.entityName}</span>
-                        </div>
-                      )}
-                      {previewLog.entityId && (
-                        <div className="flex justify-between">
-                          <span className="text-slate-500">ID</span>
-                          <span className="font-mono text-xs bg-slate-100 px-2 py-1 rounded">{previewLog.entityId}</span>
-                        </div>
-                      )}
+                      <div className="flex justify-between">
+                        <span className="text-slate-500">Name</span>
+                        <span className="font-medium text-slate-900">{previewLog.entityName}</span>
+                      </div>
                     </div>
                   </div>
                 )}
@@ -646,9 +678,6 @@ export default function AuditLogsPage() {
                       Branch
                     </h5>
                     <div className="text-sm font-medium text-slate-900">{previewLog.branchName}</div>
-                    {previewLog.branchId && (
-                      <div className="font-mono text-xs text-slate-400 mt-1">{previewLog.branchId}</div>
-                    )}
                   </div>
                 )}
 
@@ -704,16 +733,6 @@ export default function AuditLogsPage() {
                   </div>
                 )}
 
-                {/* Log ID */}
-                <div className="bg-slate-50 rounded-xl p-4 border border-slate-200">
-                  <div className="flex items-center justify-between text-sm">
-                    <span className="text-slate-500 flex items-center gap-2">
-                      <i className="fas fa-fingerprint" />
-                      Log ID
-                    </span>
-                    <span className="font-mono text-xs text-slate-600">{previewLog.id}</span>
-                  </div>
-                </div>
               </div>
 
               {/* Footer */}

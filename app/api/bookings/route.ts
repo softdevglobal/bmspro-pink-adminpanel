@@ -3,7 +3,7 @@ import { adminAuth, adminDb } from "@/lib/firebaseAdmin";
 import { FieldValue } from "firebase-admin/firestore";
 import { normalizeBookingStatus, shouldBlockSlots } from "@/lib/bookingTypes";
 import { generateBookingCode } from "@/lib/bookings";
-import { checkRateLimit, getClientIdentifier, RateLimiters } from "@/lib/rateLimiter";
+import { checkRateLimit, getClientIdentifier, RateLimiters, getRateLimitHeaders } from "@/lib/rateLimiterDistributed";
 
 export const runtime = "nodejs";
 
@@ -30,9 +30,10 @@ type CreateBookingInput = {
 
 export async function POST(req: NextRequest) {
   try {
-    // Security: Rate limiting to prevent booking spam
+    // Security: Distributed rate limiting to prevent booking spam
+    // Works across all serverless instances (Vercel, etc.)
     const clientId = getClientIdentifier(req);
-    const rateLimitResult = checkRateLimit(clientId, RateLimiters.booking);
+    const rateLimitResult = await checkRateLimit(clientId, RateLimiters.booking);
     
     if (!rateLimitResult.success) {
       return NextResponse.json(
@@ -42,11 +43,7 @@ export async function POST(req: NextRequest) {
         },
         { 
           status: 429,
-          headers: {
-            "Retry-After": String(rateLimitResult.retryAfter),
-            "X-RateLimit-Remaining": "0",
-            "X-RateLimit-Reset": String(rateLimitResult.resetTime),
-          },
+          headers: getRateLimitHeaders(rateLimitResult),
         }
       );
     }

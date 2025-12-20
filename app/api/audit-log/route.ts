@@ -1,15 +1,15 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createAuditLogServer } from "@/lib/auditLogServer";
 import { verifyAdminAuth, ADMIN_ROLES, verifyTenantAccess } from "@/lib/authHelpers";
-import { checkRateLimit, getClientIdentifier, RateLimiters } from "@/lib/rateLimiter";
+import { checkRateLimit, getClientIdentifier, RateLimiters, getRateLimitHeaders } from "@/lib/rateLimiterDistributed";
 
 export const runtime = "nodejs";
 
 export async function POST(req: NextRequest) {
   try {
-    // Security: Rate limiting to prevent audit log spam
+    // Security: Distributed rate limiting to prevent audit log spam
     const clientId = getClientIdentifier(req);
-    const rateLimitResult = checkRateLimit(clientId, RateLimiters.auditLog);
+    const rateLimitResult = await checkRateLimit(clientId, RateLimiters.auditLog);
     
     if (!rateLimitResult.success) {
       return NextResponse.json(
@@ -19,11 +19,7 @@ export async function POST(req: NextRequest) {
         },
         { 
           status: 429,
-          headers: {
-            "Retry-After": String(rateLimitResult.retryAfter),
-            "X-RateLimit-Remaining": "0",
-            "X-RateLimit-Reset": String(rateLimitResult.resetTime),
-          },
+          headers: getRateLimitHeaders(rateLimitResult),
         }
       );
     }

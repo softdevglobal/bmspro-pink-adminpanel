@@ -3,7 +3,7 @@ import { adminAuth, adminDb } from "@/lib/firebaseAdmin";
 import { FieldValue } from "firebase-admin/firestore";
 import { normalizeBookingStatus, type BookingService, type ServiceCompletionStatus, areAllServicesCompleted } from "@/lib/bookingTypes";
 import { createNotification, getNotificationContent } from "@/lib/notifications";
-import { checkRateLimit, getClientIdentifier, RateLimiters } from "@/lib/rateLimiter";
+import { checkRateLimit, getClientIdentifier, RateLimiters, getRateLimitHeaders } from "@/lib/rateLimiterDistributed";
 
 export const runtime = "nodejs";
 
@@ -25,9 +25,9 @@ export async function OPTIONS() {
  */
 export async function POST(req: NextRequest, context: { params: Promise<{ id: string }> }) {
   try {
-    // Security: Rate limiting to prevent service completion spam
+    // Security: Distributed rate limiting to prevent service completion spam
     const clientId = getClientIdentifier(req);
-    const rateLimitResult = checkRateLimit(clientId, RateLimiters.statusUpdate);
+    const rateLimitResult = await checkRateLimit(clientId, RateLimiters.statusUpdate);
     
     if (!rateLimitResult.success) {
       return NextResponse.json(
@@ -35,7 +35,7 @@ export async function POST(req: NextRequest, context: { params: Promise<{ id: st
           error: "Too many requests. Please try again later.",
           retryAfter: rateLimitResult.retryAfter,
         },
-        { status: 429, headers: corsHeaders }
+        { status: 429, headers: { ...corsHeaders, ...getRateLimitHeaders(rateLimitResult) } }
       );
     }
 

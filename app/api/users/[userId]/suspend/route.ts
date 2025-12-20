@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { adminAuth, adminDb } from "@/lib/firebaseAdmin";
 import { FieldValue } from "firebase-admin/firestore";
-import { checkRateLimit, getClientIdentifier, RateLimiters } from "@/lib/rateLimiter";
+import { checkRateLimit, getClientIdentifier, RateLimiters, getRateLimitHeaders } from "@/lib/rateLimiterDistributed";
 
 export const runtime = "nodejs";
 
@@ -10,9 +10,9 @@ export async function POST(
   context: { params: Promise<{ userId: string }> }
 ) {
   try {
-    // Security: Rate limiting to prevent suspension spam
+    // Security: Distributed rate limiting to prevent suspension spam
     const clientId = getClientIdentifier(req);
-    const rateLimitResult = checkRateLimit(clientId, RateLimiters.staffAuth);
+    const rateLimitResult = await checkRateLimit(clientId, RateLimiters.staffAuth);
     
     if (!rateLimitResult.success) {
       return NextResponse.json(
@@ -20,7 +20,7 @@ export async function POST(
           error: "Too many requests. Please try again later.",
           retryAfter: rateLimitResult.retryAfter,
         },
-        { status: 429 }
+        { status: 429, headers: getRateLimitHeaders(rateLimitResult) }
       );
     }
 

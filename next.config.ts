@@ -8,28 +8,40 @@ const nextConfig: NextConfig = {
       bodySizeLimit: '1mb', // Limit Server Action payload size
     },
   },
-  // Security: Add headers to prevent source code exposure
+  // Security headers are now handled in middleware.ts with full CSP support
+  // This section provides fallback headers for static assets
   async headers() {
     return [
       {
         source: '/:path*',
         headers: [
+          // Prevent MIME type sniffing
           {
             key: 'X-Content-Type-Options',
             value: 'nosniff',
           },
+          // Prevent clickjacking
           {
             key: 'X-Frame-Options',
             value: 'DENY',
           },
-          {
-            key: 'X-XSS-Protection',
-            value: '1; mode=block',
-          },
+          // Control referrer information
           {
             key: 'Referrer-Policy',
             value: 'strict-origin-when-cross-origin',
           },
+          // Force HTTPS
+          {
+            key: 'Strict-Transport-Security',
+            value: 'max-age=31536000; includeSubDomains; preload',
+          },
+          // Restrict browser features
+          {
+            key: 'Permissions-Policy',
+            value: 'camera=(), microphone=(), geolocation=(), interest-cohort=()',
+          },
+          // NOTE: X-XSS-Protection is intentionally removed - it's deprecated
+          // CSP in middleware.ts is the modern replacement
         ],
       },
     ];
