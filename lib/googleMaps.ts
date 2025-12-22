@@ -5,7 +5,8 @@
 
 /// <reference types="@types/google.maps" />
 
-const GOOGLE_MAPS_API_KEY = "AIzaSyA2LP8ornek2rve4QBm5d9FLQKOrF78I6M";
+// Google Maps API key from environment variable (prefer env; fallback to hard-coded dev value)
+const GOOGLE_MAPS_API_KEY = process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY || "AIzaSyA2LP8ornek2rve4QBm5d9FLQKOrF78I6M";
 
 // Track loading state
 let isLoading = false;
