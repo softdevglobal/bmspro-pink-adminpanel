@@ -16,22 +16,22 @@ function generateCSP(): string {
     // Default: block everything unless explicitly allowed
     "default-src 'self'",
     
-    // Scripts: Allow self, Firebase SDK, Google APIs (for Firebase Auth), Chart.js CDN
+    // Scripts: Allow self, Firebase SDK, Google APIs (for Firebase Auth), Chart.js CDN, Leaflet
     // 'unsafe-inline' is needed for Next.js hydration, but we use 'strict-dynamic' where possible
     // In production, consider using nonces for stricter security
-    "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://*.firebaseio.com https://*.googleapis.com https://apis.google.com https://www.gstatic.com https://www.google.com https://www.recaptcha.net https://cdn.jsdelivr.net",
+    "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://*.firebaseio.com https://*.googleapis.com https://apis.google.com https://www.gstatic.com https://www.google.com https://www.recaptcha.net https://cdn.jsdelivr.net https://unpkg.com",
     
-    // Styles: Allow self, inline styles (Tailwind), Google Fonts, and Font Awesome
-    "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://cdnjs.cloudflare.com",
+    // Styles: Allow self, inline styles (Tailwind), Google Fonts, Font Awesome, and Leaflet
+    "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://cdnjs.cloudflare.com https://unpkg.com",
     
-    // Images: Allow self, data URIs, Firebase Storage, and common CDNs
-    "img-src 'self' data: blob: https://*.firebasestorage.app https://*.googleapis.com https://*.googleusercontent.com",
+    // Images: Allow self, data URIs, Firebase Storage, OpenStreetMap tiles, and DiceBear avatars
+    "img-src 'self' data: blob: https://*.firebasestorage.app https://*.googleapis.com https://*.googleusercontent.com https://tile.openstreetmap.org https://*.tile.openstreetmap.org https://api.dicebear.com",
     
     // Fonts: Allow self, Google Fonts, and Font Awesome (cdnjs)
     "font-src 'self' https://fonts.gstatic.com https://cdnjs.cloudflare.com",
     
-    // Connect: API endpoints, Firebase, and WebSocket connections
-    "connect-src 'self' https://*.firebaseio.com https://*.googleapis.com wss://*.firebaseio.com https://firestore.googleapis.com https://identitytoolkit.googleapis.com https://securetoken.googleapis.com https://firebaseinstallations.googleapis.com https://*.cloudfunctions.net https://www.google.com https://www.recaptcha.net",
+    // Connect: API endpoints, Firebase, WebSocket connections, OpenStreetMap, and Leaflet CDN
+    "connect-src 'self' https://*.firebaseio.com https://*.googleapis.com wss://*.firebaseio.com https://firestore.googleapis.com https://identitytoolkit.googleapis.com https://securetoken.googleapis.com https://firebaseinstallations.googleapis.com https://*.cloudfunctions.net https://www.google.com https://www.recaptcha.net https://nominatim.openstreetmap.org https://*.tile.openstreetmap.org https://unpkg.com https://ka-f.fontawesome.com",
     
     // Frames: Block all except Google reCAPTCHA and Firebase Auth
     "frame-src 'self' https://*.firebaseapp.com https://www.google.com https://www.recaptcha.net",
@@ -83,10 +83,10 @@ export function middleware(request: NextRequest) {
     "max-age=31536000; includeSubDomains; preload"
   );
   
-  // 6. Permissions Policy - Restrict browser features
+  // 6. Permissions Policy - Restrict browser features (allow geolocation for staff check-in)
   response.headers.set(
     "Permissions-Policy",
-    "camera=(), microphone=(), geolocation=(), interest-cohort=()"
+    "camera=(), microphone=(), geolocation=(self), interest-cohort=()"
   );
   
   // NOTE: X-XSS-Protection is intentionally REMOVED
