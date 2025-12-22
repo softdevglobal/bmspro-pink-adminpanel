@@ -1,58 +1,167 @@
 "use client";
-import React, { useState } from "react";
-import Script from "next/script";
+import React, { useState, useEffect } from "react";
 import Sidebar from "@/components/Sidebar";
+import { useRouter } from "next/navigation";
+import { auth, db } from "@/lib/firebase";
+import { onAuthStateChanged } from "firebase/auth";
+import { doc, getDoc, Timestamp } from "firebase/firestore";
+import { subscribeBranchesForOwner, BranchLocation } from "@/lib/branches";
+import { subscribeToCheckInsForOwner, StaffCheckInRecord } from "@/lib/staffCheckIn";
+import { formatDistance } from "@/lib/geolocation";
+import dynamic from "next/dynamic";
+
+// Dynamically import map component to avoid SSR issues
+const CheckInsMapView = dynamic(
+  () => import("@/components/staff/CheckInsMapView"),
+  { 
+    ssr: false, 
+    loading: () => (
+      <div className="w-full h-full flex items-center justify-center bg-slate-100">
+        <div className="flex flex-col items-center gap-3">
+          <div className="w-8 h-8 border-4 border-pink-500 border-t-transparent rounded-full animate-spin" />
+          <span className="text-sm text-slate-500">Loading map...</span>
+        </div>
+      </div>
+    )
+  }
+);
+
+interface Branch {
+  id: string;
+  name: string;
+  location?: BranchLocation;
+  allowedCheckInRadius?: number;
+}
 
 export default function AttendancePage() {
+  const router = useRouter();
+  const [ownerUid, setOwnerUid] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [selectedDate, setSelectedDate] = useState(new Date());
+  const [selectedBranchId, setSelectedBranchId] = useState<string>("all");
+  const [checkIns, setCheckIns] = useState<StaffCheckInRecord[]>([]);
+  const [branches, setBranches] = useState<Branch[]>([]);
+  const [selectedCheckIn, setSelectedCheckIn] = useState<StaffCheckInRecord | null>(null);
   const [activeView, setActiveView] = useState<"dashboard" | "timesheets">("dashboard");
-  const [mapStatus, setMapStatus] = useState<"match" | "mismatch">("mismatch");
-  const [filterBranch, setFilterBranch] = useState("all");
-  const [filterStaff, setFilterStaff] = useState("all");
   const [mobileOpen, setMobileOpen] = useState(false);
 
-  const switchView = (view: "dashboard" | "timesheets") => {
-    setActiveView(view);
+  // Auth check
+  useEffect(() => {
+    const unsub = onAuthStateChanged(auth, async (user) => {
+      if (!user) {
+        router.push("/login");
+        return;
+      }
+      
+      // Get owner UID
+      const staffDoc = await getDoc(doc(db, "salon_staff", user.uid));
+      if (staffDoc.exists()) {
+        const data = staffDoc.data();
+        setOwnerUid(data.ownerUid || user.uid);
+      } else {
+        setOwnerUid(user.uid);
+      }
+      setLoading(false);
+    });
+    return () => unsub();
+  }, [router]);
+
+  // Subscribe to branches
+  useEffect(() => {
+    if (!ownerUid) return;
+    
+    const unsub = subscribeBranchesForOwner(ownerUid, (branchList) => {
+      setBranches(branchList.map(b => ({
+        id: b.id,
+        name: b.name,
+        location: b.location,
+        allowedCheckInRadius: b.allowedCheckInRadius
+      })));
+    });
+    
+    return () => unsub();
+  }, [ownerUid]);
+
+  // Subscribe to check-ins for selected date
+  useEffect(() => {
+    if (!ownerUid) return;
+    
+    const unsub = subscribeToCheckInsForOwner(ownerUid, selectedDate, (records) => {
+      setCheckIns(records);
+    });
+    
+    return () => unsub();
+  }, [ownerUid, selectedDate]);
+
+  // Computed values
+  const activeCheckIns = checkIns.filter(c => c.status === "checked_in");
+  const completedCheckIns = checkIns.filter(c => c.status === "checked_out" || c.status === "auto_checked_out");
+  const outsideRadiusCheckIns = checkIns.filter(c => !c.isWithinRadius);
+
+  // Filter check-ins by selected branch
+  const filteredCheckIns = selectedBranchId === "all" 
+    ? checkIns 
+    : checkIns.filter(c => c.branchId === selectedBranchId);
+
+  // Date navigation
+  const goToPreviousDay = () => {
+    const newDate = new Date(selectedDate);
+    newDate.setDate(newDate.getDate() - 1);
+    setSelectedDate(newDate);
   };
 
-  const updateMap = (status: "match" | "mismatch") => {
-    setMapStatus(status);
+  const goToNextDay = () => {
+    const newDate = new Date(selectedDate);
+    newDate.setDate(newDate.getDate() + 1);
+    setSelectedDate(newDate);
   };
 
-  const applyFilters = (type: "branch" | "staff", value: string) => {
-    if (type === "branch") setFilterBranch(value);
-    if (type === "staff") setFilterStaff(value);
+  const goToToday = () => {
+    setSelectedDate(new Date());
   };
 
-  // Mock Data for filtering logic
-  const staffCards = [
-    { branch: "Lynbrook Warehouse", staff: "Mark Lee", name: "Mark Lee", initials: "ML", date: "Dec 06", status: "On Track", shift: "7h 0m", clockIn: "09:00 AM", breakStart: "12:00 PM", breakEnd: "01:00 PM", clockOut: "05:00 PM", variance: false },
-    { branch: "Lynbrook Warehouse", staff: "Sarah Jenkins", name: "Sarah Jenkins", initials: "SJ", date: "Dec 06", status: "Review Needed", shift: "7h 0m", clockIn: "08:55 AM", breakStart: "12:05 PM", breakEnd: "01:00 PM", clockOut: "05:00 PM", variance: true, varianceText: "5km Variance" }
-  ];
+  const formatDate = (date: Date) => {
+    return date.toLocaleDateString("en-AU", { 
+      weekday: "long", 
+      day: "numeric", 
+      month: "long", 
+      year: "numeric" 
+    });
+  };
 
-  const filteredStaff = staffCards.filter(card => {
-    const matchBranch = filterBranch === "all" || card.branch === filterBranch;
-    const matchStaff = filterStaff === "all" || card.staff === filterStaff;
-    return matchBranch && matchStaff;
-  });
+  const toDate = (value: Date | Timestamp): Date => {
+    return value instanceof Timestamp ? value.toDate() : value;
+  };
+
+  const formatTime = (date: Date | Timestamp) => {
+    return toDate(date).toLocaleTimeString("en-AU", { 
+      hour: "2-digit", 
+      minute: "2-digit",
+      hour12: true 
+    });
+  };
+
+  const calculateDuration = (checkIn: Date | Timestamp, checkOut?: Date | Timestamp | null) => {
+    const start = toDate(checkIn);
+    const end = checkOut ? toDate(checkOut) : new Date();
+    const diff = end.getTime() - start.getTime();
+    const hours = Math.floor(diff / (1000 * 60 * 60));
+    const minutes = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60));
+    return `${hours}h ${minutes}m`;
+  };
 
   return (
     <div className="flex h-screen overflow-hidden bg-slate-50 font-inter text-slate-800">
-      <Script src="https://unpkg.com/lucide@latest" onLoad={() => {
-        // @ts-ignore
-        if (window.lucide) window.lucide.createIcons();
-      }} />
-
       <Sidebar />
 
       {/* Main Content Area */}
       <div className="flex-1 flex flex-col overflow-hidden">
-        {/* Main Scrollable Area */}
         <main className="flex-1 overflow-auto">
           
           {/* Mobile Toggle */}
           <div className="md:hidden p-4 bg-white border-b border-slate-200 flex items-center justify-between shrink-0">
-             <h2 className="font-bold text-lg text-slate-800">Attendance</h2>
-             <button
+            <h2 className="font-bold text-lg text-slate-800">Attendance</h2>
+            <button
               className="inline-flex items-center gap-2 rounded-lg border border-slate-200 px-3 py-2 text-slate-700 shadow-sm hover:bg-slate-50"
               onClick={() => setMobileOpen(true)}
             >
@@ -72,10 +181,10 @@ export default function AttendancePage() {
             </div>
           )}
 
-          {/* Page Content Container with Padding */}
+          {/* Page Content */}
           <div className="p-4 sm:p-6 lg:p-8">
             
-            {/* Top Section: Card + Controls */}
+            {/* Header Card */}
             <div className="mb-6">
               <div className="rounded-2xl bg-gradient-to-r from-pink-500 via-fuchsia-600 to-indigo-600 text-white p-6 shadow-sm">
                 <div className="flex items-center gap-3">
@@ -84,185 +193,412 @@ export default function AttendancePage() {
                   </div>
                   <div>
                     <h1 className="text-2xl font-bold">Staff Attendance</h1>
-                    <p className="text-sm text-white/80 mt-1">Live Reconciliation, Timesheets & GPS</p>
+                    <p className="text-sm text-white/80 mt-1">Monitor staff attendance with real-time geofencing</p>
                   </div>
                 </div>
               </div>
             </div>
 
-            {/* View Switcher Tabs */}
-            <div className="flex justify-between items-center mb-4">
-               <div />
-               <div className="bg-white border border-slate-200 p-1 rounded-lg flex">
-                  <button 
-                    onClick={() => switchView('dashboard')}
-                    className={`px-4 py-1.5 text-sm font-medium rounded-md transition ${activeView === 'dashboard' ? 'bg-pink-50 text-pink-600' : 'text-slate-500 hover:text-slate-700'}`}
-                  >
-                    Live Dashboard
-                  </button>
-                  <button 
-                    onClick={() => switchView('timesheets')}
-                    className={`px-4 py-1.5 text-sm font-medium rounded-md transition ${activeView === 'timesheets' ? 'bg-pink-50 text-pink-600' : 'text-slate-500 hover:text-slate-700'}`}
-                  >
-                    Timesheets & GPS
-                  </button>
-               </div>
-               
-               {activeView === 'dashboard' && (
-                 <div className="hidden md:flex gap-4 text-sm items-center">
-                    <div className="flex items-center gap-2"><span className="w-2 h-2 rounded-full bg-green-500"></span> 4 Active</div>
-                    <div className="flex items-center gap-2"><span className="w-2 h-2 rounded-full bg-pink-500 animate-pulse"></span> 1 Exception</div>
-                 </div>
-               )}
-               
-               {activeView === 'timesheets' && (
-                 <div className="flex gap-2">
-                     <select 
-                        onChange={(e) => applyFilters('branch', e.target.value)} 
-                        className="pl-3 pr-8 py-1.5 bg-white border border-slate-200 text-sm rounded-md focus:ring-pink-500 outline-none"
-                     >
-                        <option value="all">All Branches</option>
-                        <option value="Lynbrook Warehouse">Lynbrook Warehouse</option>
-                        <option value="City Office">City Office</option>
-                    </select>
-                    <select 
-                        onChange={(e) => applyFilters('staff', e.target.value)} 
-                        className="pl-3 pr-8 py-1.5 bg-white border border-slate-200 text-sm rounded-md focus:ring-pink-500 outline-none"
-                    >
-                        <option value="all">All Staff</option>
-                        <option value="Mark Lee">Mark Lee</option>
-                        <option value="Sarah Jenkins">Sarah Jenkins</option>
-                    </select>
-                 </div>
-               )}
+            {/* Loading State */}
+            {loading && (
+              <div className="flex items-center justify-center py-20">
+                <div className="flex flex-col items-center gap-4">
+                  <div className="w-12 h-12 border-4 border-pink-500 border-t-transparent rounded-full animate-spin" />
+                  <span className="text-slate-600">Loading attendance data...</span>
+                </div>
+              </div>
+            )}
+
+            {/* Main Content - only show after loading */}
+            {!loading && (
+            <>
+            {/* Stats Cards */}
+            <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+              <div className="bg-white rounded-xl border border-slate-200 p-4 shadow-sm">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-full bg-blue-100 flex items-center justify-center">
+                    <i className="fas fa-clock text-blue-600" />
+                  </div>
+                  <div>
+                    <div className="text-2xl font-bold text-slate-800">{activeCheckIns.length}</div>
+                    <div className="text-xs text-slate-500">Currently Active</div>
+                  </div>
+                </div>
+              </div>
+              
+              <div className="bg-white rounded-xl border border-slate-200 p-4 shadow-sm">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-full bg-green-100 flex items-center justify-center">
+                    <i className="fas fa-check-circle text-green-600" />
+                  </div>
+                  <div>
+                    <div className="text-2xl font-bold text-slate-800">{completedCheckIns.length}</div>
+                    <div className="text-xs text-slate-500">Completed Today</div>
+                  </div>
+                </div>
+              </div>
+              
+              <div className="bg-white rounded-xl border border-slate-200 p-4 shadow-sm">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-full bg-purple-100 flex items-center justify-center">
+                    <i className="fas fa-users text-purple-600" />
+                  </div>
+                  <div>
+                    <div className="text-2xl font-bold text-slate-800">{checkIns.length}</div>
+                    <div className="text-xs text-slate-500">Total Check-ins</div>
+                  </div>
+                </div>
+              </div>
+              
+              <div className="bg-white rounded-xl border border-slate-200 p-4 shadow-sm">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-full bg-red-100 flex items-center justify-center">
+                    <i className="fas fa-exclamation-triangle text-red-600" />
+                  </div>
+                  <div>
+                    <div className="text-2xl font-bold text-slate-800">{outsideRadiusCheckIns.length}</div>
+                    <div className="text-xs text-slate-500">Outside Radius</div>
+                  </div>
+                </div>
+              </div>
             </div>
 
-            {/* Views Container */}
+            {/* Date Navigation & Filters */}
+            <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-6">
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={goToPreviousDay}
+                  className="p-2 rounded-lg border border-slate-200 hover:bg-slate-50 text-slate-600"
+                >
+                  <i className="fas fa-chevron-left" />
+                </button>
+                <div className="px-4 py-2 bg-white rounded-lg border border-slate-200 font-medium text-slate-700 min-w-[200px] text-center">
+                  {formatDate(selectedDate)}
+                </div>
+                <button
+                  onClick={goToNextDay}
+                  className="p-2 rounded-lg border border-slate-200 hover:bg-slate-50 text-slate-600"
+                >
+                  <i className="fas fa-chevron-right" />
+                </button>
+                <button
+                  onClick={goToToday}
+                  className="px-3 py-2 rounded-lg bg-pink-50 text-pink-600 font-medium hover:bg-pink-100 text-sm"
+                >
+                  Today
+                </button>
+              </div>
+
+              <div className="flex items-center gap-3">
+                {/* Branch Filter */}
+                <select
+                  value={selectedBranchId}
+                  onChange={(e) => setSelectedBranchId(e.target.value)}
+                  className="px-3 py-2 bg-white border border-slate-200 rounded-lg text-sm focus:ring-pink-500 outline-none"
+                >
+                  <option value="all">All Branches</option>
+                  {branches.map(branch => (
+                    <option key={branch.id} value={branch.id}>{branch.name}</option>
+                  ))}
+                </select>
+
+                {/* View Toggle */}
+                <div className="bg-white border border-slate-200 p-1 rounded-lg flex">
+                  <button 
+                    onClick={() => setActiveView('dashboard')}
+                    className={`px-3 py-1.5 text-sm font-medium rounded-md transition flex items-center gap-2 ${activeView === 'dashboard' ? 'bg-pink-50 text-pink-600' : 'text-slate-500 hover:text-slate-700'}`}
+                  >
+                    <i className="fas fa-map" /> Map
+                  </button>
+                  <button 
+                    onClick={() => setActiveView('timesheets')}
+                    className={`px-3 py-1.5 text-sm font-medium rounded-md transition flex items-center gap-2 ${activeView === 'timesheets' ? 'bg-pink-50 text-pink-600' : 'text-slate-500 hover:text-slate-700'}`}
+                  >
+                    <i className="fas fa-list" /> List
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            {/* Main Content Area */}
             <div className="bg-white border border-slate-200 rounded-xl overflow-hidden shadow-sm">
               
-              {/* Dashboard View */}
+              {/* Map View */}
               {activeView === 'dashboard' && (
-                <div className="flex flex-col md:flex-row h-[600px]">
-                  {/* Sidebar List */}
-                  <div className="w-full md:w-1/3 border-r border-slate-200 bg-white flex flex-col">
-                    <div className="p-4 bg-slate-50 border-b border-slate-200 font-semibold text-xs text-slate-500 uppercase">Staff On Shift</div>
+                <div className="flex flex-col lg:flex-row h-[600px]">
+                  {/* Staff List Sidebar */}
+                  <div className="w-full lg:w-80 border-b lg:border-b-0 lg:border-r border-slate-200 bg-white flex flex-col">
+                    <div className="p-4 bg-slate-50 border-b border-slate-200 font-semibold text-xs text-slate-500 uppercase flex items-center justify-between">
+                      <span>Check-ins ({filteredCheckIns.length})</span>
+                      <span className="flex items-center gap-2 text-green-600">
+                        <span className="w-2 h-2 rounded-full bg-green-500 animate-pulse" />
+                        {activeCheckIns.length} Active
+                      </span>
+                    </div>
                     <div className="overflow-y-auto flex-1">
-                      <div onClick={() => updateMap('match')} className="p-4 border-b border-slate-100 hover:bg-slate-50 cursor-pointer group">
-                        <div className="flex justify-between items-start">
-                          <div>
-                            <h4 className="font-bold text-slate-800">Sarah Jenkins</h4>
-                            <p className="text-xs text-slate-500">Lynbrook Warehouse</p>
-                          </div>
-                          <span className="bg-green-100 text-green-700 text-[10px] font-bold px-2 py-0.5 rounded-full">MATCH</span>
+                      {filteredCheckIns.length === 0 ? (
+                        <div className="p-8 text-center text-slate-400">
+                          <i className="fas fa-map-marker-alt text-3xl mb-3 opacity-50" />
+                          <p>No check-ins for this date</p>
                         </div>
-                      </div>
-                      <div onClick={() => updateMap('mismatch')} className="p-4 border-b border-slate-100 bg-pink-50/40 hover:bg-pink-50 cursor-pointer border-l-4 border-l-pink-500">
-                        <div className="flex justify-between items-start">
-                          <div>
-                            <h4 className="font-bold text-slate-800">Mark Lee</h4>
-                            <p className="text-xs text-slate-500">Lynbrook Warehouse</p>
+                      ) : (
+                        filteredCheckIns.map((checkIn) => (
+                          <div 
+                            key={checkIn.id}
+                            onClick={() => setSelectedCheckIn(checkIn)}
+                            className={`p-4 border-b border-slate-100 cursor-pointer transition ${
+                              selectedCheckIn?.id === checkIn.id 
+                                ? 'bg-pink-50 border-l-4 border-l-pink-500' 
+                                : !checkIn.isWithinRadius 
+                                  ? 'bg-red-50/50 hover:bg-red-50 border-l-4 border-l-red-400' 
+                                  : 'hover:bg-slate-50'
+                            }`}
+                          >
+                            <div className="flex justify-between items-start mb-2">
+                              <div className="flex items-center gap-3">
+                                <div className={`w-10 h-10 rounded-full flex items-center justify-center font-bold text-sm ${
+                                  checkIn.status === 'checked_in' 
+                                    ? 'bg-green-100 text-green-700' 
+                                    : 'bg-slate-100 text-slate-600'
+                                }`}>
+                                  {checkIn.staffName.split(' ').map(n => n[0]).join('')}
+                                </div>
+                                <div>
+                                  <h4 className="font-semibold text-slate-800">{checkIn.staffName}</h4>
+                                  <p className="text-xs text-slate-500">{checkIn.branchName}</p>
+                                </div>
+                              </div>
+                              <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
+                                checkIn.status === 'checked_in'
+                                  ? 'bg-green-100 text-green-700'
+                                  : 'bg-slate-100 text-slate-600'
+                              }`}>
+                                {checkIn.status === 'checked_in' ? 'ACTIVE' : 'DONE'}
+                              </span>
+                            </div>
+                            
+                            <div className="flex items-center gap-4 text-xs text-slate-500">
+                              <span className="flex items-center gap-1">
+                                <i className="fas fa-sign-in-alt" />
+                                {formatTime(checkIn.checkInTime)}
+                              </span>
+                              {checkIn.checkOutTime && (
+                                <span className="flex items-center gap-1">
+                                  <i className="fas fa-sign-out-alt" />
+                                  {formatTime(checkIn.checkOutTime)}
+                                </span>
+                              )}
+                            </div>
+                            
+                            {!checkIn.isWithinRadius && (
+                              <div className="mt-2 text-xs text-red-600 font-medium flex items-center gap-1">
+                                <i className="fas fa-exclamation-triangle" />
+                                {formatDistance(checkIn.distanceFromBranch)} away from branch
+                              </div>
+                            )}
                           </div>
-                          <span className="bg-pink-100 text-pink-700 text-[10px] font-bold px-2 py-0.5 rounded-full">ALERT</span>
-                        </div>
-                        <p className="text-xs text-red-500 mt-2 font-mono">⚠ 1.5km Variance Detected</p>
-                      </div>
+                        ))
+                      )}
                     </div>
                   </div>
 
                   {/* Map Area */}
-                  <div className="flex-1 relative bg-slate-200 min-h-[300px]">
-                     <div className="absolute inset-0 opacity-40 bg-[url('https://upload.wikimedia.org/wikipedia/commons/e/ec/Map_of_Lynbrook%2C_Victoria.png')] bg-cover bg-center grayscale"></div>
-                     
-                     <div className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 z-10 flex flex-col items-center">
-                        <div className="bg-slate-800 text-white text-[10px] px-2 py-1 rounded mb-1 whitespace-nowrap">Job Site</div>
-                        <i data-lucide="map-pin" className="w-8 h-8 text-blue-600 fill-blue-100"></i>
-                     </div>
-
-                     <div 
-                       className={`absolute z-20 transition-all duration-500 ease-in-out flex flex-col items-center`}
-                       style={{ 
-                         top: mapStatus === 'match' ? '50%' : '30%', 
-                         left: mapStatus === 'match' ? '50%' : '70%',
-                         transform: 'translate(-50%, -50%)'
-                       }}
-                     >
-                         <div className={`${mapStatus === 'match' ? 'bg-white border-green-200 text-green-600' : 'bg-white border-pink-200 text-pink-600'} border shadow-lg text-[10px] font-bold px-2 py-1 rounded mb-1 whitespace-nowrap text-center`}>
-                             {mapStatus === 'match' ? 'Matched' : <>Mark Lee<br/>1.5km Away</>}
-                         </div>
-                         <i data-lucide="map-pin" className={`w-10 h-10 mx-auto ${mapStatus === 'match' ? 'text-green-600 fill-green-50' : 'text-pink-600 fill-pink-50 animate-bounce'}`}></i>
-                     </div>
+                  <div className="flex-1 relative min-h-[300px]">
+                    <CheckInsMapView
+                      checkIns={filteredCheckIns}
+                      branches={branches}
+                      selectedBranchId={selectedBranchId === "all" ? null : selectedBranchId}
+                      onSelectCheckIn={setSelectedCheckIn}
+                    />
                   </div>
                 </div>
               )}
 
-              {/* Timesheets View */}
+              {/* List View */}
               {activeView === 'timesheets' && (
                 <div className="flex flex-col">
-                  <div className="p-6 space-y-6 bg-slate-50">
-                      {filteredStaff.map((card, idx) => (
-                          <div key={idx} className="staff-card bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
-                              <div className={`px-6 py-4 border-b border-slate-100 flex justify-between items-center ${card.variance ? 'bg-pink-50' : 'bg-slate-50'}`}>
-                                  <div className="flex items-center gap-3">
-                                      <div className={`w-10 h-10 rounded-full flex items-center justify-center font-bold ${card.variance ? 'bg-white text-pink-600 border border-pink-100' : 'bg-slate-200 text-slate-600'}`}>
-                                          {card.initials}
-                                      </div>
-                                      <div>
-                                          <h3 className="font-bold text-slate-800">{card.name}</h3>
-                                          <div className="text-xs text-slate-500">{card.branch} • {card.date}</div>
-                                      </div>
-                                  </div>
-                                  <span className={`text-xs font-bold px-2 py-1 rounded ${card.variance ? 'bg-pink-600 text-white shadow-sm' : 'bg-green-100 text-green-700'}`}>
-                                      {card.status}
-                                  </span>
+                  {filteredCheckIns.length === 0 ? (
+                    <div className="p-12 text-center text-slate-400">
+                      <i className="fas fa-clipboard-list text-4xl mb-4 opacity-50" />
+                      <p className="text-lg font-medium">No check-ins for this date</p>
+                      <p className="text-sm">Staff check-in records will appear here</p>
+                    </div>
+                  ) : (
+                    <div className="p-6 space-y-4 bg-slate-50">
+                      {filteredCheckIns.map((checkIn) => (
+                        <div 
+                          key={checkIn.id} 
+                          className={`bg-white rounded-xl shadow-sm border overflow-hidden ${
+                            !checkIn.isWithinRadius ? 'border-red-200' : 'border-slate-200'
+                          }`}
+                        >
+                          {/* Card Header */}
+                          <div className={`px-6 py-4 border-b flex justify-between items-center ${
+                            !checkIn.isWithinRadius ? 'bg-red-50 border-red-100' : 'bg-slate-50 border-slate-100'
+                          }`}>
+                            <div className="flex items-center gap-3">
+                              <div className={`w-10 h-10 rounded-full flex items-center justify-center font-bold ${
+                                checkIn.status === 'checked_in'
+                                  ? 'bg-green-100 text-green-700 border border-green-200'
+                                  : 'bg-slate-200 text-slate-600'
+                              }`}>
+                                {checkIn.staffName.split(' ').map(n => n[0]).join('')}
                               </div>
-
-                              <div className="p-6">
-                                  <div className={`flex items-center mb-6 ${card.variance ? 'opacity-50' : ''}`}>
-                                      <div className="w-12 text-xs font-bold text-slate-400 uppercase tracking-wider">Shift</div>
-                                      <div className="flex-1 h-8 bg-slate-100 rounded relative overflow-hidden flex items-center">
-                                          <div className={`absolute h-full ${card.variance ? 'bg-slate-400' : 'bg-pink-500'}`} style={{left: '0%', width: '37.5%'}} title="Work"></div>
-                                          <div className="absolute h-full bg-[repeating-linear-gradient(45deg,#f1f5f9_25%,transparent_25%,transparent_75%,#f1f5f9_75%,#f1f5f9),repeating-linear-gradient(45deg,#f1f5f9_25%,#f8fafc_25%,#f8fafc_75%,#f1f5f9_75%,#f1f5f9)] bg-[length:20px_20px] border-x border-white" style={{left: '37.5%', width: '12.5%'}} title="Unpaid Break"></div>
-                                          <div className={`absolute h-full ${card.variance ? 'bg-slate-400' : 'bg-pink-500'}`} style={{left: '50%', width: '50%'}} title="Work"></div>
-                                      </div>
-                                      <div className="w-16 text-right text-sm font-bold text-slate-800 ml-4">{card.shift}</div>
-                                  </div>
-
-                                  <div className={`${card.variance ? 'bg-pink-50 border-pink-200' : 'bg-slate-50 border-slate-200'} rounded-lg border p-4`}>
-                                      <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-xs">
-                                          <div>
-                                              <div className={`${card.variance ? 'text-pink-700' : 'text-slate-400'} uppercase font-semibold mb-1 flex items-center gap-1`}>
-                                                  {card.variance && <i data-lucide="alert-triangle" className="w-3 h-3"></i>} Clock In
-                                              </div>
-                                              <div className={`text-lg font-bold ${card.variance ? 'text-pink-700' : 'text-slate-800'}`}>{card.clockIn}</div>
-                                              <div className={`mt-1 flex items-center gap-1 ${card.variance ? 'text-pink-700 border-pink-200' : 'text-slate-500 border-slate-200'} bg-white border rounded px-1.5 py-1 font-mono w-fit`}>
-                                                  <i data-lucide="map-pin" className="w-3 h-3"></i> {card.variance ? '-38.10, 145.30' : '-38.05, 145.25'}
-                                              </div>
-                                              {card.variance && <div className="text-[10px] text-pink-600 mt-1 font-medium">{card.varianceText}</div>}
-                                          </div>
-                                          <div>
-                                              <div className="text-slate-400 uppercase font-semibold mb-1">Break Start</div>
-                                              <div className="text-lg font-medium text-slate-600">{card.breakStart}</div>
-                                          </div>
-                                          <div>
-                                              <div className="text-slate-400 uppercase font-semibold mb-1">Break End</div>
-                                              <div className="text-lg font-medium text-slate-600">{card.breakEnd}</div>
-                                          </div>
-                                          <div>
-                                              <div className="text-slate-400 uppercase font-semibold mb-1">Clock Out</div>
-                                              <div className="text-lg font-bold text-slate-800">{card.clockOut}</div>
-                                              <div className="mt-1 flex items-center gap-1 text-slate-500 bg-white border border-slate-200 rounded px-1.5 py-1 font-mono w-fit">
-                                                  <i data-lucide="map-pin" className="w-3 h-3"></i> -38.05, 145.25
-                                              </div>
-                                          </div>
-                                      </div>
-                                  </div>
+                              <div>
+                                <h3 className="font-bold text-slate-800">{checkIn.staffName}</h3>
+                                <div className="text-xs text-slate-500">
+                                  {checkIn.branchName} • {checkIn.staffRole || 'Staff'}
+                                </div>
                               </div>
+                            </div>
+                            <div className="flex items-center gap-2">
+                              {!checkIn.isWithinRadius && (
+                                <span className="bg-red-100 text-red-700 text-xs font-bold px-2 py-1 rounded flex items-center gap-1">
+                                  <i className="fas fa-exclamation-triangle" /> Location Alert
+                                </span>
+                              )}
+                              <span className={`text-xs font-bold px-2 py-1 rounded ${
+                                checkIn.status === 'checked_in'
+                                  ? 'bg-green-500 text-white'
+                                  : 'bg-slate-200 text-slate-600'
+                              }`}>
+                                {checkIn.status === 'checked_in' ? 'Currently Working' : 'Shift Complete'}
+                              </span>
+                            </div>
                           </div>
+
+                          {/* Card Body */}
+                          <div className="p-6">
+                            {/* Time Bar */}
+                            <div className="flex items-center mb-6">
+                              <div className="w-16 text-xs font-bold text-slate-400 uppercase tracking-wider">Shift</div>
+                              <div className="flex-1 h-8 bg-slate-100 rounded relative overflow-hidden flex items-center">
+                                <div 
+                                  className={`absolute h-full ${checkIn.status === 'checked_in' ? 'bg-green-500' : 'bg-pink-500'}`} 
+                                  style={{ left: '0%', width: '100%' }}
+                                />
+                              </div>
+                              <div className="w-20 text-right text-sm font-bold text-slate-800 ml-4">
+                                {calculateDuration(checkIn.checkInTime, checkIn.checkOutTime)}
+                              </div>
+                            </div>
+
+                            {/* Details Grid */}
+                            <div className={`rounded-lg border p-4 ${
+                              !checkIn.isWithinRadius ? 'bg-red-50 border-red-200' : 'bg-slate-50 border-slate-200'
+                            }`}>
+                              <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-xs">
+                                <div>
+                                  <div className={`uppercase font-semibold mb-1 flex items-center gap-1 ${
+                                    !checkIn.isWithinRadius ? 'text-red-700' : 'text-slate-400'
+                                  }`}>
+                                    {!checkIn.isWithinRadius && <i className="fas fa-exclamation-triangle" />} Clock In
+                                  </div>
+                                  <div className={`text-lg font-bold ${!checkIn.isWithinRadius ? 'text-red-700' : 'text-slate-800'}`}>
+                                    {formatTime(checkIn.checkInTime)}
+                                  </div>
+                                  <div className={`mt-1 flex items-center gap-1 bg-white border rounded px-1.5 py-1 font-mono w-fit text-[10px] ${
+                                    !checkIn.isWithinRadius ? 'text-red-700 border-red-200' : 'text-slate-500 border-slate-200'
+                                  }`}>
+                                    <i className="fas fa-map-pin" /> {checkIn.staffLatitude.toFixed(4)}, {checkIn.staffLongitude.toFixed(4)}
+                                  </div>
+                                  {!checkIn.isWithinRadius && (
+                                    <div className="text-[10px] text-red-600 mt-1 font-medium">
+                                      {formatDistance(checkIn.distanceFromBranch)} from branch
+                                    </div>
+                                  )}
+                                </div>
+                                
+                                <div>
+                                  <div className="text-slate-400 uppercase font-semibold mb-1">Distance</div>
+                                  <div className={`text-lg font-bold ${
+                                    checkIn.isWithinRadius ? 'text-green-600' : 'text-red-600'
+                                  }`}>
+                                    {formatDistance(checkIn.distanceFromBranch)}
+                                  </div>
+                                  <div className="text-[10px] text-slate-500 mt-1">
+                                    Allowed: {formatDistance(checkIn.allowedRadius)}
+                                  </div>
+                                </div>
+                                
+                                <div>
+                                  <div className="text-slate-400 uppercase font-semibold mb-1">Status</div>
+                                  <div className={`text-lg font-medium ${
+                                    checkIn.isWithinRadius ? 'text-green-600' : 'text-red-600'
+                                  }`}>
+                                    {checkIn.isWithinRadius ? '✓ Within Range' : '✗ Outside Range'}
+                                  </div>
+                                </div>
+                                
+                                <div>
+                                  <div className="text-slate-400 uppercase font-semibold mb-1">Clock Out</div>
+                                  {checkIn.checkOutTime ? (
+                                    <>
+                                      <div className="text-lg font-bold text-slate-800">
+                                        {formatTime(checkIn.checkOutTime)}
+                                      </div>
+                                    </>
+                                  ) : (
+                                    <div className="text-lg font-medium text-green-600 flex items-center gap-1">
+                                      <span className="w-2 h-2 rounded-full bg-green-500 animate-pulse" />
+                                      In Progress
+                                    </div>
+                                  )}
+                                </div>
+                              </div>
+                            </div>
+                          </div>
+                        </div>
                       ))}
-                  </div>
+                    </div>
+                  )}
                 </div>
               )}
             </div>
+
+            {/* Branches Quick View */}
+            <div className="mt-6">
+              <h3 className="text-lg font-bold text-slate-800 mb-4 flex items-center gap-2">
+                <i className="fas fa-store text-pink-500" /> Branches
+              </h3>
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                {branches.map(branch => (
+                  <div 
+                    key={branch.id}
+                    className={`bg-white rounded-xl border p-4 shadow-sm cursor-pointer transition hover:shadow-md ${
+                      selectedBranchId === branch.id ? 'border-pink-300 ring-2 ring-pink-100' : 'border-slate-200'
+                    }`}
+                    onClick={() => setSelectedBranchId(selectedBranchId === branch.id ? "all" : branch.id)}
+                  >
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-3">
+                        <div className={`w-10 h-10 rounded-lg flex items-center justify-center ${
+                          branch.location ? 'bg-green-100' : 'bg-amber-100'
+                        }`}>
+                          <i className={`fas fa-map-marker-alt ${branch.location ? 'text-green-600' : 'text-amber-600'}`} />
+                        </div>
+                        <div>
+                          <h4 className="font-semibold text-slate-800">{branch.name}</h4>
+                          <p className="text-xs text-slate-500">
+                            {branch.location 
+                              ? `Radius: ${branch.allowedCheckInRadius || 100}m` 
+                              : 'No location set'}
+                          </p>
+                        </div>
+                      </div>
+                      <div className="text-right">
+                        <div className="text-lg font-bold text-slate-800">
+                          {checkIns.filter(c => c.branchId === branch.id && c.status === 'checked_in').length}
+                        </div>
+                        <div className="text-xs text-slate-500">Active</div>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+            </>
+            )}
           </div>
         </main>
       </div>

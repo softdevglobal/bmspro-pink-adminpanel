@@ -412,8 +412,8 @@ export default function Sidebar({ mobile = false, onClose }: SidebarProps) {
                       : "text-slate-400 hover:bg-slate-800 hover:text-white"
                   }`}
                 >
-                  <i className="fas fa-calendar-check w-4" />
-                  <span>Attendance</span>
+                  <i className="fas fa-map-location-dot w-4" />
+                  <span>Attendance & GPS</span>
                 </Link>
               </>
             )}

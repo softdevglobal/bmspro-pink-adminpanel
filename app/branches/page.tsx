@@ -5,10 +5,18 @@ import { useRouter } from "next/navigation";
 import { auth, db } from "@/lib/firebase";
 import { onAuthStateChanged } from "firebase/auth";
 import { doc, getDoc } from "firebase/firestore";
-import { BranchInput, createBranchForOwner, subscribeBranchesForOwner } from "@/lib/branches";
+import { BranchInput, BranchLocation, createBranchForOwner, subscribeBranchesForOwner } from "@/lib/branches";
 import { subscribeSalonStaffForOwner } from "@/lib/salonStaff";
 import { subscribeServicesForOwner } from "@/lib/services";
 import { TIMEZONES } from "@/lib/timezone";
+import dynamic from "next/dynamic";
+import { DEFAULT_CHECK_IN_RADIUS } from "@/lib/geolocation";
+
+// Dynamically import the location picker to avoid SSR issues with Google Maps
+const BranchLocationPicker = dynamic(
+  () => import("@/components/branches/BranchLocationPicker"),
+  { ssr: false, loading: () => <div className="h-64 bg-slate-100 rounded-xl animate-pulse flex items-center justify-center text-slate-400"><i className="fas fa-spinner fa-spin mr-2" />Loading map...</div> }
+);
 
 type Branch = {
   id: string;
@@ -35,6 +43,9 @@ type Branch = {
   manager?: string;
   adminStaffId?: string;
   status?: "Active" | "Pending" | "Closed";
+  // Geolocation fields
+  location?: BranchLocation;
+  allowedCheckInRadius?: number;
 };
 
 type HoursDay = { open?: string; close?: string; closed?: boolean };
@@ -83,6 +94,9 @@ export default function BranchesPage() {
   const [staffOptions, setStaffOptions] = useState<Array<{ id: string; name: string; email?: string; status?: string; branch?: string }>>([]);
   const [selectedServiceIds, setSelectedServiceIds] = useState<Record<string, boolean>>({});
   const [selectedStaffIds, setSelectedStaffIds] = useState<Record<string, boolean>>({});
+  // Location state for geofencing
+  const [branchLocation, setBranchLocation] = useState<BranchLocation | null>(null);
+  const [allowedCheckInRadius, setAllowedCheckInRadius] = useState(DEFAULT_CHECK_IN_RADIUS);
 
   // seed defaults (only used when no data in db; not persisted)
   const defaultBranches: Branch[] = useMemo(() => [], []);
@@ -133,6 +147,7 @@ export default function BranchesPage() {
         revenue: Number(r.revenue || 0),
         phone: r.phone,
         email: r.email,
+        timezone: r.timezone,
         // @ts-ignore
         hours: r.hours,
         capacity: r.capacity,
@@ -141,6 +156,9 @@ export default function BranchesPage() {
         status: (r.status as any) || "Active",
         staffIds: Array.isArray((r as any).staffIds) ? (r as any).staffIds.map(String) : [],
         serviceIds: Array.isArray((r as any).serviceIds) ? (r as any).serviceIds.map(String) : [],
+        // Geolocation fields
+        location: r.location as BranchLocation | undefined,
+        allowedCheckInRadius: r.allowedCheckInRadius,
       }));
       
       // If branch admin, filter to only show their assigned branch
@@ -217,6 +235,9 @@ export default function BranchesPage() {
     setStatus("Active");
     setSelectedServiceIds({});
     setSelectedStaffIds({});
+    // Reset location state
+    setBranchLocation(null);
+    setAllowedCheckInRadius(DEFAULT_CHECK_IN_RADIUS);
     setIsModalOpen(true);
   };
   const closeModal = () => setIsModalOpen(false);
@@ -253,6 +274,9 @@ export default function BranchesPage() {
     setCapacity((b as any).capacity ?? "");
     setAdminStaffId((b as any).adminStaffId || "");
     setStatus(((b as any).status as any) || "Active");
+    // Set location state
+    setBranchLocation(b.location || null);
+    setAllowedCheckInRadius(b.allowedCheckInRadius || DEFAULT_CHECK_IN_RADIUS);
     setIsModalOpen(true);
   };
 
@@ -274,7 +298,7 @@ export default function BranchesPage() {
 
       const payload: BranchInput = {
         name: name.trim(),
-        address: address.trim(),
+        address: branchLocation?.formattedAddress || address.trim(),
         phone: phone.trim() || undefined,
         email: derivedEmail,
         timezone: timezone || "Australia/Sydney", // Include timezone
@@ -285,6 +309,9 @@ export default function BranchesPage() {
         manager: derivedManager,
         adminStaffId: adminStaffId || null,
         status,
+        // Geolocation data for staff check-in
+        location: branchLocation || undefined,
+        allowedCheckInRadius: allowedCheckInRadius,
       };
       if (editingId) {
         await (await import("@/lib/branches")).updateBranch(editingId, payload);
@@ -392,11 +419,28 @@ export default function BranchesPage() {
                         )}
                       </div>
                     </div>
-                        {(b.phone || b.email) && (
-                          <div className="mt-3 text-xs text-slate-500 flex flex-col gap-1">
-                            {b.phone && <div><i className="fas fa-phone mr-1" /> {b.phone}</div>}
-                            {b.email && <div className="truncate"><i className="fas fa-envelope mr-1" /> {b.email}</div>}</div>
-                        )}
+                        {/* Location & Contact Info */}
+                        <div className="mt-4 pt-4 border-t border-slate-100">
+                          <div className="flex flex-wrap items-center gap-2 text-xs">
+                            {/* Geofencing Status */}
+                            {b.location?.latitude && b.location?.longitude ? (
+                              <span className="inline-flex items-center gap-1 px-2 py-1 rounded-full bg-emerald-50 text-emerald-700">
+                                <i className="fas fa-map-marker-alt" />
+                                Geofencing: {b.allowedCheckInRadius || 100}m
+                              </span>
+                            ) : (
+                              <span className="inline-flex items-center gap-1 px-2 py-1 rounded-full bg-amber-50 text-amber-700">
+                                <i className="fas fa-map-marker-alt" />
+                                No location set
+                              </span>
+                            )}
+                            {b.phone && (
+                              <span className="inline-flex items-center gap-1 text-slate-500">
+                                <i className="fas fa-phone" /> {b.phone}
+                              </span>
+                            )}
+                          </div>
+                        </div>
                   </div>
                 );
               })}
@@ -520,6 +564,31 @@ export default function BranchesPage() {
                         </p>
                       </div>
                     </div>
+                  </div>
+
+                  {/* Location Section for Geofencing */}
+                  <div className="bg-white p-5 rounded-xl border border-slate-100 shadow-sm space-y-4">
+                    <div className="flex items-center gap-2 text-slate-800 font-semibold border-b border-slate-100 pb-2 mb-2">
+                      <i className="fas fa-map-location-dot text-purple-500" />
+                      Staff Check-in Location
+                    </div>
+                    <p className="text-xs text-slate-500 -mt-2 mb-3">
+                      <i className="fas fa-info-circle mr-1" />
+                      Set the branch location for staff geofenced check-in. Staff must be within the specified radius to clock in.
+                    </p>
+                    <BranchLocationPicker
+                      initialLocation={branchLocation || undefined}
+                      initialRadius={allowedCheckInRadius}
+                      onLocationChange={(loc) => {
+                        setBranchLocation(loc);
+                        // Auto-update address if location changes
+                        if (loc?.formattedAddress) {
+                          setAddress(loc.formattedAddress);
+                        }
+                      }}
+                      onRadiusChange={setAllowedCheckInRadius}
+                      disabled={saving}
+                    />
                   </div>
 
                   <div className="bg-white p-5 rounded-xl border border-slate-100 shadow-sm space-y-4">
