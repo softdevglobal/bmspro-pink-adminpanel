@@ -48,6 +48,12 @@ export type StaffCheckInRecord = {
   // Notes
   note?: string;
   
+  // Break periods
+  breakPeriods?: Array<{
+    startTime?: Timestamp | Date | null;
+    endTime?: Timestamp | Date | null;
+  }>;
+  
   // Metadata
   createdAt?: Timestamp;
   updatedAt?: Timestamp;

@@ -344,10 +344,10 @@ export default function AttendancePage() {
               
               {/* Map View */}
               {activeView === 'dashboard' && (
-                <div className="flex flex-col lg:flex-row h-[600px]">
+                <div className="flex flex-col lg:flex-row h-[600px] lg:h-[600px] min-h-[400px]">
                   {/* Staff List Sidebar */}
-                  <div className="w-full lg:w-80 border-b lg:border-b-0 lg:border-r border-slate-200 bg-white flex flex-col">
-                    <div className="p-4 bg-slate-50 border-b border-slate-200 font-semibold text-xs text-slate-500 uppercase flex items-center justify-between">
+                  <div className="w-full lg:w-80 border-b lg:border-b-0 lg:border-r border-slate-200 bg-white flex flex-col max-h-[300px] lg:max-h-none">
+                    <div className="p-4 bg-slate-50 border-b border-slate-200 font-semibold text-xs text-slate-500 uppercase flex items-center justify-between shrink-0">
                       <span>Check-ins ({filteredCheckIns.length})</span>
                       <span className="flex items-center gap-2 text-green-600">
                         <span className="w-2 h-2 rounded-full bg-green-500 animate-pulse" />
@@ -422,7 +422,7 @@ export default function AttendancePage() {
                   </div>
 
                   {/* Map Area */}
-                  <div className="flex-1 relative min-h-[300px]">
+                  <div className="flex-1 relative min-h-[400px] lg:min-h-[300px] w-full">
                     <CheckInsMapView
                       checkIns={filteredCheckIns}
                       branches={branches}

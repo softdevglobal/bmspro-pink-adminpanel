@@ -307,7 +307,7 @@ export default function CheckInsMapView({
     <div className="relative">
       <div
         ref={mapRef}
-        className="w-full h-96 lg:h-[500px] rounded-xl border border-slate-200 overflow-hidden"
+        className="w-full h-full min-h-[400px] lg:min-h-[500px] rounded-xl border border-slate-200 overflow-hidden"
       />
       {!isLoaded && (
         <div className="absolute inset-0 bg-slate-100 flex items-center justify-center rounded-xl">
