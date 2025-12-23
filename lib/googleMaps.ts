@@ -74,23 +74,48 @@ export function loadGoogleMaps(): Promise<void> {
       return;
     }
 
+    // Set up callback BEFORE creating script to ensure it's available when script loads
+    window.initGoogleMapsCallback = () => {
+      isLoaded = true;
+      isLoading = false;
+      if (window.initGoogleMapsCallback) {
+        window.initGoogleMapsCallback = undefined;
+      }
+      resolve();
+    };
+
     // Create and load script
     const script = document.createElement("script");
     script.src = `https://maps.googleapis.com/maps/api/js?key=${GOOGLE_MAPS_API_KEY}&libraries=places,marker&callback=initGoogleMapsCallback`;
     script.async = true;
     script.defer = true;
 
-    window.initGoogleMapsCallback = () => {
-      isLoaded = true;
-      isLoading = false;
-      window.initGoogleMapsCallback = undefined;
-      resolve();
-    };
-
-    script.onerror = () => {
+    script.onerror = (error) => {
       isLoading = false;
       loadPromise = null;
-      reject(new Error("Failed to load Google Maps script"));
+      if (window.initGoogleMapsCallback) {
+        window.initGoogleMapsCallback = undefined;
+      }
+      console.error("Google Maps script failed to load:", error);
+      console.error("API Key:", GOOGLE_MAPS_API_KEY ? `${GOOGLE_MAPS_API_KEY.substring(0, 10)}...` : "NOT SET");
+      reject(new Error(`Failed to load Google Maps script. Please check your API key and network connection.`));
+    };
+
+    // Add timeout to detect if script never loads
+    const timeout = setTimeout(() => {
+      if (isLoading) {
+        isLoading = false;
+        loadPromise = null;
+        if (window.initGoogleMapsCallback) {
+          window.initGoogleMapsCallback = undefined;
+        }
+        script.remove();
+        reject(new Error("Google Maps script load timeout. Please check your API key and network connection."));
+      }
+    }, 15000); // 15 second timeout
+
+    script.onload = () => {
+      clearTimeout(timeout);
     };
 
     document.head.appendChild(script);

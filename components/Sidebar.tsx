@@ -415,6 +415,17 @@ export default function Sidebar({ mobile = false, onClose }: SidebarProps) {
                   <i className="fas fa-map-location-dot w-4" />
                   <span>Attendance & GPS</span>
                 </Link>
+                <Link
+                  href="/staff/timesheets"
+                  className={`ml-3 flex items-center space-x-3 px-3 py-2 rounded-lg text-sm font-medium transition ${
+                    pathname === "/staff/timesheets"
+                      ? "bg-slate-800 text-white"
+                      : "text-slate-400 hover:bg-slate-800 hover:text-white"
+                  }`}
+                >
+                  <i className="fas fa-clock w-4" />
+                  <span>Timesheets</span>
+                </Link>
               </>
             )}
           </>
