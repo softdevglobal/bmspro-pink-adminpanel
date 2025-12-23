@@ -344,9 +344,9 @@ export default function AttendancePage() {
               
               {/* Map View */}
               {activeView === 'dashboard' && (
-                <div className="flex flex-col lg:flex-row h-[600px] lg:h-[600px] min-h-[400px]">
+                <div className="flex flex-col lg:flex-row" style={{ height: 'calc(100vh - 280px)', minHeight: '500px' }}>
                   {/* Staff List Sidebar */}
-                  <div className="w-full lg:w-80 border-b lg:border-b-0 lg:border-r border-slate-200 bg-white flex flex-col max-h-[300px] lg:max-h-none">
+                  <div className="w-full lg:w-80 border-b lg:border-b-0 lg:border-r border-slate-200 bg-white flex flex-col lg:h-full">
                     <div className="p-4 bg-slate-50 border-b border-slate-200 font-semibold text-xs text-slate-500 uppercase flex items-center justify-between shrink-0">
                       <span>Check-ins ({filteredCheckIns.length})</span>
                       <span className="flex items-center gap-2 text-green-600">
@@ -354,7 +354,7 @@ export default function AttendancePage() {
                         {activeCheckIns.length} Active
                       </span>
                     </div>
-                    <div className="overflow-y-auto flex-1">
+                    <div className="overflow-y-auto flex-1 lg:h-0">
                       {filteredCheckIns.length === 0 ? (
                         <div className="p-8 text-center text-slate-400">
                           <i className="fas fa-map-marker-alt text-3xl mb-3 opacity-50" />
@@ -422,7 +422,7 @@ export default function AttendancePage() {
                   </div>
 
                   {/* Map Area */}
-                  <div className="flex-1 relative min-h-[400px] lg:min-h-[300px] w-full">
+                  <div className="flex-1 relative w-full h-full lg:h-auto">
                     <CheckInsMapView
                       checkIns={filteredCheckIns}
                       branches={branches}
