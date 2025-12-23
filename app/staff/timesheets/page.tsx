@@ -790,7 +790,7 @@ export default function TimesheetsPage() {
                                   </div>
                                   <div className="text-[10px] sm:text-xs text-slate-500 break-words mt-2">
                                     {summary.systemRole === "salon_branch_admin" 
-                                      ? "Branch Administrator" 
+                                      ? "Branch Admin" 
                                       : summary.staffRole || "Staff"}
                                     {summary.branchName && ` • ${summary.branchName}`}
                                   </div>
