@@ -141,13 +141,32 @@ export default function AttendancePage() {
     });
   };
 
-  const calculateDuration = (checkIn: Date | Timestamp, checkOut?: Date | Timestamp | null) => {
+  const calculateDuration = (checkIn: Date | Timestamp, checkOut?: Date | Timestamp | null, breakPeriods?: any[]) => {
     const start = toDate(checkIn);
     const end = checkOut ? toDate(checkOut) : new Date();
-    const diff = end.getTime() - start.getTime();
-    const hours = Math.floor(diff / (1000 * 60 * 60));
-    const minutes = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60));
-    return `${hours}h ${minutes}m`;
+    const totalDiff = end.getTime() - start.getTime();
+    
+    // Calculate total break time
+    let totalBreakMs = 0;
+    if (breakPeriods && Array.isArray(breakPeriods)) {
+      for (const breakPeriod of breakPeriods) {
+        if (breakPeriod.startTime && breakPeriod.endTime) {
+          const breakStart = toDate(breakPeriod.startTime);
+          const breakEnd = toDate(breakPeriod.endTime);
+          totalBreakMs += breakEnd.getTime() - breakStart.getTime();
+        } else if (breakPeriod.startTime && !breakPeriod.endTime) {
+          // Active break - calculate from start to now
+          const breakStart = toDate(breakPeriod.startTime);
+          totalBreakMs += end.getTime() - breakStart.getTime();
+        }
+      }
+    }
+    
+    // Subtract break time from total time
+    const workingMs = totalDiff - totalBreakMs;
+    const hours = Math.floor(workingMs / (1000 * 60 * 60));
+    const minutes = Math.floor((workingMs % (1000 * 60 * 60)) / (1000 * 60));
+    return `${hours > 0 ? hours : 0}h ${minutes > 0 ? minutes : 0}m`;
   };
 
   return (
@@ -425,7 +444,14 @@ export default function AttendancePage() {
                     </div>
                   ) : (
                     <div className="p-6 space-y-4 bg-slate-50">
-                      {filteredCheckIns.map((checkIn) => (
+                      {filteredCheckIns.map((checkIn) => {
+                        const breakPeriods = (checkIn as any).breakPeriods || [];
+                        const duration = calculateDuration(
+                          checkIn.checkInTime, 
+                          checkIn.checkOutTime,
+                          breakPeriods
+                        );
+                        return (
                         <div 
                           key={checkIn.id} 
                           className={`bg-white rounded-xl shadow-sm border overflow-hidden ${
@@ -479,7 +505,10 @@ export default function AttendancePage() {
                                 />
                               </div>
                               <div className="w-20 text-right text-sm font-bold text-slate-800 ml-4">
-                                {calculateDuration(checkIn.checkInTime, checkIn.checkOutTime)}
+                                {(() => {
+                                  const breakPeriods = (checkIn as any).breakPeriods || [];
+                                  return calculateDuration(checkIn.checkInTime, checkIn.checkOutTime, breakPeriods);
+                                })()}
                               </div>
                             </div>
 
@@ -549,7 +578,8 @@ export default function AttendancePage() {
                             </div>
                           </div>
                         </div>
-                      ))}
+                      );
+                      })}
                     </div>
                   )}
                 </div>

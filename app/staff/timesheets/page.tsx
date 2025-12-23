@@ -56,13 +56,32 @@ const formatTime = (date: Date | Timestamp) => {
   });
 };
 
-const calculateDuration = (checkIn: Date | Timestamp, checkOut?: Date | Timestamp | null): { hours: number; minutes: number } => {
+const calculateDuration = (checkIn: Date | Timestamp, checkOut?: Date | Timestamp | null, breakPeriods?: any[]): { hours: number; minutes: number } => {
   const start = toDate(checkIn);
   const end = checkOut ? toDate(checkOut) : new Date();
-  const diff = end.getTime() - start.getTime();
-  const hours = Math.floor(diff / (1000 * 60 * 60));
-  const minutes = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60));
-  return { hours, minutes };
+  const totalDiff = end.getTime() - start.getTime();
+  
+  // Calculate total break time
+  let totalBreakMs = 0;
+  if (breakPeriods && Array.isArray(breakPeriods)) {
+    for (const breakPeriod of breakPeriods) {
+      if (breakPeriod.startTime && breakPeriod.endTime) {
+        const breakStart = toDate(breakPeriod.startTime);
+        const breakEnd = toDate(breakPeriod.endTime);
+        totalBreakMs += breakEnd.getTime() - breakStart.getTime();
+      } else if (breakPeriod.startTime && !breakPeriod.endTime) {
+        // Active break - calculate from start to now
+        const breakStart = toDate(breakPeriod.startTime);
+        totalBreakMs += end.getTime() - breakStart.getTime();
+      }
+    }
+  }
+  
+  // Subtract break time from total time
+  const workingMs = totalDiff - totalBreakMs;
+  const hours = Math.floor(workingMs / (1000 * 60 * 60));
+  const minutes = Math.floor((workingMs % (1000 * 60 * 60)) / (1000 * 60));
+  return { hours: hours > 0 ? hours : 0, minutes: minutes > 0 ? minutes : 0 };
 };
 
 const formatDuration = (hours: number, minutes: number): string => {
@@ -206,7 +225,8 @@ export default function TimesheetsPage() {
                 id: doc.id,
                 ...data,
                 checkInTime: checkInTime,
-                checkOutTime: data.checkOutTime
+                checkOutTime: data.checkOutTime,
+                breakPeriods: data.breakPeriods || []
               } as StaffCheckInRecord);
             }
           });
@@ -215,14 +235,15 @@ export default function TimesheetsPage() {
           
           if (allCheckIns.length > 0) {
             console.log('Check-ins found:');
-            allCheckIns.forEach((ci, idx) => {
-              const checkInDate = toDate(ci.checkInTime);
-              const duration = calculateDuration(ci.checkInTime, ci.checkOutTime);
-              console.log(`  ${idx + 1}. ${ci.staffName} (${ci.staffId})`);
-              console.log(`     Date: ${checkInDate.toISOString().split('T')[0]}`);
-              console.log(`     Time: ${formatTime(ci.checkInTime)} to ${ci.checkOutTime ? formatTime(ci.checkOutTime) : 'Active'}`);
-              console.log(`     Duration: ${formatDuration(duration.hours, duration.minutes)}`);
-            });
+          allCheckIns.forEach((ci, idx) => {
+            const checkInDate = toDate(ci.checkInTime);
+            const breakPeriods = (ci as any).breakPeriods || [];
+            const duration = calculateDuration(ci.checkInTime, ci.checkOutTime, breakPeriods);
+            console.log(`  ${idx + 1}. ${ci.staffName} (${ci.staffId})`);
+            console.log(`     Date: ${checkInDate.toISOString().split('T')[0]}`);
+            console.log(`     Time: ${formatTime(ci.checkInTime)} to ${ci.checkOutTime ? formatTime(ci.checkOutTime) : 'Active'}`);
+            console.log(`     Duration: ${formatDuration(duration.hours, duration.minutes)}`);
+          });
           }
         } catch (queryError: any) {
           console.error('Failed to query check-ins:', queryError);
@@ -251,7 +272,8 @@ export default function TimesheetsPage() {
           console.log('All check-ins:');
           allCheckIns.forEach((ci, idx) => {
             const checkInDate = toDate(ci.checkInTime);
-            const duration = calculateDuration(ci.checkInTime, ci.checkOutTime);
+            const breakPeriods = (ci as any).breakPeriods || [];
+            const duration = calculateDuration(ci.checkInTime, ci.checkOutTime, breakPeriods);
             console.log(`  ${idx + 1}. ${ci.staffName} (staffId: ${ci.staffId})`);
             console.log(`     Date: ${checkInDate.toISOString().split('T')[0]}`);
             console.log(`     Time: ${formatTime(ci.checkInTime)} to ${ci.checkOutTime ? formatTime(ci.checkOutTime) : 'Active'}`);
@@ -384,7 +406,8 @@ export default function TimesheetsPage() {
           
           if (checkIns.length > 0) {
             checkIns.forEach((ci, idx) => {
-              const duration = calculateDuration(ci.checkInTime, ci.checkOutTime);
+              const breakPeriods = (ci as any).breakPeriods || [];
+              const duration = calculateDuration(ci.checkInTime, ci.checkOutTime, breakPeriods);
               const checkInDate = toDate(ci.checkInTime);
               console.log(`  Check-in ${idx + 1}:`);
               console.log(`    Date: ${checkInDate.toISOString().split('T')[0]}`);
@@ -426,9 +449,10 @@ export default function TimesheetsPage() {
             let dayMinutes = 0;
 
             dayCheckIns.forEach(checkIn => {
-              // Calculate duration for all check-ins
+              // Calculate duration for all check-ins (excluding breaks)
               // If checkOutTime exists, use it; otherwise use current time for active check-ins
-              const duration = calculateDuration(checkIn.checkInTime, checkIn.checkOutTime);
+              const breakPeriods = (checkIn as any).breakPeriods || [];
+              const duration = calculateDuration(checkIn.checkInTime, checkIn.checkOutTime, breakPeriods);
               dayHours += duration.hours;
               dayMinutes += duration.minutes;
               
@@ -526,7 +550,8 @@ export default function TimesheetsPage() {
 
               dayCheckIns.forEach(checkIn => {
                 if (checkIn.checkOutTime || checkIn.status === "checked_in") {
-                  const duration = calculateDuration(checkIn.checkInTime, checkIn.checkOutTime);
+                  const breakPeriods = (checkIn as any).breakPeriods || [];
+                  const duration = calculateDuration(checkIn.checkInTime, checkIn.checkOutTime, breakPeriods);
                   dayHours += duration.hours;
                   dayMinutes += duration.minutes;
                 }
@@ -792,7 +817,11 @@ export default function TimesheetsPage() {
                                                 )}
                                               </span>
                                               <span className="font-semibold text-pink-600">
-                                                ({formatDuration(duration.hours, duration.minutes)})
+                                                ({(() => {
+                                                  const breakPeriods = (checkIn as any).breakPeriods || [];
+                                                  const dur = calculateDuration(checkIn.checkInTime, checkIn.checkOutTime, breakPeriods);
+                                                  return formatDuration(dur.hours, dur.minutes);
+                                                })()})
                                               </span>
                                             </div>
                                           </div>
