@@ -755,15 +755,15 @@ export default function TimesheetsPage() {
                             <tr key={summary.staffId} className="hover:bg-slate-50 transition">
                               <td className="px-4 py-3 sticky left-0 bg-white z-10">
                                 <div>
-                                  <div className="font-semibold text-slate-800 flex items-center gap-2">
-                                    {summary.staffName}
+                                  <div className="font-semibold text-slate-800 flex items-center gap-2 flex-wrap">
+                                    <span className="break-words">{summary.staffName}</span>
                                     {summary.systemRole === "salon_branch_admin" && (
-                                      <span className="px-2 py-0.5 bg-purple-100 text-purple-700 text-[10px] font-bold rounded-full">
+                                      <span className="px-1.5 sm:px-2 py-0.5 bg-purple-100 text-purple-700 text-[9px] sm:text-[10px] font-bold rounded-full whitespace-nowrap shrink-0">
                                         Branch Admin
                                       </span>
                                     )}
                                   </div>
-                                  <div className="text-xs text-slate-500">
+                                  <div className="text-[10px] sm:text-xs text-slate-500 mt-0.5 break-words">
                                     {summary.systemRole === "salon_branch_admin" 
                                       ? "Branch Administrator" 
                                       : summary.staffRole || "Staff"}
