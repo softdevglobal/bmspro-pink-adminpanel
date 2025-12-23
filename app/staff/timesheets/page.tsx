@@ -779,7 +779,7 @@ export default function TimesheetsPage() {
                           workSummaries.map((summary) => (
                             <tr key={summary.staffId} className="hover:bg-slate-50 transition">
                               <td className="px-4 py-3 sticky left-0 bg-white z-10">
-                                <div>
+                                <div className="flex flex-col">
                                   <div className="font-semibold text-slate-800 flex items-center gap-2 flex-wrap">
                                     <span className="break-words">{summary.staffName}</span>
                                     {summary.systemRole === "salon_branch_admin" && (
@@ -788,7 +788,7 @@ export default function TimesheetsPage() {
                                       </span>
                                     )}
                                   </div>
-                                  <div className="text-[10px] sm:text-xs text-slate-500 mt-0.5 break-words">
+                                  <div className="text-[10px] sm:text-xs text-slate-500 break-words mt-2">
                                     {summary.systemRole === "salon_branch_admin" 
                                       ? "Branch Administrator" 
                                       : summary.staffRole || "Staff"}
