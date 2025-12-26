@@ -107,6 +107,13 @@ export default function TimesheetsPage() {
   const [staffMembers, setStaffMembers] = useState<StaffMember[]>([]);
   const [workSummaries, setWorkSummaries] = useState<StaffWorkSummary[]>([]);
   const [mobileOpen, setMobileOpen] = useState(false);
+  
+  // Filter states
+  const [searchQuery, setSearchQuery] = useState("");
+  const [selectedRole, setSelectedRole] = useState<string>("all");
+  const [selectedBranch, setSelectedBranch] = useState<string>("all");
+  const [minHours, setMinHours] = useState<string>("0");
+  const [sortBy, setSortBy] = useState<"name" | "hours">("hours");
 
   // Calculate week range (Monday to Sunday) - memoized to prevent infinite loops
   const weekRange = useMemo(() => {
@@ -642,6 +649,76 @@ export default function TimesheetsPage() {
     weekDays.push(date);
   }
 
+  // Get unique roles and branches for filter dropdowns
+  const uniqueRoles = useMemo(() => {
+    const roles = new Set<string>();
+    workSummaries.forEach(s => {
+      if (s.staffRole) roles.add(s.staffRole);
+      if (s.systemRole === "salon_branch_admin") roles.add("Branch Admin");
+    });
+    return Array.from(roles).sort();
+  }, [workSummaries]);
+
+  const uniqueBranches = useMemo(() => {
+    const branches = new Set<string>();
+    workSummaries.forEach(s => {
+      if (s.branchName) branches.add(s.branchName);
+    });
+    return Array.from(branches).sort();
+  }, [workSummaries]);
+
+  // Filter and sort work summaries
+  const filteredSummaries = useMemo(() => {
+    let filtered = [...workSummaries];
+
+    // Filter by search query (staff name)
+    if (searchQuery.trim()) {
+      const query = searchQuery.toLowerCase().trim();
+      filtered = filtered.filter(s => 
+        s.staffName.toLowerCase().includes(query)
+      );
+    }
+
+    // Filter by role
+    if (selectedRole !== "all") {
+      filtered = filtered.filter(s => {
+        if (selectedRole === "Branch Admin") {
+          return s.systemRole === "salon_branch_admin";
+        }
+        return s.staffRole === selectedRole;
+      });
+    }
+
+    // Filter by branch
+    if (selectedBranch !== "all") {
+      filtered = filtered.filter(s => s.branchName === selectedBranch);
+    }
+
+    // Filter by minimum hours
+    const minHoursNum = parseFloat(minHours) || 0;
+    if (minHoursNum > 0) {
+      filtered = filtered.filter(s => {
+        const totalMinutes = s.totalHours * 60 + s.totalMinutes;
+        const minMinutes = minHoursNum * 60;
+        return totalMinutes >= minMinutes;
+      });
+    }
+
+    // Sort
+    filtered.sort((a, b) => {
+      if (sortBy === "name") {
+        return a.staffName.localeCompare(b.staffName);
+      } else {
+        // Sort by hours (descending)
+        const aTotal = a.totalHours * 60 + a.totalMinutes;
+        const bTotal = b.totalHours * 60 + b.totalMinutes;
+        return bTotal - aTotal;
+      }
+    });
+
+    return filtered;
+  }, [workSummaries, searchQuery, selectedRole, selectedBranch, minHours, sortBy]);
+
   return (
     <div className="flex h-screen overflow-hidden bg-slate-50 font-inter text-slate-800">
       <Sidebar />
@@ -734,17 +811,126 @@ export default function TimesheetsPage() {
                     {/* Summary Stats */}
                     <div className="flex items-center gap-4 text-sm">
                       <div className="text-slate-600">
-                        <span className="font-semibold">{workSummaries.length}</span> Staff Members
+                        <span className="font-semibold">{filteredSummaries.length}</span> Staff Members
+                        {filteredSummaries.length !== workSummaries.length && (
+                          <span className="text-slate-400"> / {workSummaries.length}</span>
+                        )}
                       </div>
                       <div className="text-slate-600">
                         Total Hours: <span className="font-semibold text-pink-600">
                           {formatDuration(
-                            workSummaries.reduce((sum, s) => sum + s.totalHours, 0),
-                            workSummaries.reduce((sum, s) => sum + s.totalMinutes, 0)
+                            filteredSummaries.reduce((sum, s) => sum + s.totalHours, 0),
+                            filteredSummaries.reduce((sum, s) => sum + s.totalMinutes, 0)
                           )}
                         </span>
                       </div>
                     </div>
+                  </div>
+                </div>
+
+                {/* Filter Section */}
+                <div className="bg-white rounded-xl border border-slate-200 p-4 mb-6 shadow-sm">
+                  <div className="flex flex-col gap-4">
+                    <div className="flex items-center gap-2">
+                      <i className="fas fa-filter text-pink-600" />
+                      <h3 className="font-semibold text-slate-800">Quick Filters</h3>
+                    </div>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3">
+                      {/* Search by Name */}
+                      <div className="relative">
+                        <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                          <i className="fas fa-search text-slate-400" />
+                        </div>
+                        <input
+                          type="text"
+                          placeholder="Search staff name..."
+                          value={searchQuery}
+                          onChange={(e) => setSearchQuery(e.target.value)}
+                          className="w-full pl-10 pr-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-pink-500 focus:border-transparent"
+                        />
+                      </div>
+
+                      {/* Filter by Role */}
+                      <div className="relative">
+                        <select
+                          value={selectedRole}
+                          onChange={(e) => setSelectedRole(e.target.value)}
+                          className="w-full px-3 pr-8 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-pink-500 focus:border-transparent bg-white appearance-none"
+                        >
+                          <option value="all">All Roles</option>
+                          {uniqueRoles.map(role => (
+                            <option key={role} value={role}>{role}</option>
+                          ))}
+                        </select>
+                        <div className="absolute inset-y-0 right-0 pr-2.5 flex items-center pointer-events-none">
+                          <i className="fas fa-chevron-down text-slate-400 text-xs" />
+                        </div>
+                      </div>
+
+                      {/* Filter by Branch */}
+                      <div className="relative">
+                        <select
+                          value={selectedBranch}
+                          onChange={(e) => setSelectedBranch(e.target.value)}
+                          className="w-full px-3 pr-8 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-pink-500 focus:border-transparent bg-white appearance-none"
+                        >
+                          <option value="all">All Branches</option>
+                          {uniqueBranches.map(branch => (
+                            <option key={branch} value={branch}>{branch}</option>
+                          ))}
+                        </select>
+                        <div className="absolute inset-y-0 right-0 pr-2.5 flex items-center pointer-events-none">
+                          <i className="fas fa-chevron-down text-slate-400 text-xs" />
+                        </div>
+                      </div>
+
+                      {/* Minimum Hours */}
+                      <div className="relative">
+                        <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                          <i className="fas fa-clock text-slate-400 text-xs" />
+                        </div>
+                        <input
+                          type="number"
+                          placeholder="Min hours"
+                          value={minHours}
+                          onChange={(e) => setMinHours(e.target.value)}
+                          min="0"
+                          step="0.5"
+                          className="w-full pl-10 pr-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-pink-500 focus:border-transparent"
+                        />
+                      </div>
+
+                      {/* Sort By */}
+                      <div className="relative">
+                        <select
+                          value={sortBy}
+                          onChange={(e) => setSortBy(e.target.value as "name" | "hours")}
+                          className="w-full px-3 pr-8 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-pink-500 focus:border-transparent bg-white appearance-none"
+                        >
+                          <option value="hours">Sort by Hours</option>
+                          <option value="name">Sort by Name</option>
+                        </select>
+                        <div className="absolute inset-y-0 right-0 pr-2.5 flex items-center pointer-events-none">
+                          <i className="fas fa-chevron-down text-slate-400 text-xs" />
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Clear Filters Button */}
+                    {(searchQuery || selectedRole !== "all" || selectedBranch !== "all" || minHours !== "0") && (
+                      <button
+                        onClick={() => {
+                          setSearchQuery("");
+                          setSelectedRole("all");
+                          setSelectedBranch("all");
+                          setMinHours("0");
+                        }}
+                        className="self-start px-3 py-1.5 text-xs font-medium text-pink-600 hover:text-pink-700 hover:bg-pink-50 rounded-lg transition"
+                      >
+                        <i className="fas fa-times mr-1" />
+                        Clear Filters
+                      </button>
+                    )}
                   </div>
                 </div>
 
@@ -768,15 +954,32 @@ export default function TimesheetsPage() {
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-slate-100">
-                        {workSummaries.length === 0 ? (
+                        {filteredSummaries.length === 0 ? (
                           <tr>
                             <td colSpan={9} className="px-4 py-12 text-center text-slate-400">
-                              <i className="fas fa-clock text-3xl mb-3 opacity-50" />
-                              <p>No timesheet data for this week</p>
+                              <i className="fas fa-filter text-3xl mb-3 opacity-50" />
+                              <p>
+                                {workSummaries.length === 0 
+                                  ? "No timesheet data for this week"
+                                  : "No staff members match the current filters"}
+                              </p>
+                              {(searchQuery || selectedRole !== "all" || selectedBranch !== "all" || minHours !== "0") && (
+                                <button
+                                  onClick={() => {
+                                    setSearchQuery("");
+                                    setSelectedRole("all");
+                                    setSelectedBranch("all");
+                                    setMinHours("0");
+                                  }}
+                                  className="mt-3 px-4 py-2 text-sm font-medium text-pink-600 hover:text-pink-700 hover:bg-pink-50 rounded-lg transition"
+                                >
+                                  Clear Filters
+                                </button>
+                              )}
                             </td>
                           </tr>
                         ) : (
-                          workSummaries.map((summary) => (
+                          filteredSummaries.map((summary) => (
                             <tr key={summary.staffId} className="hover:bg-slate-50 transition">
                               <td className="px-4 py-3 sticky left-0 bg-white z-10">
                                 <div className="flex flex-col">
@@ -852,7 +1055,7 @@ export default function TimesheetsPage() {
                 </div>
 
                 {/* Summary Cards */}
-                {workSummaries.length > 0 && (
+                {filteredSummaries.length > 0 && (
                   <div className="mt-6 grid grid-cols-1 md:grid-cols-3 gap-4">
                     <div className="bg-white rounded-xl border border-slate-200 p-4 shadow-sm">
                       <div className="flex items-center gap-3">
@@ -860,8 +1063,13 @@ export default function TimesheetsPage() {
                           <i className="fas fa-users text-blue-600" />
                         </div>
                         <div>
-                          <div className="text-2xl font-bold text-slate-800">{workSummaries.length}</div>
-                          <div className="text-xs text-slate-500">Staff Members</div>
+                          <div className="text-2xl font-bold text-slate-800">{filteredSummaries.length}</div>
+                          <div className="text-xs text-slate-500">
+                            Staff Members
+                            {filteredSummaries.length !== workSummaries.length && (
+                              <span className="text-slate-400"> (filtered)</span>
+                            )}
+                          </div>
                         </div>
                       </div>
                     </div>
@@ -874,8 +1082,8 @@ export default function TimesheetsPage() {
                         <div>
                           <div className="text-2xl font-bold text-slate-800">
                             {formatDuration(
-                              workSummaries.reduce((sum, s) => sum + s.totalHours, 0),
-                              workSummaries.reduce((sum, s) => sum + s.totalMinutes, 0)
+                              filteredSummaries.reduce((sum, s) => sum + s.totalHours, 0),
+                              filteredSummaries.reduce((sum, s) => sum + s.totalMinutes, 0)
                             )}
                           </div>
                           <div className="text-xs text-slate-500">Total Hours</div>
@@ -890,7 +1098,7 @@ export default function TimesheetsPage() {
                         </div>
                         <div>
                           <div className="text-2xl font-bold text-slate-800">
-                            {workSummaries.filter(s => s.totalHours > 0 || s.totalMinutes > 0).length}
+                            {filteredSummaries.filter(s => s.totalHours > 0 || s.totalMinutes > 0).length}
                           </div>
                           <div className="text-xs text-slate-500">Active This Week</div>
                         </div>
