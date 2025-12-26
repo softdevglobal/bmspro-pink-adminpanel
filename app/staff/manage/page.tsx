@@ -182,9 +182,18 @@ export default function SettingsPage() {
       // If suspending, also disable their Firebase Auth account
       if (suspendTarget.authUid) {
         try {
+          const currentUser = auth.currentUser;
+          if (!currentUser) {
+            showToast("You must be logged in to perform this action");
+            return;
+          }
+          const token = await currentUser.getIdToken();
           await fetch("/api/staff/auth/suspend", {
             method: "POST",
-            headers: { "Content-Type": "application/json" },
+            headers: { 
+              "Content-Type": "application/json",
+              "Authorization": `Bearer ${token}`
+            },
             body: JSON.stringify({ 
               uid: suspendTarget.authUid, 
               disabled: newStatus === "Suspended" 
@@ -267,9 +276,18 @@ export default function SettingsPage() {
         let newAuthUid = editingStaff?.authUid;
         if (!newAuthUid && (systemRole === "salon_branch_admin" || password)) {
            try {
+              const currentUser = auth.currentUser;
+              if (!currentUser) {
+                showToast("You must be logged in to perform this action");
+                return;
+              }
+              const token = await currentUser.getIdToken();
               const res = await fetch("/api/staff/auth/create", {
                 method: "POST",
-                headers: { "Content-Type": "application/json" },
+                headers: { 
+                  "Content-Type": "application/json",
+                  "Authorization": `Bearer ${token}`
+                },
                 body: JSON.stringify({ email, displayName: name, password }),
               });
               const json = await res.json();
@@ -427,9 +445,18 @@ export default function SettingsPage() {
         // 1) create auth user via server API
         let authUid: string | null = null;
         try {
+          const currentUser = auth.currentUser;
+          if (!currentUser) {
+            showToast("You must be logged in to perform this action");
+            return;
+          }
+          const token = await currentUser.getIdToken();
           const res = await fetch("/api/staff/auth/create", {
             method: "POST",
-            headers: { "Content-Type": "application/json" },
+            headers: { 
+              "Content-Type": "application/json",
+              "Authorization": `Bearer ${token}`
+            },
             body: JSON.stringify({ email, displayName: name, password }),
           });
           const json = await res.json();
@@ -530,11 +557,18 @@ export default function SettingsPage() {
     try {
       // Attempt auth deletion first (best-effort)
       try {
-        await fetch("/api/staff/auth/delete", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ uid: deleteTarget.authUid, email: deleteTarget.email }),
-        });
+        const currentUser = auth.currentUser;
+        if (currentUser) {
+          const token = await currentUser.getIdToken();
+          await fetch("/api/staff/auth/delete", {
+            method: "POST",
+            headers: { 
+              "Content-Type": "application/json",
+              "Authorization": `Bearer ${token}`
+            },
+            body: JSON.stringify({ uid: deleteTarget.authUid, email: deleteTarget.email }),
+          });
+        }
       } catch {}
       
       // Remove staff from all branches first
@@ -590,9 +624,8 @@ export default function SettingsPage() {
           </div>
 
           <section>
-            <div className="flex justify-between items-center mb-6">
-              <div />
-              <div className="bg-white border border-slate-200 p-1 rounded-lg flex">
+            <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-4 mb-6">
+              <div className="bg-white border border-slate-200 p-1 rounded-lg flex w-full sm:w-auto justify-center sm:justify-start">
                 <button
                   onClick={() => setActiveTab("directory")}
                   className={`px-4 py-1.5 text-sm font-medium rounded-md transition ${
@@ -625,23 +658,9 @@ export default function SettingsPage() {
                   setSelectedSystemRole("salon_staff");
                   setWeeklySchedule({});
                 }}
-                className="hidden sm:inline-block px-4 py-2 bg-slate-800 text-white rounded-lg text-sm hover:bg-slate-700 font-medium shadow-md transition"
+                className="w-full sm:w-auto px-5 py-2.5 bg-gradient-to-r from-pink-600 to-fuchsia-600 text-white rounded-lg text-sm font-semibold shadow-lg hover:shadow-xl hover:from-pink-700 hover:to-fuchsia-700 transition-all duration-200 flex items-center justify-center gap-2"
               >
-                <i className="fa-solid fa-user-plus mr-2" /> Onboard Staff
-              </button>
-            </div>
-
-            {/* Mobile full-width Onboard button */}
-            <div className="sm:hidden mb-4">
-              <button
-                onClick={() => {
-                  setIsStaffModalOpen(true);
-                  setSelectedSystemRole("salon_staff");
-                  setWeeklySchedule({});
-                }}
-                className="w-full py-2.5 bg-slate-800 text-white rounded-lg text-sm font-semibold shadow-md hover:bg-slate-700"
-              >
-                <i className="fa-solid fa-user-plus mr-2" /> Onboard Staff
+                <i className="fa-solid fa-user-plus" /> Onboard Staff
               </button>
             </div>
 
@@ -656,129 +675,170 @@ export default function SettingsPage() {
 
             {ownerUid && activeTab === "directory" && (
               <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-                <div className="lg:col-span-2 space-y-4">
-                  {data.staff.map((s) => {
+                <div className="lg:col-span-2 space-y-3">
+                  {data.staff.length === 0 ? (
+                    <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-12 text-center">
+                      <div className="flex flex-col items-center gap-4">
+                        <div className="w-16 h-16 rounded-full bg-slate-100 flex items-center justify-center">
+                          <i className="fas fa-users text-2xl text-slate-400" />
+                        </div>
+                        <div>
+                          <h3 className="font-bold text-slate-800 mb-1">No staff members yet</h3>
+                          <p className="text-sm text-slate-500">Get started by onboarding your first staff member</p>
+                        </div>
+                        <button
+                          onClick={() => {
+                            setIsStaffModalOpen(true);
+                            setSelectedSystemRole("salon_staff");
+                            setWeeklySchedule({});
+                          }}
+                          className="mt-2 px-5 py-2.5 bg-gradient-to-r from-pink-600 to-fuchsia-600 text-white rounded-lg text-sm font-semibold shadow-lg hover:shadow-xl hover:from-pink-700 hover:to-fuchsia-700 transition-all duration-200 flex items-center gap-2"
+                        >
+                          <i className="fa-solid fa-user-plus" /> Add First Staff Member
+                        </button>
+                      </div>
+                    </div>
+                  ) : (
+                    data.staff.map((s) => {
                     const isSuspended = s.status === "Suspended";
                     const borderColor = isSuspended ? "border-red-400" : "border-green-500";
                     const opacity = isSuspended ? "opacity-75" : "";
                     return (
                       <div
                         key={s.id}
-                        className={`bg-white rounded-xl shadow-sm border border-slate-200 p-4 flex items-center hover:shadow-md transition border-l-4 ${borderColor} ${opacity}`}
+                        className={`bg-white rounded-xl shadow-sm border border-slate-200 p-5 flex items-center hover:shadow-lg transition-all duration-200 border-l-4 ${borderColor} ${opacity} group`}
                       >
-                        <img
-                          src={`https://api.dicebear.com/7.x/avataaars/svg?seed=${encodeURIComponent(s.avatar)}`}
-                          alt="Avatar"
-                          className="w-12 h-12 rounded-full bg-slate-100 mr-4"
-                        />
-                        <div className="flex-1">
-                          <div className="flex items-center gap-2">
-                            <h4 className="font-bold text-slate-800">{s.name}</h4>
-                            {s.systemRole === "salon_branch_admin" && (
-                              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-indigo-100 text-indigo-700">
-                                <i className="fas fa-crown" />
-                                Admin
-                              </span>
-                            )}
+                        <div className="relative">
+                          <img
+                            src={`https://api.dicebear.com/7.x/avataaars/svg?seed=${encodeURIComponent(s.avatar)}`}
+                            alt="Avatar"
+                            className="w-14 h-14 rounded-full bg-slate-100 mr-4 ring-2 ring-slate-100 group-hover:ring-pink-200 transition"
+                          />
+                          {s.systemRole === "salon_branch_admin" && (
+                            <div className="absolute -top-1 -right-1 w-5 h-5 rounded-full bg-indigo-500 flex items-center justify-center border-2 border-white">
+                              <i className="fas fa-crown text-[8px] text-white" />
+                            </div>
+                          )}
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-2 mb-1">
+                            <h4 className="font-bold text-slate-800 truncate">{s.name}</h4>
                           </div>
-                          <p className="text-xs text-slate-500">
+                          <p className="text-sm text-slate-600 font-medium mb-1">
                             {s.role}{s.branch ? ` • ${s.branch}` : ""}
                           </p>
                           {s.email && (
-                            <p className="text-[11px] text-slate-400 mt-0.5">{s.email}</p>
+                            <p className="text-xs text-slate-500 mt-1 flex items-center gap-1">
+                              <i className="fas fa-envelope text-slate-400 text-[10px]" />
+                              <span className="truncate">{s.email}</span>
+                            </p>
                           )}
                           {s.mobile && (
-                            <p className="text-[11px] text-slate-400 mt-0.5">
-                              <i className="fas fa-phone text-slate-300 mr-1" />
+                            <p className="text-xs text-slate-500 mt-1 flex items-center gap-1">
+                              <i className="fas fa-phone text-slate-400 text-[10px]" />
                               {s.mobile}
                             </p>
                           )}
                         </div>
-                        <div className="flex items-center gap-3">
+                        <div className="flex items-center gap-3 ml-4">
                           {/* Status Badge */}
-                          <div className={`px-3 py-1 rounded-full text-xs font-bold ${
+                          <div className={`px-3 py-1.5 rounded-full text-xs font-semibold shadow-sm ${
                             isSuspended 
-                              ? "bg-red-100 text-red-600" 
-                              : "bg-green-100 text-green-600"
+                              ? "bg-red-50 text-red-700 border border-red-200" 
+                              : "bg-emerald-50 text-emerald-700 border border-emerald-200"
                           }`}>
-                            {s.status}
+                            <div className="flex items-center gap-1.5">
+                              <div className={`w-2 h-2 rounded-full ${isSuspended ? "bg-red-500" : "bg-emerald-500"}`} />
+                              {s.status}
+                            </div>
                           </div>
                           
                           {/* Action Buttons */}
-                          <div className="flex items-center gap-1">
+                          <div className="flex items-center gap-1.5">
                             <button
-                              className="w-8 h-8 rounded-lg hover:bg-slate-100 flex items-center justify-center text-slate-400 hover:text-slate-600 transition"
+                              className="w-9 h-9 rounded-lg hover:bg-slate-100 flex items-center justify-center text-slate-500 hover:text-slate-700 transition-all duration-200 hover:scale-110"
                               title="Preview"
                               onClick={() => router.push(`/staff/${s.id}`)}
                             >
-                              <i className="fa-solid fa-eye" />
+                              <i className="fa-solid fa-eye text-sm" />
                             </button>
                             <button
-                              className="w-8 h-8 rounded-lg hover:bg-blue-50 flex items-center justify-center text-blue-500 hover:text-blue-600 transition"
+                              className="w-9 h-9 rounded-lg hover:bg-blue-50 flex items-center justify-center text-blue-600 hover:text-blue-700 transition-all duration-200 hover:scale-110"
                               title="Edit"
                               onClick={() => openEditStaff(s)}
                             >
-                              <i className="fa-solid fa-pen" />
+                              <i className="fa-solid fa-pen text-sm" />
                             </button>
                             <button
-                              className={`w-8 h-8 rounded-lg flex items-center justify-center transition ${
+                              className={`w-9 h-9 rounded-lg flex items-center justify-center transition-all duration-200 hover:scale-110 ${
                                 isSuspended 
-                                  ? "hover:bg-emerald-50 text-emerald-500 hover:text-emerald-600" 
-                                  : "hover:bg-amber-50 text-amber-500 hover:text-amber-600"
+                                  ? "hover:bg-emerald-50 text-emerald-600 hover:text-emerald-700" 
+                                  : "hover:bg-amber-50 text-amber-600 hover:text-amber-700"
                               }`}
                               title={isSuspended ? "Reactivate Account" : "Suspend Account"}
                               onClick={() => handleSuspendStaff(s)}
                             >
-                              <i className={`fa-solid ${isSuspended ? "fa-user-check" : "fa-user-slash"}`} />
+                              <i className={`fa-solid text-sm ${isSuspended ? "fa-user-check" : "fa-user-slash"}`} />
                             </button>
                             <button
-                              className="w-8 h-8 rounded-lg hover:bg-rose-50 flex items-center justify-center text-rose-500 hover:text-rose-600 transition"
+                              className="w-9 h-9 rounded-lg hover:bg-rose-50 flex items-center justify-center text-rose-600 hover:text-rose-700 transition-all duration-200 hover:scale-110"
                               title="Delete"
                               onClick={() => handleDeleteStaff(s.id)}
                             >
-                              <i className="fa-solid fa-trash" />
+                              <i className="fa-solid fa-trash text-sm" />
                             </button>
                           </div>
                         </div>
                       </div>
                     );
-                  })}
+                  }))}
                 </div>
-                <div className="bg-slate-900 text-white rounded-xl p-4 border-none h-fit">
-                  <h3 className="font-bold mb-4">Staff Quick Stats</h3>
-                  <div className="space-y-3">
-                    <div className="bg-white/10 p-3 rounded-lg flex justify-between">
-                      <span>Total Staff</span>
-                      <span className="font-bold">{data.staff.length}</span>
+                <div className="bg-gradient-to-br from-slate-800 to-slate-900 text-white rounded-xl p-5 border border-slate-700 h-fit shadow-lg">
+                  <div className="flex items-center gap-2 mb-5">
+                    <div className="w-8 h-8 rounded-lg bg-pink-500/20 flex items-center justify-center">
+                      <i className="fas fa-chart-bar text-pink-400" />
                     </div>
-                    <div className="bg-white/10 p-3 rounded-lg flex justify-between">
-                      <span>Active</span>
-                      <span className="font-bold text-green-400">{data.staff.filter((s) => s.status === "Active").length}</span>
+                    <h3 className="font-bold text-lg">Quick Stats</h3>
+                  </div>
+                  <div className="space-y-3">
+                    <div className="bg-white/10 backdrop-blur-sm p-4 rounded-lg flex justify-between items-center border border-white/5 hover:bg-white/15 transition">
+                      <div className="flex items-center gap-2">
+                        <i className="fas fa-users text-slate-300" />
+                        <span className="text-slate-200">Total Staff</span>
+                      </div>
+                      <span className="font-bold text-xl text-white">{data.staff.length}</span>
+                    </div>
+                    <div className="bg-emerald-500/20 backdrop-blur-sm p-4 rounded-lg flex justify-between items-center border border-emerald-400/20 hover:bg-emerald-500/25 transition">
+                      <div className="flex items-center gap-2">
+                        <i className="fas fa-check-circle text-emerald-300" />
+                        <span className="text-emerald-100">Active</span>
+                      </div>
+                      <span className="font-bold text-xl text-emerald-300">{data.staff.filter((s) => s.status === "Active").length}</span>
                     </div>
                     {data.staff.filter((s) => s.status === "Suspended").length > 0 && (
-                      <div className="bg-amber-500/20 p-3 rounded-lg flex justify-between">
-                        <span className="text-amber-200">Suspended</span>
-                        <span className="font-bold text-amber-400">{data.staff.filter((s) => s.status === "Suspended").length}</span>
+                      <div className="bg-amber-500/20 backdrop-blur-sm p-4 rounded-lg flex justify-between items-center border border-amber-400/20 hover:bg-amber-500/25 transition">
+                        <div className="flex items-center gap-2">
+                          <i className="fas fa-exclamation-triangle text-amber-300" />
+                          <span className="text-amber-100">Suspended</span>
+                        </div>
+                        <span className="font-bold text-xl text-amber-300">{data.staff.filter((s) => s.status === "Suspended").length}</span>
                       </div>
                     )}
                   </div>
                   
                   {/* Quick Actions */}
-                  <div className="mt-4 pt-4 border-t border-white/10">
-                    <h4 className="text-xs font-semibold text-slate-400 uppercase mb-2">Quick Actions</h4>
-                    <div className="space-y-2">
-                      <button
-                        onClick={() => {
-                          setIsStaffModalOpen(true);
-                          setSelectedSystemRole("salon_staff");
-                          setWeeklySchedule({});
-                        }}
-                        className="w-full py-2 px-3 bg-pink-600 hover:bg-pink-700 rounded-lg text-sm font-medium transition flex items-center justify-center gap-2"
-                      >
-                        <i className="fa-solid fa-user-plus" />
-                        Add New Staff
-                      </button>
-                    </div>
+                  <div className="mt-5 pt-5 border-t border-white/10">
+                    <button
+                      onClick={() => {
+                        setIsStaffModalOpen(true);
+                        setSelectedSystemRole("salon_staff");
+                        setWeeklySchedule({});
+                      }}
+                      className="w-full py-3 px-4 bg-gradient-to-r from-pink-600 to-fuchsia-600 hover:from-pink-700 hover:to-fuchsia-700 rounded-lg text-sm font-semibold transition-all duration-200 flex items-center justify-center gap-2 shadow-lg hover:shadow-xl"
+                    >
+                      <i className="fa-solid fa-user-plus" />
+                      Add New Staff
+                    </button>
                   </div>
                 </div>
               </div>
