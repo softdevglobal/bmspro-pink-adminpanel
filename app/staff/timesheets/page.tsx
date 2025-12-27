@@ -432,7 +432,12 @@ export default function TimesheetsPage() {
           
           checkIns.forEach(checkIn => {
             const checkInDate = toDate(checkIn.checkInTime);
-            const dateKey = checkInDate.toISOString().split('T')[0]; // YYYY-MM-DD
+            // Use local date components to match week range calculation (which uses local time)
+            // This ensures check-ins are grouped into the correct day column
+            const year = checkInDate.getFullYear();
+            const month = String(checkInDate.getMonth() + 1).padStart(2, '0');
+            const day = String(checkInDate.getDate()).padStart(2, '0');
+            const dateKey = `${year}-${month}-${day}`; // YYYY-MM-DD
             
             if (!daysMap.has(dateKey)) {
               daysMap.set(dateKey, []);
@@ -449,7 +454,11 @@ export default function TimesheetsPage() {
           for (let i = 0; i < 7; i++) {
             const date = new Date(weekRange.start);
             date.setDate(weekRange.start.getDate() + i);
-            const dateKey = date.toISOString().split('T')[0];
+            // Use local date components to match check-in date extraction
+            const year = date.getFullYear();
+            const month = String(date.getMonth() + 1).padStart(2, '0');
+            const day = String(date.getDate()).padStart(2, '0');
+            const dateKey = `${year}-${month}-${day}`; // YYYY-MM-DD
             
             const dayCheckIns = daysMap.get(dateKey) || [];
             let dayHours = 0;
@@ -534,7 +543,12 @@ export default function TimesheetsPage() {
             const daysMap = new Map<string, StaffCheckInRecord[]>();
             unmatchedCheckInsForStaff.forEach(checkIn => {
               const checkInDate = toDate(checkIn.checkInTime);
-              const dateKey = checkInDate.toISOString().split('T')[0];
+              // Use local date components to match week range calculation (which uses local time)
+              // This ensures check-ins are grouped into the correct day column
+              const year = checkInDate.getFullYear();
+              const month = String(checkInDate.getMonth() + 1).padStart(2, '0');
+              const day = String(checkInDate.getDate()).padStart(2, '0');
+              const dateKey = `${year}-${month}-${day}`; // YYYY-MM-DD
               if (!daysMap.has(dateKey)) {
                 daysMap.set(dateKey, []);
               }
@@ -549,7 +563,11 @@ export default function TimesheetsPage() {
             for (let i = 0; i < 7; i++) {
               const date = new Date(weekRange.start);
               date.setDate(weekRange.start.getDate() + i);
-              const dateKey = date.toISOString().split('T')[0];
+              // Use local date components to match check-in date extraction
+              const year = date.getFullYear();
+              const month = String(date.getMonth() + 1).padStart(2, '0');
+              const day = String(date.getDate()).padStart(2, '0');
+              const dateKey = `${year}-${month}-${day}`; // YYYY-MM-DD
               
               const dayCheckIns = daysMap.get(dateKey) || [];
               let dayHours = 0;
