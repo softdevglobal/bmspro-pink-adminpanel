@@ -18,7 +18,8 @@ export type AuditEntityType =
   | "customer" 
   | "settings" 
   | "auth"
-  | "user_profile";
+  | "user_profile"
+  | "staff_check_in";
 
 export interface AuditLogInput {
   ownerUid: string;

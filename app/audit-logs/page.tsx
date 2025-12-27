@@ -46,6 +46,8 @@ const ENTITY_TYPE_CONFIG: Record<string, { icon: string; label: string }> = {
   customer: { icon: "fa-user-group", label: "Customer" },
   settings: { icon: "fa-cog", label: "Settings" },
   auth: { icon: "fa-shield", label: "Authentication" },
+  staff_check_in: { icon: "fa-clock", label: "Staff Check-in" },
+  user_profile: { icon: "fa-user-circle", label: "User Profile" },
 };
 
 export default function AuditLogsPage() {
