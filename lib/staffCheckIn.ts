@@ -45,6 +45,14 @@ export type StaffCheckInRecord = {
   // Status
   status: "checked_in" | "checked_out" | "auto_checked_out";
   
+  // Auto check-out fields (if applicable)
+  autoCheckOutReason?: string;
+  autoCheckOutDistance?: number;
+  autoCheckOutLocation?: {
+    latitude: number;
+    longitude: number;
+  };
+  
   // Notes
   note?: string;
   
@@ -306,6 +314,95 @@ export function subscribeToCheckInsForOwner(
       onChange([]);
     }
   );
+}
+
+/**
+ * Auto check-out when staff exceeds branch radius
+ * This function checks if the staff member is still within the allowed radius
+ * and automatically checks them out if they've exceeded it
+ */
+export async function autoCheckOutIfExceededRadius(
+  checkInId: string,
+  currentLatitude: number,
+  currentLongitude: number
+): Promise<boolean> {
+  try {
+    const checkInRef = doc(db, "staff_check_ins", checkInId);
+    const checkInSnap = await getDoc(checkInRef);
+    
+    if (!checkInSnap.exists()) {
+      return false;
+    }
+    
+    const checkInData = checkInSnap.data();
+    
+    // Only process if still checked in
+    if (checkInData.status !== "checked_in") {
+      return false;
+    }
+    
+    // Get branch location and radius
+    const branchId = checkInData.branchId;
+    const branchRef = doc(db, "branches", branchId);
+    const branchSnap = await getDoc(branchRef);
+    
+    if (!branchSnap.exists()) {
+      return false;
+    }
+    
+    const branchData = branchSnap.data();
+    
+    if (!branchData.location?.latitude || !branchData.location?.longitude) {
+      return false;
+    }
+    
+    const branchLat = branchData.location.latitude;
+    const branchLon = branchData.location.longitude;
+    const allowedRadius = branchData.allowedCheckInRadius || 100;
+    
+    // Calculate current distance from branch
+    const validation = validateCheckInLocation(
+      currentLatitude,
+      currentLongitude,
+      branchLat,
+      branchLon,
+      allowedRadius
+    );
+    
+    // If outside radius, auto check-out
+    if (!validation.isWithinRadius) {
+      // Calculate hours worked
+      let hoursWorked = "0h 0m";
+      if (checkInData.checkInTime) {
+        const checkInTime = checkInData.checkInTime.toDate();
+        const now = new Date();
+        const diffMs = now.getTime() - checkInTime.getTime();
+        const hours = Math.floor(diffMs / (1000 * 60 * 60));
+        const minutes = Math.floor((diffMs % (1000 * 60 * 60)) / (1000 * 60));
+        hoursWorked = `${hours}h ${minutes}m`;
+      }
+      
+      // Update check-in record with auto check-out
+      await updateDoc(checkInRef, {
+        checkOutTime: serverTimestamp(),
+        status: "auto_checked_out",
+        updatedAt: serverTimestamp(),
+        autoCheckOutReason: "Exceeded branch radius",
+        autoCheckOutDistance: validation.distanceMeters,
+        autoCheckOutLocation: {
+          latitude: currentLatitude,
+          longitude: currentLongitude,
+        },
+      });
+      
+      return true;
+    }
+    
+    return false;
+  } catch (error) {
+    console.error("Error in auto check-out:", error);
+    return false;
+  }
 }
 
 /**
