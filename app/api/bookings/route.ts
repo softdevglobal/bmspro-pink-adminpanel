@@ -4,6 +4,7 @@ import { FieldValue } from "firebase-admin/firestore";
 import { normalizeBookingStatus, shouldBlockSlots } from "@/lib/bookingTypes";
 import { generateBookingCode } from "@/lib/bookings";
 import { checkRateLimit, getClientIdentifier, RateLimiters, getRateLimitHeaders } from "@/lib/rateLimiterDistributed";
+import { logBookingCreatedServer } from "@/lib/auditLogServer";
 
 export const runtime = "nodejs";
 
@@ -357,6 +358,51 @@ export async function POST(req: NextRequest) {
       } catch (activityError) {
         console.error("Failed to create booking activity:", activityError);
         // Don't fail the request if activity creation fails
+      }
+      
+      // Create audit log for booking creation
+      try {
+        // Get user info for audit log
+        let performerName = "User";
+        let performerRole = "unknown";
+        try {
+          const userDoc = await adminDb().doc(`users/${currentUserId}`).get();
+          const userData = userDoc.data();
+          if (userData) {
+            performerName = userData.displayName || userData.name || "User";
+            performerRole = userData.role || userData.systemRole || "unknown";
+          }
+        } catch (userError) {
+          console.error("Failed to get user data for audit log:", userError);
+        }
+        
+        await logBookingCreatedServer(
+          ownerUid,
+          ref.id,
+          bookingCode,
+          String(body.client),
+          serviceName || "Service",
+          branchName || undefined,
+          staffName || undefined,
+          {
+            uid: currentUserId,
+            name: performerName,
+            role: performerRole,
+          },
+          {
+            price: Number(body.price) || 0,
+            duration: Number(body.duration) || 0,
+            date: String(body.date),
+            time: String(body.time),
+            notes: body.notes || undefined,
+            bookingSource: bookingSource,
+            clientEmail: body.clientEmail || undefined,
+            clientPhone: body.clientPhone || undefined,
+          }
+        );
+      } catch (auditError) {
+        console.error("Failed to create audit log for booking creation:", auditError);
+        // Don't fail the request if audit log creation fails
       }
       
       return NextResponse.json({ id: ref.id });

@@ -69,6 +69,59 @@ export async function createAuditLogServer(input: AuditLogInput): Promise<string
 
 // ==================== BOOKING AUDIT HELPERS (SERVER) ====================
 
+export async function logBookingCreatedServer(
+  ownerUid: string,
+  bookingId: string,
+  bookingCode: string | undefined,
+  clientName: string,
+  serviceName: string,
+  branchName: string | undefined,
+  staffName: string | undefined,
+  performer: { uid: string; name: string; role: string },
+  details?: {
+    price?: number;
+    duration?: number;
+    date?: string;
+    time?: string;
+    notes?: string;
+    bookingSource?: string;
+    clientEmail?: string;
+    clientPhone?: string;
+  }
+) {
+  let detailsText = `Service: ${serviceName}`;
+  if (staffName) detailsText += `, Staff: ${staffName}`;
+  if (details?.price) detailsText += `, Price: $${details.price}`;
+  if (details?.duration) detailsText += `, Duration: ${details.duration} mins`;
+  if (details?.date && details?.time) detailsText += `, Date/Time: ${details.date} ${details.time}`;
+  if (details?.notes && details.notes.trim()) detailsText += `, Notes: ${details.notes}`;
+  if (details?.bookingSource) detailsText += `, Source: ${details.bookingSource}`;
+
+  return createAuditLogServer({
+    ownerUid,
+    action: `Booking created for ${clientName}`,
+    actionType: "create",
+    entityType: "booking",
+    entityId: bookingId,
+    entityName: bookingCode || `Booking for ${clientName}`,
+    performedBy: performer.uid,
+    performedByName: performer.name,
+    performedByRole: performer.role,
+    details: detailsText,
+    branchName,
+    metadata: details ? {
+      price: details.price,
+      duration: details.duration,
+      date: details.date,
+      time: details.time,
+      notes: details.notes,
+      bookingSource: details.bookingSource,
+      clientEmail: details.clientEmail,
+      clientPhone: details.clientPhone,
+    } : undefined,
+  });
+}
+
 export async function logBookingStatusChangedServer(
   ownerUid: string,
   bookingId: string,
