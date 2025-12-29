@@ -155,15 +155,30 @@ export async function PATCH(req: NextRequest, context: { params: Promise<{ id: s
     // For admin reassigning after rejection: StaffRejected -> AwaitingStaffApproval
     const isAdminReassigning = currentStatus === "StaffRejected" && requestedStatus === "AwaitingStaffApproval";
 
-    if (!canTransitionStatus(currentStatus, actualNextStatus)) {
+    // Allow same-status updates when only services are being updated (for staff assignment)
+    // Check if we're only updating services without changing status
+    const hasServicesUpdate = body.services && Array.isArray(body.services) && body.services.length > 0;
+    const statusIsSame = currentStatus === actualNextStatus;
+    const isOnlyUpdatingServices = hasServicesUpdate && statusIsSame;
+
+    // If we're only updating services and status is the same, allow it
+    // Otherwise, check if the transition is valid
+    if (isOnlyUpdatingServices) {
+      // Allow same-status update when only services are being updated
+      console.log(`Allowing same-status update: ${currentStatus} -> ${actualNextStatus} (services only)`);
+    } else if (!canTransitionStatus(currentStatus, actualNextStatus)) {
       return NextResponse.json({ error: `Invalid transition ${currentStatus} -> ${actualNextStatus}` }, { status: 400 });
     }
 
     // Prepare update data
     const updateData: any = {
-      status: actualNextStatus,
       updatedAt: FieldValue.serverTimestamp(),
     };
+    
+    // Only update status if it's actually changing
+    if (currentStatus !== actualNextStatus) {
+      updateData.status = actualNextStatus;
+    }
 
     // Add services update if provided (for multi-service staff assignment)
     if (body.services && Array.isArray(body.services) && body.services.length > 0) {
