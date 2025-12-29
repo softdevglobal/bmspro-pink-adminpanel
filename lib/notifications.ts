@@ -1,6 +1,7 @@
-import { adminDb } from "@/lib/firebaseAdmin";
+import { adminDb, adminMessaging } from "@/lib/firebaseAdmin";
 import { FieldValue } from "firebase-admin/firestore";
 import type { BookingStatus } from "./bookingTypes";
+import { Message } from "firebase-admin/messaging";
 
 // Customer-facing notification types
 export type CustomerNotificationType = 
@@ -72,6 +73,75 @@ export interface AdminNotification extends BaseNotification {
 export type Notification = CustomerNotification | StaffNotification | AdminNotification;
 
 /**
+ * Send push notification to a user's device
+ */
+async function sendPushNotification(
+  fcmToken: string,
+  title: string,
+  body: string,
+  data?: Record<string, string>
+): Promise<void> {
+  try {
+    const messaging = adminMessaging();
+    
+    const message: Message = {
+      token: fcmToken,
+      notification: {
+        title,
+        body,
+      },
+      data: data || {},
+      android: {
+        priority: "high",
+        notification: {
+          sound: "default",
+          channelId: "appointments",
+        },
+      },
+      apns: {
+        payload: {
+          aps: {
+            sound: "default",
+            badge: 1,
+          },
+        },
+      },
+    };
+
+    await messaging.send(message);
+    console.log("Push notification sent successfully");
+  } catch (error: any) {
+    // Don't throw error - push notification failure shouldn't break notification creation
+    console.error("Error sending push notification:", error);
+    if (error.code === "messaging/invalid-registration-token" || 
+        error.code === "messaging/registration-token-not-registered") {
+      // Token is invalid, we might want to remove it from the user document
+      console.log("Invalid FCM token detected, but continuing with notification creation");
+    }
+  }
+}
+
+/**
+ * Get FCM token for a user
+ */
+async function getUserFcmToken(userUid: string): Promise<string | null> {
+  try {
+    const db = adminDb();
+    const userDoc = await db.collection("users").doc(userUid).get();
+    
+    if (!userDoc.exists) {
+      return null;
+    }
+    
+    const userData = userDoc.data();
+    return userData?.fcmToken || null;
+  } catch (error) {
+    console.error("Error getting FCM token:", error);
+    return null;
+  }
+}
+
+/**
  * Create a notification (generic)
  */
 export async function createNotification(data: Omit<Notification, "id" | "createdAt" | "read">): Promise<string> {
@@ -92,6 +162,28 @@ export async function createNotification(data: Omit<Notification, "id" | "create
     });
     
     const ref = await db.collection("notifications").add(cleanData);
+    
+    // Send push notification if staffUid or targetAdminUid is present
+    const staffUid = (data as any).staffUid;
+    const targetAdminUid = (data as any).targetAdminUid;
+    const userId = staffUid || targetAdminUid;
+    
+    if (userId) {
+      const fcmToken = await getUserFcmToken(userId);
+      if (fcmToken) {
+        await sendPushNotification(
+          fcmToken,
+          cleanData.title,
+          cleanData.message,
+          {
+            notificationId: ref.id,
+            type: cleanData.type,
+            bookingId: cleanData.bookingId,
+          }
+        );
+      }
+    }
+    
     return ref.id;
   } catch (error) {
     console.error("Error creating notification:", error);
