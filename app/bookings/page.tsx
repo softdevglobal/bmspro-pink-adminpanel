@@ -2576,6 +2576,17 @@ function BookingsPageContent() {
                   <span><i className="far fa-calendar mr-1"></i>{bookingToConfirm.date}</span>
                   <span><i className="far fa-clock mr-1"></i>{bookingToConfirm.time}</span>
                 </div>
+                {bookingToConfirm.notes && bookingToConfirm.notes.trim() && (
+                  <div className="mt-3 p-3 bg-amber-50 rounded-lg border border-amber-200">
+                    <div className="flex items-start gap-2">
+                      <i className="fas fa-sticky-note text-amber-600 mt-0.5"></i>
+                      <div className="flex-1">
+                        <p className="text-xs font-semibold text-amber-900 mb-1">Customer Notes:</p>
+                        <p className="text-xs text-amber-800 whitespace-pre-wrap">{bookingToConfirm.notes}</p>
+                      </div>
+                    </div>
+                  </div>
+                )}
               </div>
 
               {/* Staff Selection */}

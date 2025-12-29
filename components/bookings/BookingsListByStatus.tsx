@@ -1630,6 +1630,17 @@ export default function BookingsListByStatus({ status, title }: { status: Bookin
                   <span><i className="far fa-clock mr-1"></i>{bookingToConfirm.time}</span>
                   {bookingToConfirm.branchName && <span><i className="fas fa-store mr-1"></i>{bookingToConfirm.branchName}</span>}
                 </div>
+                {bookingToConfirm.notes && bookingToConfirm.notes.trim() && (
+                  <div className="mt-3 p-3 bg-amber-50 rounded-lg border border-amber-200">
+                    <div className="flex items-start gap-2">
+                      <i className="fas fa-sticky-note text-amber-600 mt-0.5"></i>
+                      <div className="flex-1">
+                        <p className="text-xs font-semibold text-amber-900 mb-1">Customer Notes:</p>
+                        <p className="text-xs text-amber-800 whitespace-pre-wrap">{bookingToConfirm.notes}</p>
+                      </div>
+                    </div>
+                  </div>
+                )}
               </div>
 
               {/* Staff Selection */}
@@ -1873,6 +1884,17 @@ export default function BookingsListByStatus({ status, title }: { status: Bookin
                   <span><i className="far fa-clock mr-1"></i>{bookingToReassign.time}</span>
                   {bookingToReassign.branchName && <span><i className="fas fa-store mr-1"></i>{bookingToReassign.branchName}</span>}
                 </div>
+                {bookingToReassign.notes && bookingToReassign.notes.trim() && (
+                  <div className="mt-3 p-3 bg-amber-50 rounded-lg border border-amber-200">
+                    <div className="flex items-start gap-2">
+                      <i className="fas fa-sticky-note text-amber-600 mt-0.5"></i>
+                      <div className="flex-1">
+                        <p className="text-xs font-semibold text-amber-900 mb-1">Customer Notes:</p>
+                        <p className="text-xs text-amber-800 whitespace-pre-wrap">{bookingToReassign.notes}</p>
+                      </div>
+                    </div>
+                  </div>
+                )}
               </div>
 
               {/* Staff Selection */}
