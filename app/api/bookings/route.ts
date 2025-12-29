@@ -312,14 +312,15 @@ export async function POST(req: NextRequest) {
     let finalStatus = normalizeBookingStatus(body.status || "Pending");
     let processedServices = body.services || null;
     
-    // Check if user is staff and auto-confirm their bookings
+    // Check if user is staff, salon_owner, or salon_branch_admin for auto-confirmation logic
     try {
       const currentUserDoc = await adminDb().doc(`users/${currentUserId}`).get();
       const currentUserData = currentUserDoc.data();
       if (currentUserData) {
         const userRole = currentUserData.role || currentUserData.systemRole;
+        
         if (userRole === "salon_staff") {
-          // Auto-confirm staff bookings
+          // Auto-confirm staff bookings (all services accepted immediately)
           finalStatus = "Confirmed";
           
           // Mark services as accepted if services array exists
@@ -328,6 +329,41 @@ export async function POST(req: NextRequest) {
               ...service,
               approvalStatus: "accepted",
             }));
+          }
+        } else if (userRole === "salon_owner" || userRole === "salon_branch_admin") {
+          // For salon_owner and salon_branch_admin: skip Pending status
+          // If services have staff assigned, go directly to AwaitingStaffApproval
+          // If all services need assignment, still go to AwaitingStaffApproval (not Pending)
+          
+          // Initialize services with approval status
+          if (processedServices && Array.isArray(processedServices) && processedServices.length > 0) {
+            processedServices = processedServices.map((service: any) => {
+              const hasStaff = service.staffId && service.staffId !== "null" && 
+                               !String(service.staffId).toLowerCase().includes("any");
+              return {
+                ...service,
+                // Services with valid staff get "pending" approval status
+                // Services without staff (Any Available) get "needs_assignment" status
+                approvalStatus: hasStaff ? "pending" : "needs_assignment",
+              };
+            });
+            
+            // Check if any service has staff assigned
+            const hasAnyAssignedStaff = processedServices.some((s: any) => 
+              s.approvalStatus === "pending"
+            );
+            
+            // Skip Pending status - go directly to AwaitingStaffApproval
+            if (hasAnyAssignedStaff || processedServices.some((s: any) => s.approvalStatus === "needs_assignment")) {
+              finalStatus = "AwaitingStaffApproval";
+            }
+          } else if (body.staffId && body.staffId !== "null" && 
+                     !String(body.staffId).toLowerCase().includes("any")) {
+            // Single service booking with staff assigned - skip Pending
+            finalStatus = "AwaitingStaffApproval";
+          } else {
+            // Single service booking without staff - still skip Pending for owner/admin
+            finalStatus = "AwaitingStaffApproval";
           }
         }
       }

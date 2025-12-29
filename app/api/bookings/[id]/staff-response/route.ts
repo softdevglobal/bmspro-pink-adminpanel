@@ -43,6 +43,94 @@ function calculateBookingStatus(services: BookingService[]): string {
 }
 
 /**
+ * Check if there are alternative staff members available for a rejected service
+ * Returns true if alternative staff is available, false otherwise
+ */
+async function hasAlternativeStaffAvailable(
+  db: ReturnType<typeof adminDb>,
+  ownerUid: string,
+  service: BookingService,
+  rejectedStaffUid: string,
+  branchId: string,
+  bookingDate: string
+): Promise<boolean> {
+  try {
+    // Get day of week from booking date
+    const date = new Date(bookingDate);
+    const daysOfWeek = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+    const dayName = daysOfWeek[date.getDay()];
+    
+    // Get all active staff for this owner
+    const staffQuery = db.collection("users")
+      .where("ownerUid", "==", ownerUid)
+      .where("status", "==", "Active");
+    
+    const staffSnapshot = await staffQuery.get();
+    
+    if (staffSnapshot.empty) return false;
+    
+    // Get service definition to check staffIds restriction
+    let serviceStaffIds: string[] = [];
+    if (service.id) {
+      try {
+        const serviceDoc = await db.doc(`services/${service.id}`).get();
+        const serviceData = serviceDoc.data();
+        if (serviceData && Array.isArray(serviceData.staffIds)) {
+          serviceStaffIds = serviceData.staffIds.map(String);
+        }
+      } catch (e) {
+        // Service might not exist or be accessible, continue without restriction
+        console.warn("Could not fetch service definition:", e);
+      }
+    }
+    
+    // Filter staff members
+    const availableStaff = staffSnapshot.docs.filter(doc => {
+      const staffData = doc.data();
+      const staffUid = doc.id;
+      
+      // Exclude the staff member who rejected
+      if (staffUid === rejectedStaffUid) return false;
+      
+      // Check if staff can perform this service (if service has staffIds restriction)
+      if (serviceStaffIds.length > 0) {
+        const canPerform = serviceStaffIds.some(id => 
+          String(id) === staffUid || String(id) === (staffData.uid || staffData.authUid)
+        );
+        if (!canPerform) return false;
+      }
+      
+      // Check if staff works at the booking branch
+      if (branchId) {
+        // Check weekly schedule first
+        if (staffData.weeklySchedule && typeof staffData.weeklySchedule === 'object') {
+          const daySchedule = staffData.weeklySchedule[dayName];
+          if (daySchedule === null || daySchedule === undefined) {
+            return false; // Not working on this day
+          }
+          if (daySchedule.branchId && daySchedule.branchId !== branchId) {
+            return false; // Scheduled at different branch
+          }
+        }
+        
+        // Fallback to primary branchId
+        if (!staffData.weeklySchedule && staffData.branchId !== branchId) {
+          return false;
+        }
+      }
+      
+      return true;
+    });
+    
+    return availableStaff.length > 0;
+  } catch (error) {
+    console.error("Error checking for alternative staff:", error);
+    // If we can't determine, assume no alternative to be safe
+    return false;
+  }
+}
+
+/**
  * API endpoint for staff to accept or reject a booking assignment
  * Supports per-service accept/reject for multi-service bookings
  */
@@ -178,7 +266,7 @@ export async function POST(req: NextRequest, context: { params: Promise<{ id: st
       // Update the services array with the staff's response
       // Note: FieldValue.serverTimestamp() can't be used in arrays, so use Date for service fields
       const nowDate = new Date().toISOString();
-      const updatedServices = services.map(service => {
+      let updatedServices = services.map(service => {
         const shouldUpdate = servicesToUpdate.some(s => String(s.id) === String(service.id));
         
         if (shouldUpdate) {
@@ -204,8 +292,37 @@ export async function POST(req: NextRequest, context: { params: Promise<{ id: st
         return service;
       });
 
+      // If rejecting, check for alternative staff for each rejected service
+      let shouldAutoCancel = false;
+      if (body.action === "reject") {
+        // Check each rejected service for alternative staff availability
+        const rejectedServices = updatedServices.filter(s => s.approvalStatus === "rejected");
+        
+        for (const rejectedService of rejectedServices) {
+          const hasAlternative = await hasAlternativeStaffAvailable(
+            db,
+            ownerUid,
+            rejectedService,
+            staffUid,
+            bookingData.branchId || "",
+            finalBookingDate || ""
+          );
+          
+          if (!hasAlternative) {
+            // No alternative staff available for this service - booking should be cancelled
+            shouldAutoCancel = true;
+            break; // One service without alternative is enough to cancel the booking
+          }
+        }
+      }
+
       // Calculate new booking status based on all service approvals
-      const newBookingStatus = calculateBookingStatus(updatedServices);
+      let newBookingStatus = calculateBookingStatus(updatedServices);
+      
+      // If no alternative staff is available, cancel the booking
+      if (shouldAutoCancel) {
+        newBookingStatus = "Canceled";
+      }
       
       // Prepare update data
       const updateData: any = {
@@ -225,6 +342,13 @@ export async function POST(req: NextRequest, context: { params: Promise<{ id: st
         updateData.lastRejectedByStaffName = staffName;
         updateData.lastRejectionReason = body.rejectionReason;
         updateData.lastRejectedAt = FieldValue.serverTimestamp();
+      }
+
+      // If auto-cancelled, add cancellation metadata
+      if (shouldAutoCancel) {
+        updateData.canceledAt = FieldValue.serverTimestamp();
+        updateData.canceledReason = `Service rejected by ${staffName} and no alternative staff available`;
+        updateData.canceledBy = "system";
       }
 
       await bookingRef.update(updateData);
@@ -304,8 +428,69 @@ export async function POST(req: NextRequest, context: { params: Promise<{ id: st
         } catch (e) {
           console.error("Failed to send customer notification:", e);
         }
+      } else if (shouldAutoCancel) {
+        // Booking was auto-cancelled due to no alternative staff
+        // Notify admin about cancellation
+        try {
+          const rejectedServices = updatedServices.filter((s: any) => s.approvalStatus === "rejected");
+          await db.collection("notifications").add({
+            bookingId: id,
+            bookingCode: bookingData.bookingCode,
+            type: "booking_canceled",
+            title: "Booking Auto-Cancelled",
+            message: `Booking ${bookingData.bookingCode} was automatically cancelled because service(s) ${rejectedServices.map((s: any) => s.name || "Service").join(", ")} were rejected by ${staffName} and no alternative staff is available.`,
+            status: "Canceled",
+            ownerUid: ownerUid,
+            targetRole: "admin",
+            clientName: clientName,
+            serviceName: servicesToUpdate.map(s => s.name).join(", "),
+            services: rejectedServices.map((s: any) => ({
+              name: s.name || "Service",
+              staffName: s.staffName,
+              staffId: s.staffId,
+            })),
+            branchName: bookingData.branchName,
+            bookingDate: finalBookingDate,
+            bookingTime: finalBookingTime,
+            read: false,
+            createdAt: FieldValue.serverTimestamp(),
+          });
+          console.log("Sent admin cancellation notification");
+        } catch (e) {
+          console.error("Failed to send admin notification:", e);
+        }
+        
+        // Notify customer about cancellation
+        try {
+          await db.collection("notifications").add({
+            customerUid: bookingData.customerUid,
+            customerEmail: bookingData.clientEmail,
+            customerPhone: bookingData.clientPhone,
+            bookingId: id,
+            bookingCode: bookingData.bookingCode,
+            type: "booking_canceled",
+            title: "Booking Cancelled",
+            message: `Your booking ${bookingData.bookingCode} for ${servicesToUpdate.map(s => s.name || "Service").join(", ")} on ${finalBookingDate} at ${finalBookingTime} has been cancelled. We apologize for any inconvenience.`,
+            status: "Canceled",
+            ownerUid: ownerUid,
+            clientName: clientName,
+            serviceName: bookingData.serviceName,
+            services: updatedServices.map((s: any) => ({
+              name: s.name || "Service",
+              staffName: s.staffName,
+            })),
+            branchName: bookingData.branchName,
+            bookingDate: finalBookingDate,
+            bookingTime: finalBookingTime,
+            read: false,
+            createdAt: FieldValue.serverTimestamp(),
+          });
+          console.log("Sent customer cancellation notification");
+        } catch (e) {
+          console.error("Failed to send customer notification:", e);
+        }
       } else if (body.action === "reject") {
-        // A service was rejected - notify admin for reassignment
+        // A service was rejected but alternative staff is available - notify admin for reassignment
         try {
           const rejectedServices = updatedServices.filter((s: any) => s.approvalStatus === "rejected");
           await createAdminRejectionNotification({
@@ -366,7 +551,11 @@ export async function POST(req: NextRequest, context: { params: Promise<{ id: st
           message = `Service(s) accepted. Waiting for other staff to respond. (${updatedServices.filter((s: any) => s.approvalStatus === "accepted").length}/${updatedServices.length} accepted)`;
         }
       } else {
-        message = "Service(s) rejected. Admin has been notified for reassignment.";
+        if (shouldAutoCancel) {
+          message = "Service(s) rejected. No alternative staff available. Booking has been automatically cancelled.";
+        } else {
+          message = "Service(s) rejected. Admin has been notified for reassignment.";
+        }
       }
 
       return NextResponse.json({ 
@@ -478,15 +667,47 @@ export async function POST(req: NextRequest, context: { params: Promise<{ id: st
       }, { headers: corsHeaders });
 
     } else {
+      // Single service booking rejection - check for alternative staff
+      let shouldAutoCancel = false;
+      
+      // Check if alternative staff is available for this service
+      const serviceForCheck: BookingService = {
+        id: bookingData.serviceId || "",
+        name: finalServiceName || undefined,
+        staffId: bookingData.staffId || undefined,
+      };
+      
+      const hasAlternative = await hasAlternativeStaffAvailable(
+        db,
+        ownerUid,
+        serviceForCheck,
+        staffUid,
+        bookingData.branchId || "",
+        finalBookingDate || ""
+      );
+      
+      if (!hasAlternative) {
+        // No alternative staff available - cancel the booking
+        shouldAutoCancel = true;
+      }
+      
       // Staff rejects the booking
+      const finalStatus = shouldAutoCancel ? "Canceled" : "StaffRejected";
       const updateData: any = {
-        status: "StaffRejected",
+        status: finalStatus,
         updatedAt: FieldValue.serverTimestamp(),
         rejectedByStaffUid: staffUid,
         rejectedByStaffName: staffName,
         rejectionReason: body.rejectionReason,
         rejectedAt: FieldValue.serverTimestamp(),
       };
+
+      // If auto-cancelled, add cancellation metadata
+      if (shouldAutoCancel) {
+        updateData.canceledAt = FieldValue.serverTimestamp();
+        updateData.canceledReason = `Service rejected by ${staffName} and no alternative staff available`;
+        updateData.canceledBy = "system";
+      }
 
       await bookingRef.update(updateData);
 
@@ -496,7 +717,7 @@ export async function POST(req: NextRequest, context: { params: Promise<{ id: st
           ownerUid: ownerUid,
           bookingId: id,
           bookingCode: bookingData.bookingCode || null,
-          activityType: "booking_staff_rejected",
+          activityType: shouldAutoCancel ? "booking_canceled" : "booking_staff_rejected",
           clientName: clientName,
           serviceName: finalServiceName,
           branchName: bookingData.branchName || null,
@@ -506,54 +727,108 @@ export async function POST(req: NextRequest, context: { params: Promise<{ id: st
           date: finalBookingDate,
           time: finalBookingTime,
           previousStatus: currentStatus,
-          newStatus: "StaffRejected",
+          newStatus: finalStatus,
           rejectionReason: body.rejectionReason,
+          ...(shouldAutoCancel ? { canceledReason: `No alternative staff available` } : {}),
           createdAt: FieldValue.serverTimestamp(),
         });
       } catch (e) {
         console.error("Failed to create activity log:", e);
       }
 
-      // Send rejection notification to admin
-      try {
-        await createAdminRejectionNotification({
-          bookingId: id,
-          bookingCode: bookingData.bookingCode,
-          ownerUid: ownerUid,
-          rejectedByStaffUid: staffUid,
-          rejectedByStaffName: staffName,
-          rejectionReason: body.rejectionReason || "No reason provided",
-          clientName: clientName,
-          serviceName: finalServiceName,
-          services: undefined,
-          branchName: bookingData.branchName,
-          bookingDate: finalBookingDate,
-          bookingTime: finalBookingTime,
-        });
-        console.log("Sent admin rejection notification");
-      } catch (e) {
-        console.error("Failed to send admin notification:", e);
-      }
-      
-      // Also notify customer that their booking is being rescheduled
-      // (Customer-friendly notification without exposing staff rejection details)
-      try {
-        await createCustomerReschedulingNotification({
-          bookingId: id,
-          bookingCode: bookingData.bookingCode,
-          customerUid: bookingData.customerUid,
-          customerEmail: bookingData.clientEmail,
-          customerPhone: bookingData.clientPhone,
-          clientName: clientName,
-          serviceName: finalServiceName,
-          branchName: bookingData.branchName,
-          bookingDate: finalBookingDate,
-          bookingTime: finalBookingTime,
-          ownerUid: ownerUid,
-        });
-        console.log("Sent customer rescheduling notification (single service)");
-      } catch (e) {
-        console.error("Failed to send customer notification:", e);
+      // Send notifications based on whether booking was cancelled or just rejected
+      if (shouldAutoCancel) {
+        // Booking was auto-cancelled - notify admin and customer
+        try {
+          await db.collection("notifications").add({
+            bookingId: id,
+            bookingCode: bookingData.bookingCode,
+            type: "booking_canceled",
+            title: "Booking Auto-Cancelled",
+            message: `Booking ${bookingData.bookingCode} was automatically cancelled because ${finalServiceName} was rejected by ${staffName} and no alternative staff is available.`,
+            status: "Canceled",
+            ownerUid: ownerUid,
+            targetRole: "admin",
+            clientName: clientName,
+            serviceName: finalServiceName,
+            branchName: bookingData.branchName,
+            bookingDate: finalBookingDate,
+            bookingTime: finalBookingTime,
+            read: false,
+            createdAt: FieldValue.serverTimestamp(),
+          });
+          console.log("Sent admin cancellation notification");
+        } catch (e) {
+          console.error("Failed to send admin notification:", e);
+        }
+        
+        // Notify customer about cancellation
+        try {
+          await db.collection("notifications").add({
+            customerUid: bookingData.customerUid,
+            customerEmail: bookingData.clientEmail,
+            customerPhone: bookingData.clientPhone,
+            bookingId: id,
+            bookingCode: bookingData.bookingCode,
+            type: "booking_canceled",
+            title: "Booking Cancelled",
+            message: `Your booking ${bookingData.bookingCode} for ${finalServiceName} on ${finalBookingDate} at ${finalBookingTime} has been cancelled. We apologize for any inconvenience.`,
+            status: "Canceled",
+            ownerUid: ownerUid,
+            clientName: clientName,
+            serviceName: finalServiceName,
+            branchName: bookingData.branchName,
+            bookingDate: finalBookingDate,
+            bookingTime: finalBookingTime,
+            read: false,
+            createdAt: FieldValue.serverTimestamp(),
+          });
+          console.log("Sent customer cancellation notification");
+        } catch (e) {
+          console.error("Failed to send customer notification:", e);
+        }
+      } else {
+        // Service was rejected but alternative staff is available - notify admin for reassignment
+        try {
+          await createAdminRejectionNotification({
+            bookingId: id,
+            bookingCode: bookingData.bookingCode,
+            ownerUid: ownerUid,
+            rejectedByStaffUid: staffUid,
+            rejectedByStaffName: staffName,
+            rejectionReason: body.rejectionReason || "No reason provided",
+            clientName: clientName,
+            serviceName: finalServiceName,
+            services: undefined,
+            branchName: bookingData.branchName,
+            bookingDate: finalBookingDate,
+            bookingTime: finalBookingTime,
+          });
+          console.log("Sent admin rejection notification");
+        } catch (e) {
+          console.error("Failed to send admin notification:", e);
+        }
+        
+        // Also notify customer that their booking is being rescheduled
+        // (Customer-friendly notification without exposing staff rejection details)
+        try {
+          await createCustomerReschedulingNotification({
+            bookingId: id,
+            bookingCode: bookingData.bookingCode,
+            customerUid: bookingData.customerUid,
+            customerEmail: bookingData.clientEmail,
+            customerPhone: bookingData.clientPhone,
+            clientName: clientName,
+            serviceName: finalServiceName,
+            branchName: bookingData.branchName,
+            bookingDate: finalBookingDate,
+            bookingTime: finalBookingTime,
+            ownerUid: ownerUid,
+          });
+          console.log("Sent customer rescheduling notification (single service)");
+        } catch (e) {
+          console.error("Failed to send customer notification:", e);
+        }
       }
 
       // Create audit log for staff rejection (single service)
@@ -578,10 +853,14 @@ export async function POST(req: NextRequest, context: { params: Promise<{ id: st
         console.error("Failed to create audit log:", e);
       }
 
+      const responseMessage = shouldAutoCancel
+        ? "Service rejected. No alternative staff available. Booking has been automatically cancelled."
+        : "Booking rejected. Admin has been notified for reassignment.";
+      
       return NextResponse.json({ 
         ok: true, 
-        status: "StaffRejected",
-        message: "Booking rejected. Admin has been notified for reassignment."
+        status: finalStatus,
+        message: responseMessage
       }, { headers: corsHeaders });
       }
     }
