@@ -60,7 +60,7 @@ export async function POST(req: NextRequest) {
     }
 
     // Get all active check-ins for this owner
-    const activeCheckInsSnapshot = await adminDb
+    const activeCheckInsSnapshot = await adminDb()
       .collection("staff_check_ins")
       .where("ownerUid", "==", ownerUid)
       .where("status", "==", "checked_in")
