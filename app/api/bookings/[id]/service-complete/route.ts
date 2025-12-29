@@ -4,6 +4,7 @@ import { FieldValue } from "firebase-admin/firestore";
 import { normalizeBookingStatus, type BookingService, type ServiceCompletionStatus, areAllServicesCompleted } from "@/lib/bookingTypes";
 import { createNotification, getNotificationContent } from "@/lib/notifications";
 import { checkRateLimit, getClientIdentifier, RateLimiters, getRateLimitHeaders } from "@/lib/rateLimiterDistributed";
+import { logBookingServiceCompletedServer } from "@/lib/auditLogServer";
 
 export const runtime = "nodejs";
 
@@ -206,6 +207,28 @@ export async function POST(req: NextRequest, context: { params: Promise<{ id: st
         console.error("Failed to create activity log:", e);
       }
 
+      // Create audit log for service completion
+      try {
+        const serviceNames = servicesToComplete.map(s => s.name || "Service").join(", ");
+        const performer = {
+          uid: staffUid,
+          name: staffName,
+          role: staffData?.role || "salon_staff",
+        };
+        await logBookingServiceCompletedServer(
+          ownerUid,
+          id,
+          bookingData.bookingCode,
+          clientName,
+          performer,
+          serviceNames,
+          allCompleted,
+          bookingData.branchName
+        );
+      } catch (e) {
+        console.error("Failed to create audit log:", e);
+      }
+
       // Send notification to customer if booking is fully completed
       if (allCompleted) {
         try {
@@ -324,6 +347,27 @@ export async function POST(req: NextRequest, context: { params: Promise<{ id: st
         });
       } catch (e) {
         console.error("Failed to create activity log:", e);
+      }
+
+      // Create audit log for service completion
+      try {
+        const performer = {
+          uid: staffUid,
+          name: staffName,
+          role: staffData?.role || "salon_staff",
+        };
+        await logBookingServiceCompletedServer(
+          ownerUid,
+          id,
+          bookingData.bookingCode,
+          clientName,
+          performer,
+          finalServiceName,
+          true, // allServicesCompleted = true for single service bookings
+          bookingData.branchName
+        );
+      } catch (e) {
+        console.error("Failed to create audit log:", e);
       }
 
       // Send notification to customer

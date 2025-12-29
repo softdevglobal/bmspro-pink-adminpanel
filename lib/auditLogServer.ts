@@ -239,3 +239,36 @@ export async function logStaffDeletedServer(
   });
 }
 
+// ==================== SERVICE COMPLETION AUDIT HELPERS (SERVER) ====================
+
+export async function logBookingServiceCompletedServer(
+  ownerUid: string,
+  bookingId: string,
+  bookingCode: string | undefined,
+  clientName: string,
+  performer: { uid: string; name: string; role: string },
+  serviceName?: string,
+  allServicesCompleted?: boolean,
+  branchName?: string
+) {
+  const actionText = allServicesCompleted 
+    ? `Booking completed${serviceName ? `: ${serviceName}` : ""}`
+    : `Service completed${serviceName ? `: ${serviceName}` : ""}`;
+  
+  return createAuditLogServer({
+    ownerUid,
+    action: actionText,
+    actionType: "status_change",
+    entityType: "booking",
+    entityId: bookingId,
+    entityName: bookingCode || `Booking for ${clientName}`,
+    performedBy: performer.uid,
+    performedByName: performer.name,
+    performedByRole: performer.role,
+    previousValue: allServicesCompleted ? "Confirmed" : "In Progress",
+    newValue: allServicesCompleted ? "Completed" : "Service Completed",
+    details: serviceName ? `Service: ${serviceName}` : undefined,
+    branchName,
+  });
+}
+
