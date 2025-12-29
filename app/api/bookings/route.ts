@@ -308,6 +308,33 @@ export async function POST(req: NextRequest) {
 
     const bookingCode = generateBookingCode();
     
+    // Determine if this is a staff-created booking (auto-confirm)
+    let finalStatus = normalizeBookingStatus(body.status || "Pending");
+    let processedServices = body.services || null;
+    
+    // Check if user is staff and auto-confirm their bookings
+    try {
+      const currentUserDoc = await adminDb().doc(`users/${currentUserId}`).get();
+      const currentUserData = currentUserDoc.data();
+      if (currentUserData) {
+        const userRole = currentUserData.role || currentUserData.systemRole;
+        if (userRole === "salon_staff") {
+          // Auto-confirm staff bookings
+          finalStatus = "Confirmed";
+          
+          // Mark services as accepted if services array exists
+          if (processedServices && Array.isArray(processedServices) && processedServices.length > 0) {
+            processedServices = processedServices.map((service: any) => ({
+              ...service,
+              approvalStatus: "accepted",
+            }));
+          }
+        }
+      }
+    } catch (roleError) {
+      console.error("Failed to check user role for auto-confirmation:", roleError);
+    }
+    
     const payload: any = {
       ownerUid,
       client: String(body.client),
@@ -325,9 +352,9 @@ export async function POST(req: NextRequest) {
       time: String(body.time), // HH:mm in branch's local timezone (for backward compatibility)
       dateTimeUtc: body.dateTimeUtc || null, // UTC ISO string for consistent storage
       duration: Number(body.duration) || 0,
-      status: normalizeBookingStatus(body.status || "Pending"),
+      status: finalStatus,
       price: Number(body.price) || 0,
-      services: body.services || null,
+      services: processedServices,
       bookingSource: bookingSource,
       bookingCode: bookingCode,
       createdAt: FieldValue.serverTimestamp(),
