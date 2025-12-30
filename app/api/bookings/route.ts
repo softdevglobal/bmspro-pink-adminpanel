@@ -5,6 +5,7 @@ import { normalizeBookingStatus, shouldBlockSlots } from "@/lib/bookingTypes";
 import { generateBookingCode } from "@/lib/bookings";
 import { checkRateLimit, getClientIdentifier, RateLimiters, getRateLimitHeaders } from "@/lib/rateLimiterDistributed";
 import { logBookingCreatedServer } from "@/lib/auditLogServer";
+import { createStaffAssignmentNotification } from "@/lib/notifications";
 
 export const runtime = "nodejs";
 
@@ -466,6 +467,68 @@ export async function POST(req: NextRequest) {
       } catch (auditError) {
         console.error("Failed to create audit log for booking creation:", auditError);
         // Don't fail the request if audit log creation fails
+      }
+      
+      // Send notifications to assigned staff members if booking requires approval
+      if (finalStatus === "AwaitingStaffApproval") {
+        try {
+          const staffToNotify: Array<{ uid: string; name: string }> = [];
+          
+          // Collect staff members to notify from services array
+          if (processedServices && Array.isArray(processedServices) && processedServices.length > 0) {
+            for (const svc of processedServices) {
+              // Only notify staff who have actual assignments (not "Any Available")
+              if (svc.staffId && svc.staffId !== "null" && 
+                  !String(svc.staffId).toLowerCase().includes("any")) {
+                const existing = staffToNotify.find(s => s.uid === svc.staffId);
+                if (!existing) {
+                  staffToNotify.push({ 
+                    uid: svc.staffId, 
+                    name: svc.staffName || "Staff" 
+                  });
+                }
+              }
+            }
+          } else if (body.staffId && body.staffId !== "null" && 
+                     !String(body.staffId).toLowerCase().includes("any")) {
+            // Single staff assignment
+            staffToNotify.push({ 
+              uid: body.staffId, 
+              name: body.staffName || "Staff" 
+            });
+          }
+          
+          // Send notification to each assigned staff member
+          for (const staff of staffToNotify) {
+            await createStaffAssignmentNotification({
+              bookingId: ref.id,
+              bookingCode: bookingCode,
+              staffUid: staff.uid,
+              staffName: staff.name,
+              clientName: String(body.client),
+              clientPhone: body.clientPhone || undefined,
+              serviceName: serviceName || undefined,
+              services: processedServices?.map((s: any) => ({
+                name: s.name || "Service",
+                staffName: s.staffName || undefined,
+                staffId: s.staffId || undefined,
+              })),
+              branchName: branchName || undefined,
+              bookingDate: String(body.date),
+              bookingTime: String(body.time),
+              duration: Number(body.duration) || 0,
+              price: Number(body.price) || 0,
+              ownerUid: ownerUid,
+            });
+          }
+          
+          if (staffToNotify.length > 0) {
+            console.log(`✅ Sent staff assignment notifications to ${staffToNotify.length} staff member(s) for booking ${bookingCode}`);
+          }
+        } catch (notifError) {
+          console.error("❌ Failed to send staff assignment notifications:", notifError);
+          // Don't fail the request if notification sending fails
+        }
       }
       
       return NextResponse.json({ id: ref.id });
