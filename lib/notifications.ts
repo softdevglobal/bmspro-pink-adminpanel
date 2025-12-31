@@ -20,7 +20,13 @@ export type AdminNotificationType =
   | "staff_accepted"        // Staff accepted a booking
   | "staff_rejected";       // Staff rejected a booking
 
-export type NotificationType = CustomerNotificationType | StaffNotificationType | AdminNotificationType;
+// Owner-facing notification types (for staff-created bookings, etc.)
+export type OwnerNotificationType =
+  | "staff_booking_created"       // Staff created a booking
+  | "booking_needs_assignment"    // Booking needs staff assignment
+  | "booking_engine_new_booking"; // New booking from booking engine
+
+export type NotificationType = CustomerNotificationType | StaffNotificationType | AdminNotificationType | OwnerNotificationType;
 
 // Base notification interface
 export interface BaseNotification {
@@ -70,7 +76,17 @@ export interface AdminNotification extends BaseNotification {
   clientName?: string;
 }
 
-export type Notification = CustomerNotification | StaffNotification | AdminNotification;
+// Owner notification (for staff-created bookings, unassigned bookings, etc.)
+export interface OwnerNotification extends BaseNotification {
+  targetOwnerUid: string;    // The owner to notify
+  creatorUid?: string;       // UID of person who created the booking
+  creatorName?: string;      // Name of person who created the booking
+  creatorRole?: string;      // Role of person who created the booking
+  clientName?: string;
+  branchId?: string;
+}
+
+export type Notification = CustomerNotification | StaffNotification | AdminNotification | OwnerNotification;
 
 /**
  * Send push notification to a user's device
@@ -163,10 +179,13 @@ export async function createNotification(data: Omit<Notification, "id" | "create
     
     const ref = await db.collection("notifications").add(cleanData);
     
-    // Send push notification if staffUid or targetAdminUid is present
+    // Send push notification if staffUid, targetAdminUid, or targetOwnerUid is present
     const staffUid = (data as any).staffUid;
     const targetAdminUid = (data as any).targetAdminUid;
-    const userId = staffUid || targetAdminUid;
+    const targetOwnerUid = (data as any).targetOwnerUid;
+    
+    // Determine who to send push notification to
+    const userId = staffUid || targetAdminUid || targetOwnerUid;
     
     if (userId) {
       const fcmToken = await getUserFcmToken(userId);
@@ -181,6 +200,9 @@ export async function createNotification(data: Omit<Notification, "id" | "create
             bookingId: cleanData.bookingId,
           }
         );
+        console.log(`✅ Push notification sent to user: ${userId}`);
+      } else {
+        console.log(`⚠️ No FCM token found for user: ${userId}`);
       }
     }
     
@@ -650,5 +672,113 @@ export function getAdminNotificationContent(
         message: `${staffName} took action on booking${code}.`
       };
   }
+}
+
+/**
+ * Create a notification for the salon owner when staff creates a booking
+ */
+export async function createOwnerNotification(data: {
+  bookingId: string;
+  bookingCode?: string;
+  ownerUid: string;
+  clientName: string;
+  serviceName?: string;
+  services?: Array<{ name: string; staffName?: string; staffId?: string }>;
+  branchName?: string;
+  bookingDate: string;
+  bookingTime: string;
+  creatorUid?: string;
+  creatorName?: string;
+  creatorRole?: string;
+  type: OwnerNotificationType;
+  status?: BookingStatus;
+}): Promise<string> {
+  const serviceList = data.services && data.services.length > 0
+    ? data.services.map(s => s.name).join(", ")
+    : data.serviceName || "Service";
+
+  let title: string;
+  let message: string;
+
+  switch (data.type) {
+    case "staff_booking_created":
+      const roleLabel = data.creatorRole === "salon_branch_admin" ? "Branch Admin" : "Staff";
+      title = `New Booking Created by ${roleLabel}`;
+      message = `${data.creatorName || "Staff"} created a booking for ${data.clientName} - ${serviceList} at ${data.branchName || "Branch"} on ${data.bookingDate} at ${data.bookingTime}`;
+      break;
+    case "booking_needs_assignment":
+      title = "New Booking - Staff Assignment Required";
+      message = `New booking from ${data.clientName} for ${serviceList} on ${data.bookingDate} at ${data.bookingTime}. Please assign staff.`;
+      break;
+    case "booking_engine_new_booking":
+      title = "New Online Booking";
+      message = `${data.clientName} booked ${serviceList} at ${data.branchName || "Branch"} on ${data.bookingDate} at ${data.bookingTime}`;
+      break;
+    default:
+      title = "New Booking Notification";
+      message = `New booking for ${data.clientName} - ${serviceList} on ${data.bookingDate} at ${data.bookingTime}`;
+  }
+
+  const notificationData: Omit<OwnerNotification, "id" | "createdAt" | "read"> = {
+    bookingId: data.bookingId,
+    bookingCode: data.bookingCode,
+    type: data.type,
+    title,
+    message,
+    status: data.status || "Pending",
+    ownerUid: data.ownerUid,
+    targetOwnerUid: data.ownerUid, // Explicitly target the owner
+    clientName: data.clientName,
+    serviceName: data.serviceName,
+    services: data.services,
+    branchName: data.branchName,
+    bookingDate: data.bookingDate,
+    bookingTime: data.bookingTime,
+    creatorUid: data.creatorUid,
+    creatorName: data.creatorName,
+    creatorRole: data.creatorRole,
+  };
+
+  return createNotification(notificationData);
+}
+
+/**
+ * Create a notification for branch admin when a booking is created for their branch
+ */
+export async function createBranchAdminNotification(data: {
+  bookingId: string;
+  bookingCode?: string;
+  branchAdminUid: string;
+  ownerUid: string;
+  clientName: string;
+  serviceName?: string;
+  services?: Array<{ name: string; staffName?: string; staffId?: string }>;
+  branchName?: string;
+  bookingDate: string;
+  bookingTime: string;
+  status?: BookingStatus;
+}): Promise<string> {
+  const serviceList = data.services && data.services.length > 0
+    ? data.services.map(s => s.name).join(", ")
+    : data.serviceName || "Service";
+
+  const notificationData: any = {
+    bookingId: data.bookingId,
+    bookingCode: data.bookingCode,
+    type: "booking_engine_new_booking",
+    title: "New Booking for Your Branch",
+    message: `${data.clientName} booked ${serviceList} at ${data.branchName || "Your branch"} on ${data.bookingDate} at ${data.bookingTime}`,
+    status: data.status || "Pending",
+    ownerUid: data.ownerUid,
+    branchAdminUid: data.branchAdminUid, // Target the branch admin
+    clientName: data.clientName,
+    serviceName: data.serviceName,
+    services: data.services,
+    branchName: data.branchName,
+    bookingDate: data.bookingDate,
+    bookingTime: data.bookingTime,
+  };
+
+  return createNotification(notificationData);
 }
 

@@ -212,105 +212,181 @@ export default function NotificationProvider({ children }: NotificationProviderP
       const { doc, getDoc } = await import("firebase/firestore");
 
       // Subscribe to notifications collection for this owner
+      // We need to listen for multiple notification types:
+      // 1. ownerUid - general owner notifications
+      // 2. targetOwnerUid - specific owner-targeted notifications (staff created bookings, etc.)
+      // 3. targetAdminUid - admin-targeted notifications (staff rejections, etc.)
       const notificationsQuery = query(
         collection(db, "notifications"),
         where("ownerUid", "==", ownerUid)
       );
 
+      // Also listen for targetOwnerUid notifications (for staff-created booking notifications)
+      const targetOwnerQuery = query(
+        collection(db, "notifications"),
+        where("targetOwnerUid", "==", ownerUid)
+      );
+
+      // Also listen for targetAdminUid notifications
+      const targetAdminQuery = query(
+        collection(db, "notifications"),
+        where("targetAdminUid", "==", ownerUid)
+      );
+
+      // Track notifications from all queries to deduplicate
+      const allNotificationsMap = new Map<string, Notification>();
+      const queryLoadedFlags = { main: false, targetOwner: false, targetAdmin: false };
+
+      const processNotifications = async () => {
+        // Wait until all queries have loaded once
+        if (!queryLoadedFlags.main || !queryLoadedFlags.targetOwner || !queryLoadedFlags.targetAdmin) {
+          return;
+        }
+
+        const allNotifs = Array.from(allNotificationsMap.values())
+          .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())
+          .slice(0, 50);
+
+        // Find new notifications (IDs that weren't in previous snapshot)
+        const currentNotificationIds = new Set(allNotifs.map((n) => n.id));
+        const newNotifications = allNotifs.filter(
+          (n) => !previousNotificationIdsRef.current.has(n.id)
+        );
+
+        // Only play sound and show toast after initial load
+        if (!isInitialLoadRef.current && newNotifications.length > 0) {
+          // Play notification sound
+          playNotificationSound();
+
+          // Show toast notifications for new notifications
+          newNotifications.forEach((notif) => {
+            showToastNotification({
+              id: notif.bookingId,
+              customerName: notif.message.split(" ")[0] || "A customer",
+              serviceName: notif.serviceName,
+              price: notif.price,
+            });
+          });
+        }
+
+        // Store notifications from Firestore (will be combined with pending bookings)
+        setNotifications(allNotifs);
+
+        // Update previous IDs ref
+        previousNotificationIdsRef.current = currentNotificationIds;
+
+        // Mark initial load as complete
+        if (isInitialLoadRef.current) {
+          isInitialLoadRef.current = false;
+        }
+      };
+
+      const processSnapshot = async (snapshot: any, queryName: string) => {
+        for (const docSnapshot of snapshot.docs) {
+          const data = docSnapshot.data();
+          const notifId = docSnapshot.id;
+          
+          // Get booking status to filter out confirmed/canceled
+          let bookingStatus = data.status;
+          if (data.bookingId) {
+            try {
+              const bookingDoc = await getDoc(doc(db, "bookings", data.bookingId));
+              if (bookingDoc.exists()) {
+                bookingStatus = bookingDoc.data()?.status || data.status;
+              }
+            } catch (error) {
+              console.error("Error fetching booking status:", error);
+            }
+          }
+
+          // Only show notifications for bookings that are not confirmed or canceled
+          // Also show admin notifications (staff_rejected, staff_accepted) regardless of status
+          const isAdminNotification = data.type === "staff_rejected" || 
+                                      data.type === "staff_accepted" ||
+                                      data.type === "staff_booking_created" ||
+                                      data.type === "booking_needs_assignment" ||
+                                      data.type === "booking_engine_new_booking";
+          const shouldShow = isAdminNotification || 
+            (bookingStatus !== "Confirmed" && bookingStatus !== "Canceled" && bookingStatus !== "Completed");
+
+          if (!shouldShow) {
+            continue;
+          }
+
+          const notification: Notification = {
+            id: notifId,
+            bookingId: data.bookingId || "",
+            type: data.type || "booking_request",
+            title: data.title || "Notification",
+            message: data.message || "",
+            serviceName: data.serviceName || data.services?.[0]?.name,
+            branchName: data.branchName || "",
+            date: data.bookingDate || data.date,
+            time: data.bookingTime || data.time,
+            price: data.price,
+            createdAt: data.createdAt?.toDate ? data.createdAt.toDate() : new Date(data.createdAt?.seconds * 1000 || Date.now()),
+            read: data.read || false,
+            status: bookingStatus || data.status,
+          };
+          
+          allNotificationsMap.set(notifId, notification);
+        }
+
+        // Mark this query as loaded
+        if (queryName === "main") queryLoadedFlags.main = true;
+        if (queryName === "targetOwner") queryLoadedFlags.targetOwner = true;
+        if (queryName === "targetAdmin") queryLoadedFlags.targetAdmin = true;
+
+        // Process all notifications
+        await processNotifications();
+      };
+
+      // Subscribe to main ownerUid notifications
       unsubNotifications = onSnapshot(
         notificationsQuery,
         async (snapshot) => {
-          const allNotifications: (Notification | null)[] = await Promise.all(
-            snapshot.docs.map(async (docSnapshot): Promise<Notification | null> => {
-              const data = docSnapshot.data();
-              const notifId = docSnapshot.id;
-              
-              // Get booking status to filter out confirmed/canceled
-              let bookingStatus = data.status;
-              if (data.bookingId) {
-                try {
-                  const bookingDoc = await getDoc(doc(db, "bookings", data.bookingId));
-                  if (bookingDoc.exists()) {
-                    bookingStatus = bookingDoc.data()?.status || data.status;
-                  }
-                } catch (error) {
-                  console.error("Error fetching booking status:", error);
-                }
-              }
-
-              // Only show notifications for bookings that are not confirmed or canceled
-              // Also show admin notifications (staff_rejected, staff_accepted) regardless of status
-              const isAdminNotification = data.type === "staff_rejected" || data.type === "staff_accepted";
-              const shouldShow = isAdminNotification || 
-                (bookingStatus !== "Confirmed" && bookingStatus !== "Canceled" && bookingStatus !== "Completed");
-
-              if (!shouldShow) {
-                return null;
-              }
-
-              const notification: Notification = {
-                id: notifId,
-                bookingId: data.bookingId || "",
-                type: data.type || "booking_request",
-                title: data.title || "Notification",
-                message: data.message || "",
-                serviceName: data.serviceName || data.services?.[0]?.name,
-                branchName: data.branchName || "",
-                date: data.bookingDate || data.date,
-                time: data.bookingTime || data.time,
-                price: data.price,
-                createdAt: data.createdAt?.toDate ? data.createdAt.toDate() : new Date(data.createdAt?.seconds * 1000 || Date.now()),
-                read: data.read || false,
-                status: bookingStatus || data.status,
-              };
-              
-              return notification;
-            })
-          );
-
-          // Filter out null values and sort by createdAt (newest first)
-          const validNotifications = allNotifications
-            .filter((n): n is Notification => n !== null)
-            .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())
-            .slice(0, 50);
-
-          // Find new notifications (IDs that weren't in previous snapshot)
-          const currentNotificationIds = new Set(validNotifications.map((n) => n.id));
-          const newNotifications = validNotifications.filter(
-            (n) => !previousNotificationIdsRef.current.has(n.id)
-          );
-
-          // Only play sound and show toast after initial load
-          if (!isInitialLoadRef.current && newNotifications.length > 0) {
-            // Play notification sound
-            playNotificationSound();
-
-            // Show toast notifications for new notifications
-            newNotifications.forEach((notif) => {
-              showToastNotification({
-                id: notif.bookingId,
-                customerName: notif.message.split(" ")[0] || "A customer",
-                serviceName: notif.serviceName,
-                price: notif.price,
-              });
-            });
-          }
-
-          // Store notifications from Firestore (will be combined with pending bookings)
-          setNotifications(validNotifications);
-
-          // Update previous IDs ref
-          previousNotificationIdsRef.current = currentNotificationIds;
-
-          // Mark initial load as complete
-          if (isInitialLoadRef.current) {
-            isInitialLoadRef.current = false;
-          }
+          await processSnapshot(snapshot, "main");
         },
         (error) => {
-          console.error("Error listening to notifications:", error);
+          console.error("Error listening to owner notifications:", error);
+          queryLoadedFlags.main = true;
+          processNotifications();
         }
       );
+
+      // Subscribe to targetOwnerUid notifications
+      const unsubTargetOwner = onSnapshot(
+        targetOwnerQuery,
+        async (snapshot) => {
+          await processSnapshot(snapshot, "targetOwner");
+        },
+        (error) => {
+          console.error("Error listening to target owner notifications:", error);
+          queryLoadedFlags.targetOwner = true;
+          processNotifications();
+        }
+      );
+
+      // Subscribe to targetAdminUid notifications
+      const unsubTargetAdmin = onSnapshot(
+        targetAdminQuery,
+        async (snapshot) => {
+          await processSnapshot(snapshot, "targetAdmin");
+        },
+        (error) => {
+          console.error("Error listening to target admin notifications:", error);
+          queryLoadedFlags.targetAdmin = true;
+          processNotifications();
+        }
+      );
+
+      // Store unsubscribe for targetOwner and targetAdmin
+      const originalUnsub = unsubNotifications;
+      unsubNotifications = () => {
+        originalUnsub?.();
+        unsubTargetOwner?.();
+        unsubTargetAdmin?.();
+      };
 
       // Also listen to pending bookings to include them in the notification panel
       const pendingQuery = query(
@@ -455,9 +531,13 @@ export default function NotificationProvider({ children }: NotificationProviderP
       }));
 
     // Filter notifications to exclude those with confirmed/canceled bookings
-    // Also show admin notifications (staff_rejected, staff_accepted) regardless of status
+    // Also show admin notifications regardless of status
     const validNotifications = notifications.filter((notif) => {
-      const isAdminNotification = notif.type === "staff_rejected" || notif.type === "staff_accepted";
+      const isAdminNotification = notif.type === "staff_rejected" || 
+                                  notif.type === "staff_accepted" ||
+                                  notif.type === "staff_booking_created" ||
+                                  notif.type === "booking_needs_assignment" ||
+                                  notif.type === "booking_engine_new_booking";
       if (isAdminNotification) return true;
       
       // Exclude if status is Confirmed, Canceled, or Completed
