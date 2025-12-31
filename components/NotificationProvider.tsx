@@ -148,22 +148,34 @@ export default function NotificationProvider({ children }: NotificationProviderP
   };
 
   // Show toast notification
-  const showToastNotification = (booking: any) => {
+  const showToastNotification = (notification: Notification | any) => {
     const id = `toast-${Date.now()}-${Math.random()}`;
+    
+    // Handle both Notification objects and booking objects
+    const isNotification = notification.title && notification.message;
+    
     const toast = {
       id,
-      title: "New Booking Request!",
-      message: `${booking.customerName || booking.clientName || "A customer"} requested a booking`,
-      serviceName: booking.serviceName || booking.services?.[0]?.name || "Service",
-      price: booking.price || booking.totalPrice,
-      bookingId: booking.id,
+      title: isNotification ? notification.title : "New Booking Request!",
+      message: isNotification 
+        ? notification.message 
+        : `${notification.customerName || notification.clientName || "A customer"} requested a booking`,
+      serviceName: notification.serviceName || notification.services?.[0]?.name || "Service",
+      price: notification.price || notification.totalPrice,
+      bookingId: notification.bookingId || notification.id,
+      type: notification.type || "booking_request",
+      branchName: notification.branchName,
+      date: notification.date || notification.bookingDate,
+      time: notification.time || notification.bookingTime,
     };
+    
+    console.log("🔔 Showing toast notification:", toast);
     setToastNotifications((prev) => [...prev, toast]);
 
-    // Auto remove after 5 seconds
+    // Auto remove after 8 seconds (increased for better visibility)
     setTimeout(() => {
       setToastNotifications((prev) => prev.filter((t) => t.id !== id));
-    }, 5000);
+    }, 8000);
   };
 
   // Authentication and user setup
@@ -255,17 +267,14 @@ export default function NotificationProvider({ children }: NotificationProviderP
 
         // Only play sound and show toast after initial load
         if (!isInitialLoadRef.current && newNotifications.length > 0) {
+          console.log("🔔 New notifications detected:", newNotifications.length);
+          
           // Play notification sound
           playNotificationSound();
 
-          // Show toast notifications for new notifications
+          // Show toast notifications for new notifications - pass full notification object
           newNotifications.forEach((notif) => {
-            showToastNotification({
-              id: notif.bookingId,
-              customerName: notif.message.split(" ")[0] || "A customer",
-              serviceName: notif.serviceName,
-              price: notif.price,
-            });
+            showToastNotification(notif);
           });
         }
 
@@ -571,20 +580,25 @@ export default function NotificationProvider({ children }: NotificationProviderP
     <NotificationContext.Provider value={value}>
       {children}
       {/* Toast Notifications Container - Bottom Right */}
-      <div className="fixed bottom-4 right-4 z-50 flex flex-col gap-3 max-w-sm">
+      <div className="fixed bottom-4 right-4 z-[9999] flex flex-col gap-3 max-w-md pointer-events-none">
         {toastNotifications.map((toast) => (
-          <ToastNotification
-            key={toast.id}
-            id={toast.id}
-            title={toast.title}
-            message={toast.message}
-            serviceName={toast.serviceName}
-            price={toast.price}
-            bookingId={toast.bookingId}
-            onClose={() => {
-              setToastNotifications((prev) => prev.filter((t) => t.id !== toast.id));
-            }}
-          />
+          <div key={toast.id} className="pointer-events-auto">
+            <ToastNotification
+              id={toast.id}
+              title={toast.title}
+              message={toast.message}
+              serviceName={toast.serviceName}
+              price={toast.price}
+              bookingId={toast.bookingId}
+              type={toast.type}
+              branchName={toast.branchName}
+              date={toast.date}
+              time={toast.time}
+              onClose={() => {
+                setToastNotifications((prev) => prev.filter((t) => t.id !== toast.id));
+              }}
+            />
+          </div>
         ))}
       </div>
     </NotificationContext.Provider>

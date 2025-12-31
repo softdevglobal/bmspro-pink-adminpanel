@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { onAuthStateChanged } from "firebase/auth";
 import Script from "next/script";
 import { collection, query, where, onSnapshot, getDocs } from "firebase/firestore";
+import { useNotifications } from "@/components/NotificationProvider";
 
 export default function DashboardPage() {
   const router = useRouter();
@@ -36,134 +37,16 @@ export default function DashboardPage() {
   const [selectedStaffId, setSelectedStaffId] = useState<string | null>(null);
   const [scheduleViewMode, setScheduleViewMode] = useState<'time' | 'staff' | 'branch'>('time');
   
-  // Notification state
-  const [notifications, setNotifications] = useState<any[]>([]);
+  // Use notification context from NotificationProvider
+  const { notifications, unreadCount, markAsRead, markAllAsRead } = useNotifications();
   const [notificationPanelOpen, setNotificationPanelOpen] = useState(false);
-  const [unreadCount, setUnreadCount] = useState(0);
-  const [toastNotifications, setToastNotifications] = useState<any[]>([]);
-  const previousPendingIdsRef = useRef<Set<string>>(new Set());
-  const isInitialLoadRef = useRef(true);
-
-  // Show toast notification
-  const showToastNotification = (booking: any) => {
-    const id = `toast-${Date.now()}`;
-    const toast = {
-      id,
-      title: 'New Booking Request!',
-      message: `${booking.customerName || booking.clientName || 'A customer'} requested a booking`,
-      serviceName: booking.serviceName || booking.services?.[0]?.name || 'Service',
-      price: booking.price || booking.totalPrice,
-    };
-    setToastNotifications(prev => [...prev, toast]);
-    
-    // Auto remove after 5 seconds
-    setTimeout(() => {
-      setToastNotifications(prev => prev.filter(t => t.id !== id));
-    }, 5000);
-  };
   
   const revCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const statusCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const chartsRef = useRef<{ revenue?: any; status?: any }>({});
   const builtRef = useRef(false);
 
-  // Play Shopify-style "Ka-Ching" sale notification sound using Web Audio API
-  const playNotificationSound = () => {
-    if (typeof window === "undefined") return;
-    
-    try {
-      const AudioContext = window.AudioContext || (window as any).webkitAudioContext;
-      if (!AudioContext) return;
-      
-      const audioCtx = new AudioContext();
-      const now = audioCtx.currentTime;
-      
-      // Create the iconic "Ka-Ching" cash register sound
-      
-      // Helper to create a tone with envelope
-      const createTone = (freq: number, type: OscillatorType, startTime: number, duration: number, volume: number) => {
-        const osc = audioCtx.createOscillator();
-        const gain = audioCtx.createGain();
-        
-        osc.connect(gain);
-        gain.connect(audioCtx.destination);
-        
-        osc.frequency.value = freq;
-        osc.type = type;
-        
-        // Sharp attack, quick decay for that metallic cash register feel
-        gain.gain.setValueAtTime(0, now + startTime);
-        gain.gain.linearRampToValueAtTime(volume, now + startTime + 0.005);
-        gain.gain.exponentialRampToValueAtTime(0.001, now + startTime + duration);
-        
-        osc.start(now + startTime);
-        osc.stop(now + startTime + duration);
-      };
-      
-      // Helper to create noise burst (for the "ching" metallic sound)
-      const createNoiseBurst = (startTime: number, duration: number, volume: number) => {
-        const bufferSize = audioCtx.sampleRate * duration;
-        const buffer = audioCtx.createBuffer(1, bufferSize, audioCtx.sampleRate);
-        const data = buffer.getChannelData(0);
-        
-        for (let i = 0; i < bufferSize; i++) {
-          data[i] = (Math.random() * 2 - 1) * Math.exp(-i / (bufferSize * 0.1));
-        }
-        
-        const noise = audioCtx.createBufferSource();
-        const noiseGain = audioCtx.createGain();
-        const filter = audioCtx.createBiquadFilter();
-        
-        noise.buffer = buffer;
-        filter.type = 'highpass';
-        filter.frequency.value = 8000;
-        
-        noise.connect(filter);
-        filter.connect(noiseGain);
-        noiseGain.connect(audioCtx.destination);
-        
-        noiseGain.gain.setValueAtTime(volume, now + startTime);
-        noiseGain.gain.exponentialRampToValueAtTime(0.001, now + startTime + duration);
-        
-        noise.start(now + startTime);
-      };
-      
-      // === KA-CHING SOUND SEQUENCE ===
-      
-      // Part 1: "Ka" - Initial click/tap sound
-      createTone(800, 'square', 0, 0.03, 0.3);
-      createTone(600, 'square', 0.01, 0.02, 0.2);
-      
-      // Part 2: "CHING!" - The bright metallic bell/register sound
-      // Main bell tones (bright, metallic)
-      createTone(2637, 'sine', 0.05, 0.4, 0.5);    // E7 - main high ping
-      createTone(3520, 'sine', 0.05, 0.3, 0.35);   // A7 - shimmer
-      createTone(4186, 'sine', 0.055, 0.25, 0.25); // C8 - sparkle
-      createTone(2093, 'sine', 0.06, 0.35, 0.4);   // C7 - body
-      
-      // Add harmonics for richness
-      createTone(5274, 'sine', 0.055, 0.15, 0.15); // E8 - high harmonic
-      createTone(1760, 'sine', 0.07, 0.3, 0.3);    // A6 - lower support
-      
-      // Metallic shimmer noise
-      createNoiseBurst(0.05, 0.15, 0.2);
-      
-      // Part 3: Coin/register settling sound
-      createTone(1318, 'sine', 0.2, 0.15, 0.15);   // E6
-      createTone(1047, 'sine', 0.25, 0.12, 0.1);   // C6
-      
-      // Second subtle "ching" echo for that authentic feel
-      createTone(2637, 'sine', 0.35, 0.2, 0.15);   // E7 echo
-      createTone(3520, 'sine', 0.35, 0.15, 0.1);   // A7 echo
-      
-      // Clean up after sound plays
-      setTimeout(() => {
-        audioCtx.close();
-      }, 800);
-    } catch (error) {
-      console.log("Could not play notification sound");
-    }
-  };
+  // Notification sound is now handled by NotificationProvider
 
   // Authentication
   useEffect(() => {
@@ -505,100 +388,8 @@ export default function DashboardPage() {
     };
   }, [ownerUid, isSuperAdmin]);
 
-  // Listen for new booking requests (Pending bookings) and trigger notifications
-  useEffect(() => {
-    if (!ownerUid || isSuperAdmin) return;
-
-    let unsubPending: (() => void) | undefined;
-
-    (async () => {
-      const { db } = await import("@/lib/firebase");
-
-      // Subscribe to pending bookings
-      const pendingQuery = query(
-        collection(db, "bookings"), 
-        where("ownerUid", "==", ownerUid),
-        where("status", "==", "Pending")
-      );
-      
-      unsubPending = onSnapshot(
-        pendingQuery,
-        (snapshot) => {
-          const pendingBookings = snapshot.docs.map(doc => ({
-            id: doc.id,
-            ...doc.data(),
-          }));
-
-          // Get current pending IDs
-          const currentPendingIds = new Set(pendingBookings.map((b: any) => b.id));
-          
-          // Find new bookings (IDs that weren't in previous snapshot)
-          const newBookings = pendingBookings.filter(
-            (b: any) => !previousPendingIdsRef.current.has(b.id)
-          );
-
-          // Only play sound and show notification after initial load
-          if (!isInitialLoadRef.current && newBookings.length > 0) {
-            // Play notification sound
-            playNotificationSound();
-
-            // Show toast notifications for each new booking
-            newBookings.forEach((booking: any) => {
-              showToastNotification(booking);
-            });
-
-            // Add new notifications
-            const newNotifs = newBookings.map((booking: any) => ({
-              id: `notif-${booking.id}-${Date.now()}`,
-              bookingId: booking.id,
-              type: 'booking_request',
-              title: 'New Booking Request',
-              message: `${booking.customerName || booking.clientName || 'A customer'} requested a booking`,
-              serviceName: booking.serviceName || booking.services?.[0]?.name || 'Service',
-              branchName: booking.branchName || '',
-              date: booking.date,
-              time: booking.time,
-              price: booking.price || booking.totalPrice,
-              createdAt: new Date(),
-              read: false,
-            }));
-
-            setNotifications(prev => [...newNotifs, ...prev].slice(0, 50));
-            setUnreadCount(prev => prev + newBookings.length);
-          }
-
-          // Update previous IDs ref
-          previousPendingIdsRef.current = currentPendingIds;
-          
-          // Mark initial load as complete
-          if (isInitialLoadRef.current) {
-            isInitialLoadRef.current = false;
-          }
-        },
-        (error) => {
-          console.error("Error listening to pending bookings:", error);
-        }
-      );
-    })();
-
-    return () => {
-      unsubPending?.();
-    };
-  }, [ownerUid, isSuperAdmin]);
-
-  // Mark notification as read
-  const markAsRead = (notifId: string) => {
-    setNotifications(prev => 
-      prev.map(n => n.id === notifId ? { ...n, read: true } : n)
-    );
-    setUnreadCount(prev => Math.max(0, prev - 1));
-  };
-
-  // Mark all as read
-  const markAllAsRead = () => {
-    setNotifications(prev => prev.map(n => ({ ...n, read: true })));
-    setUnreadCount(0);
-  };
+  // Notifications are now managed by NotificationProvider context
+  // No need for duplicate listener here
 
   // Fetch recent activity (tenants for super admin, booking activities for salon owners)
   // Skip for branch admins since we hide that section for them
@@ -2408,55 +2199,7 @@ export default function DashboardPage() {
         </>
       )}
 
-      {/* Toast Notifications - Bottom right corner */}
-      <div className="fixed bottom-5 right-5 z-50 space-y-3">
-        {toastNotifications.map((toast) => (
-          <div 
-            key={toast.id}
-            className="bg-slate-900 text-white px-5 py-4 rounded-2xl shadow-2xl border border-slate-700 max-w-sm animate-slideIn"
-          >
-            <div className="flex items-start gap-4">
-              <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-pink-500 to-fuchsia-600 flex items-center justify-center flex-shrink-0 animate-pulse">
-                <i className="fas fa-bell text-xl" />
-              </div>
-              <div className="flex-1 min-w-0">
-                <div className="flex items-center gap-2 mb-1">
-                  <span className="font-bold text-white">{toast.title}</span>
-                  <span className="px-2 py-0.5 bg-pink-500 text-white text-xs font-semibold rounded-full">NEW</span>
-                </div>
-                <p className="text-sm text-slate-300">{toast.message}</p>
-                <div className="flex items-center gap-3 mt-2 text-xs">
-                  <span className="text-slate-400 flex items-center gap-1">
-                    <i className="fas fa-tag" />
-                    {toast.serviceName}
-                  </span>
-                  {toast.price && (
-                    <span className="text-emerald-400 font-semibold">
-                      AU${Number(toast.price).toLocaleString()}
-                    </span>
-                  )}
-                </div>
-              </div>
-              <button 
-                onClick={() => setToastNotifications(prev => prev.filter(t => t.id !== toast.id))}
-                className="text-slate-500 hover:text-white transition"
-              >
-                <i className="fas fa-times" />
-              </button>
-            </div>
-            <button 
-              onClick={() => {
-                router.push('/bookings/pending');
-                setToastNotifications(prev => prev.filter(t => t.id !== toast.id));
-              }}
-              className="w-full mt-3 py-2 bg-gradient-to-r from-pink-500 to-fuchsia-600 hover:from-pink-600 hover:to-fuchsia-700 rounded-xl text-sm font-semibold transition flex items-center justify-center gap-2"
-            >
-              <i className="fas fa-eye" />
-              View Request
-            </button>
-          </div>
-        ))}
-      </div>
+      {/* Toast Notifications are now rendered by NotificationProvider */}
 
       {/* Animation for notification bell and panel */}
       <style>{`
