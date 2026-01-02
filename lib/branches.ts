@@ -231,17 +231,31 @@ export async function deleteBranch(branchId: string, ownerUid?: string) {
 
 export function subscribeBranchesForOwner(
   ownerUid: string,
-  onChange: (rows: Array<{ id: string } & DocumentData>) => void
+  onChange: (rows: Array<{ id: string } & DocumentData>) => void,
+  userRole?: string,
+  currentUserUid?: string
 ) {
-  const q = query(collection(db, "branches"), where("ownerUid", "==", ownerUid));
+  // For branch admins, query by adminStaffId instead of ownerUid
+  // This allows branch admins to read their assigned branch
+  let q;
+  if (userRole === "salon_branch_admin" && currentUserUid) {
+    console.log("Branch admin query: querying branches by adminStaffId:", currentUserUid);
+    q = query(collection(db, "branches"), where("adminStaffId", "==", currentUserUid));
+  } else {
+    console.log("Owner query: querying branches by ownerUid:", ownerUid);
+    q = query(collection(db, "branches"), where("ownerUid", "==", ownerUid));
+  }
+  
   return onSnapshot(
     q,
     (snap) => {
+      console.log("Branches query successful, found", snap.size, "branches");
       onChange(snap.docs.map((d) => ({ id: d.id, ...(d.data() as DocumentData) })));
     },
     (error) => {
+      console.error("Branches query error:", error.code, error.message);
       if (error.code === "permission-denied") {
-        console.warn("Permission denied for branches query. User may not be authenticated.");
+        console.warn("Permission denied for branches query. User role:", userRole, "currentUserUid:", currentUserUid);
         onChange([]);
       } else {
         console.error("Error in branches snapshot:", error);

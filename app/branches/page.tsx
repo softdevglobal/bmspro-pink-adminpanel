@@ -76,6 +76,7 @@ export default function BranchesPage() {
   const [email, setEmail] = useState(""); // Added email state
   const [timezone, setTimezone] = useState("Australia/Sydney"); // Default timezone
   const [role, setRole] = useState<string | null>(null); // Added role state
+  const [currentUserUid, setCurrentUserUid] = useState<string | null>(null); // Added currentUserUid state
   // structured hours builder state
   const [hoursObj, setHoursObj] = useState<HoursMap>({
     Monday: { open: "09:00", close: "17:00", closed: false },
@@ -120,6 +121,7 @@ export default function BranchesPage() {
         const userData = snap.data();
         const r = (userData?.role || "").toString();
         setRole(r);
+        setCurrentUserUid(user.uid); // Store current user UID
         if (r !== "salon_owner" && r !== "salon_branch_admin") {
           router.replace("/dashboard");
           return;
@@ -139,6 +141,12 @@ export default function BranchesPage() {
   // subscribe to branches for this owner
   useEffect(() => {
     if (!ownerUid) return;
+    
+    // For branch admins, we need currentUserUid to query by adminStaffId
+    if (role === "salon_branch_admin" && !currentUserUid) {
+      return;
+    }
+    
     const unsub = subscribeBranchesForOwner(ownerUid, (rows) => {
       const mapped: Branch[] = rows.map((r) => ({
         id: String(r.id),
@@ -180,9 +188,9 @@ export default function BranchesPage() {
       }
       
       setBranches(mapped.length ? mapped : defaultBranches);
-    });
+    }, role || undefined, currentUserUid || undefined);
     return () => unsub();
-  }, [ownerUid, defaultBranches, role, router]);
+  }, [ownerUid, defaultBranches, role, router, currentUserUid]);
 
   // Real-time services and staff lists for assignment checklists
   useEffect(() => {
