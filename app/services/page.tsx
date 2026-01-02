@@ -126,9 +126,9 @@ export default function ServicesPage() {
   }, [ownerUid]);
 
   // toast
-  const [toasts, setToasts] = useState<Array<{ id: number; text: string }>>([]);
+  const [toasts, setToasts] = useState<Array<{ id: string; text: string }>>([]);
   const showToast = (text: string) => {
-    const id = Date.now();
+    const id = `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
     setToasts((t) => [...t, { id, text }]);
     setTimeout(() => setToasts((t) => t.filter((x) => x.id !== id)), 3000);
   };
