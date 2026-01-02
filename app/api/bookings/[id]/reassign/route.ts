@@ -121,16 +121,34 @@ export async function POST(req: NextRequest, context: { params: Promise<{ id: st
     }
 
     const currentStatus = normalizeBookingStatus(bookingData.status);
+    const hasExistingServices = bookingData.services && Array.isArray(bookingData.services) && bookingData.services.length > 0;
 
-    // Verify booking can be reassigned (StaffRejected or PartiallyApproved with rejected services)
+    // Check if there are services that need staff assignment (unassigned or rejected)
+    const hasUnassignedServices = hasExistingServices && bookingData.services.some((s: any) => {
+      const approvalStatus = (s.approvalStatus || "pending").toString().toLowerCase();
+      const staffId = s.staffId?.toString();
+      const staffName = s.staffName?.toString().toLowerCase() || "";
+      
+      // Service needs assignment if:
+      // 1. It's rejected
+      // 2. It's pending/needs_assignment and has no staff assigned
+      return approvalStatus === "rejected" ||
+             approvalStatus === "needs_assignment" ||
+             (!staffId || staffId === "null" || staffName === "any available" || staffName === "any staff");
+    });
+
+    // Verify booking can be reassigned:
+    // 1. Status is StaffRejected or PartiallyApproved (existing logic)
+    // 2. Status is AwaitingStaffApproval AND there are unassigned services that need staff
     const allowedStatuses = ["StaffRejected", "PartiallyApproved"];
-    if (!allowedStatuses.includes(currentStatus)) {
+    const canReassign = allowedStatuses.includes(currentStatus) || 
+                       (currentStatus === "AwaitingStaffApproval" && hasUnassignedServices);
+    
+    if (!canReassign) {
       return NextResponse.json({ 
-        error: `Cannot reassign booking. Current status is ${currentStatus}. Only rejected or partially approved bookings can be reassigned.` 
+        error: `Cannot reassign booking. Current status is ${currentStatus}. Only rejected, partially approved bookings, or bookings with unassigned services can be reassigned.` 
       }, { status: 400 });
     }
-
-    const hasExistingServices = bookingData.services && Array.isArray(bookingData.services) && bookingData.services.length > 0;
     const hasNewServicesProvided = body.services && Array.isArray(body.services) && body.services.length > 0;
     const isSingleServiceReassign = body.serviceId !== undefined && body.staffId;
 
@@ -160,10 +178,18 @@ export async function POST(req: NextRequest, context: { params: Promise<{ id: st
 
       const targetService = existingServices[serviceIndex];
       
-      // Verify service was rejected
-      if (targetService.approvalStatus !== "rejected") {
+      // Verify service can be reassigned (rejected, needs_assignment, or unassigned)
+      const approvalStatus = (targetService.approvalStatus || "pending").toString().toLowerCase();
+      const staffId = targetService.staffId?.toString();
+      const staffName = targetService.staffName?.toString().toLowerCase() || "";
+      const isUnassigned = !staffId || staffId === "null" || staffName === "any available" || staffName === "any staff";
+      const canReassignService = approvalStatus === "rejected" || 
+                                 approvalStatus === "needs_assignment" || 
+                                 (approvalStatus === "pending" && isUnassigned);
+      
+      if (!canReassignService) {
         return NextResponse.json({ 
-          error: `Cannot reassign service. Current approval status is ${targetService.approvalStatus}. Only rejected services can be reassigned.` 
+          error: `Cannot reassign service. Current approval status is ${targetService.approvalStatus}. Only rejected, unassigned, or services needing assignment can be reassigned.` 
         }, { status: 400 });
       }
 
