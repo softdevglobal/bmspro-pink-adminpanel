@@ -685,6 +685,7 @@ export async function createOwnerNotification(data: {
   serviceName?: string;
   services?: Array<{ name: string; staffName?: string; staffId?: string }>;
   branchName?: string;
+  branchId?: string;
   bookingDate: string;
   bookingTime: string;
   creatorUid?: string;
@@ -732,6 +733,7 @@ export async function createOwnerNotification(data: {
     serviceName: data.serviceName,
     services: data.services,
     branchName: data.branchName,
+    branchId: data.branchId, // Include branchId for branch admin filtering
     bookingDate: data.bookingDate,
     bookingTime: data.bookingTime,
     creatorUid: data.creatorUid,
