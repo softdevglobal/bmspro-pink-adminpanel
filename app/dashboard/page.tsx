@@ -38,7 +38,7 @@ export default function DashboardPage() {
   const [scheduleViewMode, setScheduleViewMode] = useState<'time' | 'staff' | 'branch'>('time');
   
   // Use notification context from NotificationProvider
-  const { notifications, unreadCount, markAsRead, markAllAsRead } = useNotifications();
+  const { notifications, unreadCount, markAsRead, markAllAsRead, deleteNotification, deleteAllNotifications } = useNotifications();
   const [notificationPanelOpen, setNotificationPanelOpen] = useState(false);
   
   const revCanvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -2081,6 +2081,19 @@ export default function DashboardPage() {
                       Mark all read
                     </button>
                   )}
+                  {notifications.length > 0 && (
+                    <button 
+                      onClick={() => {
+                        if (window.confirm('Are you sure you want to delete all notifications?')) {
+                          deleteAllNotifications();
+                        }
+                      }}
+                      className="px-3 py-1.5 text-xs bg-red-500/20 hover:bg-red-500/30 text-red-200 rounded-lg transition font-medium"
+                      title="Delete all notifications"
+                    >
+                      Clear all
+                    </button>
+                  )}
                   <button 
                     onClick={() => setNotificationPanelOpen(false)}
                     className="w-8 h-8 rounded-lg bg-white/10 hover:bg-white/20 flex items-center justify-center transition"
@@ -2123,55 +2136,71 @@ export default function DashboardPage() {
                     return (
                       <div 
                         key={notif.id}
-                        onClick={() => {
-                          markAsRead(notif.id);
-                          router.push('/bookings/pending');
-                          setNotificationPanelOpen(false);
-                        }}
-                        className={`p-4 rounded-xl cursor-pointer transition-all hover:scale-[1.02] ${
+                        className={`p-4 rounded-xl transition-all hover:scale-[1.02] relative group ${
                           !notif.read 
                             ? 'bg-white shadow-md border-l-4 border-pink-500' 
                             : 'bg-white/60 hover:bg-white'
                         }`}
                       >
-                        <div className="flex items-start gap-3">
-                          <div className={`w-11 h-11 rounded-xl flex items-center justify-center flex-shrink-0 ${
-                            notif.type === 'booking_request' 
-                              ? 'bg-gradient-to-br from-amber-400 to-orange-500 text-white'
-                              : 'bg-gradient-to-br from-pink-400 to-pink-600 text-white'
-                          }`}>
-                            <i className={`fas ${
-                              notif.type === 'booking_request' ? 'fa-calendar-plus' : 'fa-bell'
-                            } text-lg`} />
-                          </div>
-                          <div className="flex-1 min-w-0">
-                            <div className="flex items-center justify-between gap-2">
-                              <div className="flex items-center gap-2">
-                                <p className="font-bold text-slate-900">{notif.title}</p>
-                                {!notif.read && (
-                                  <span className="px-2 py-0.5 bg-pink-500 text-white text-[10px] font-bold rounded-full uppercase">New</span>
+                        {/* Delete button - appears on hover */}
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            deleteNotification(notif.id);
+                          }}
+                          className="absolute top-2 right-2 w-7 h-7 rounded-lg bg-slate-100 hover:bg-red-100 text-slate-400 hover:text-red-500 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-all z-10"
+                          title="Delete notification"
+                        >
+                          <i className="fas fa-trash-alt text-xs" />
+                        </button>
+                        
+                        <div 
+                          onClick={() => {
+                            markAsRead(notif.id);
+                            router.push('/bookings/pending');
+                            setNotificationPanelOpen(false);
+                          }}
+                          className="cursor-pointer"
+                        >
+                          <div className="flex items-start gap-3">
+                            <div className={`w-11 h-11 rounded-xl flex items-center justify-center flex-shrink-0 ${
+                              notif.type === 'booking_request' 
+                                ? 'bg-gradient-to-br from-amber-400 to-orange-500 text-white'
+                                : 'bg-gradient-to-br from-pink-400 to-pink-600 text-white'
+                            }`}>
+                              <i className={`fas ${
+                                notif.type === 'booking_request' ? 'fa-calendar-plus' : 'fa-bell'
+                              } text-lg`} />
+                            </div>
+                            <div className="flex-1 min-w-0">
+                              <div className="flex items-center justify-between gap-2 pr-8">
+                                <div className="flex items-center gap-2">
+                                  <p className="font-bold text-slate-900">{notif.title}</p>
+                                  {!notif.read && (
+                                    <span className="px-2 py-0.5 bg-pink-500 text-white text-[10px] font-bold rounded-full uppercase">New</span>
+                                  )}
+                                </div>
+                                <span className="text-xs text-slate-400 flex-shrink-0">{timeAgo}</span>
+                              </div>
+                              <p className="text-sm text-slate-600 mt-1">{notif.message}</p>
+                              <div className="flex items-center flex-wrap gap-2 mt-3">
+                                <span className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-slate-100 rounded-lg text-xs text-slate-600">
+                                  <i className="fas fa-tag text-pink-500" />
+                                  {notif.serviceName}
+                                </span>
+                                {notif.date && (
+                                  <span className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-slate-100 rounded-lg text-xs text-slate-600">
+                                    <i className="fas fa-calendar text-blue-500" />
+                                    {new Date(notif.date).toLocaleDateString('en-AU', { day: 'numeric', month: 'short' })}
+                                  </span>
+                                )}
+                                {notif.price && (
+                                  <span className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-emerald-50 rounded-lg text-xs text-emerald-700 font-semibold">
+                                    <i className="fas fa-dollar-sign" />
+                                    AU${Number(notif.price).toLocaleString()}
+                                  </span>
                                 )}
                               </div>
-                              <span className="text-xs text-slate-400 flex-shrink-0">{timeAgo}</span>
-                            </div>
-                            <p className="text-sm text-slate-600 mt-1">{notif.message}</p>
-                            <div className="flex items-center flex-wrap gap-2 mt-3">
-                              <span className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-slate-100 rounded-lg text-xs text-slate-600">
-                                <i className="fas fa-tag text-pink-500" />
-                                {notif.serviceName}
-                              </span>
-                              {notif.date && (
-                                <span className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-slate-100 rounded-lg text-xs text-slate-600">
-                                  <i className="fas fa-calendar text-blue-500" />
-                                  {new Date(notif.date).toLocaleDateString('en-AU', { day: 'numeric', month: 'short' })}
-                                </span>
-                              )}
-                              {notif.price && (
-                                <span className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-emerald-50 rounded-lg text-xs text-emerald-700 font-semibold">
-                                  <i className="fas fa-dollar-sign" />
-                                  AU${Number(notif.price).toLocaleString()}
-                                </span>
-                              )}
                             </div>
                           </div>
                         </div>

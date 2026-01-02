@@ -25,6 +25,8 @@ interface NotificationContextType {
   unreadCount: number;
   markAsRead: (id: string) => Promise<void>;
   markAllAsRead: () => Promise<void>;
+  deleteNotification: (id: string) => Promise<void>;
+  deleteAllNotifications: () => Promise<void>;
 }
 
 const NotificationContext = createContext<NotificationContextType | undefined>(undefined);
@@ -45,6 +47,8 @@ export default function NotificationProvider({ children }: NotificationProviderP
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const [pendingBookings, setPendingBookings] = useState<any[]>([]);
   const [readPendingBookings, setReadPendingBookings] = useState<Set<string>>(new Set());
+  const [dismissedPendingBookings, setDismissedPendingBookings] = useState<Set<string>>(new Set()); // Track deleted/dismissed pending booking notifications
+  const [dismissedNotificationIds, setDismissedNotificationIds] = useState<Set<string>>(new Set()); // Track deleted Firestore notification IDs (persist across sessions)
   const [unreadCount, setUnreadCount] = useState(0);
   const [toastNotifications, setToastNotifications] = useState<any[]>([]);
   const [ownerUid, setOwnerUid] = useState<string | null>(null);
@@ -54,6 +58,47 @@ export default function NotificationProvider({ children }: NotificationProviderP
   const isInitialLoadRef = useRef(true);
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const audioInitializedRef = useRef(false);
+
+  // Load dismissed notifications from localStorage on mount
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      try {
+        const dismissedPending = localStorage.getItem("dismissedPendingBookings");
+        const dismissedNotifs = localStorage.getItem("dismissedNotificationIds");
+        
+        if (dismissedPending) {
+          setDismissedPendingBookings(new Set(JSON.parse(dismissedPending)));
+        }
+        if (dismissedNotifs) {
+          setDismissedNotificationIds(new Set(JSON.parse(dismissedNotifs)));
+        }
+      } catch (error) {
+        console.error("Error loading dismissed notifications from localStorage:", error);
+      }
+    }
+  }, []);
+
+  // Save dismissed pending bookings to localStorage when changed
+  useEffect(() => {
+    if (typeof window !== "undefined" && dismissedPendingBookings.size > 0) {
+      try {
+        localStorage.setItem("dismissedPendingBookings", JSON.stringify([...dismissedPendingBookings]));
+      } catch (error) {
+        console.error("Error saving dismissed pending bookings:", error);
+      }
+    }
+  }, [dismissedPendingBookings]);
+
+  // Save dismissed notification IDs to localStorage when changed
+  useEffect(() => {
+    if (typeof window !== "undefined" && dismissedNotificationIds.size > 0) {
+      try {
+        localStorage.setItem("dismissedNotificationIds", JSON.stringify([...dismissedNotificationIds]));
+      } catch (error) {
+        console.error("Error saving dismissed notification IDs:", error);
+      }
+    }
+  }, [dismissedNotificationIds]);
 
   // Initialize audio element for notification sound
   useEffect(() => {
@@ -266,16 +311,48 @@ export default function NotificationProvider({ children }: NotificationProviderP
         );
 
         // Only play sound and show toast after initial load
+        // Filter to only relevant notification types before showing toast
         if (!isInitialLoadRef.current && newNotifications.length > 0) {
-          console.log("🔔 New notifications detected:", newNotifications.length);
-          
-          // Play notification sound
-          playNotificationSound();
-
-          // Show toast notifications for new notifications - pass full notification object
-          newNotifications.forEach((notif) => {
-            showToastNotification(notif);
+          // Only show toast for relevant notifications:
+          // 1. New booking notifications (if still pending)
+          // 2. Staff rejected notifications
+          // 3. Not previously dismissed
+          const relevantNotifications = newNotifications.filter((notif) => {
+            // Skip dismissed notifications
+            if (dismissedNotificationIds.has(notif.id)) {
+              return false;
+            }
+            
+            const isNewBooking = 
+              notif.type === "booking_engine_new_booking" ||
+              notif.type === "staff_booking_created" ||
+              notif.type === "booking_needs_assignment" ||
+              notif.type === "booking_request";
+            
+            const isStaffRejected = notif.type === "staff_rejected";
+            
+            if (isNewBooking) {
+              const isPending = !notif.status || 
+                notif.status === "Pending" || 
+                notif.status === "AwaitingStaffApproval" ||
+                notif.status === "PartiallyApproved";
+              return isPending;
+            }
+            
+            return isStaffRejected;
           });
+          
+          if (relevantNotifications.length > 0) {
+            console.log("🔔 New relevant notifications:", relevantNotifications.length);
+            
+            // Play notification sound
+            playNotificationSound();
+
+            // Show toast notifications for new notifications - pass full notification object
+            relevantNotifications.forEach((notif) => {
+              showToastNotification(notif);
+            });
+          }
         }
 
         // Store notifications from Firestore (will be combined with pending bookings)
@@ -295,6 +372,11 @@ export default function NotificationProvider({ children }: NotificationProviderP
           const data = docSnapshot.data();
           const notifId = docSnapshot.id;
           
+          // Skip if this notification was previously dismissed/deleted
+          if (dismissedNotificationIds.has(notifId)) {
+            continue;
+          }
+          
           // Get booking status to filter out confirmed/canceled
           let bookingStatus = data.status;
           if (data.bookingId) {
@@ -308,15 +390,34 @@ export default function NotificationProvider({ children }: NotificationProviderP
             }
           }
 
-          // Only show notifications for bookings that are not confirmed or canceled
-          // Also show admin notifications (staff_rejected, staff_accepted) regardless of status
-          const isAdminNotification = data.type === "staff_rejected" || 
-                                      data.type === "staff_accepted" ||
-                                      data.type === "staff_booking_created" ||
-                                      data.type === "booking_needs_assignment" ||
-                                      data.type === "booking_engine_new_booking";
-          const shouldShow = isAdminNotification || 
-            (bookingStatus !== "Confirmed" && bookingStatus !== "Canceled" && bookingStatus !== "Completed");
+          // ADMIN NOTIFICATION RULES:
+          // Only show notifications for:
+          // 1. New Booking Created (booking_engine_new_booking, staff_booking_created, booking_needs_assignment, booking_request)
+          // 2. Staff Rejected a Service (staff_rejected)
+          // 
+          // DO NOT show notifications for:
+          // - Booking confirmation (booking_confirmed)
+          // - Booking completion (booking_completed)
+          // - Status changes after confirmation
+          // - Normal service acceptance by staff (staff_accepted)
+          
+          const isNewBookingNotification = 
+            data.type === "booking_engine_new_booking" ||
+            data.type === "staff_booking_created" ||
+            data.type === "booking_needs_assignment" ||
+            data.type === "booking_request";
+          
+          const isStaffRejectedNotification = data.type === "staff_rejected";
+          
+          // Only show new booking notifications if booking is still pending/awaiting
+          const isPendingStatus = !bookingStatus || 
+            bookingStatus === "Pending" || 
+            bookingStatus === "AwaitingStaffApproval" ||
+            bookingStatus === "PartiallyApproved";
+          
+          const shouldShow = 
+            (isNewBookingNotification && isPendingStatus) || 
+            isStaffRejectedNotification;
 
           if (!shouldShow) {
             continue;
@@ -412,18 +513,21 @@ export default function NotificationProvider({ children }: NotificationProviderP
             ...doc.data(),
           }));
 
-          // Find new bookings
+          // Find new bookings (these are NEW booking requests - should notify)
           const currentPendingIds = new Set(bookings.map((b: any) => b.id));
           const newBookings = bookings.filter(
-            (b: any) => !previousPendingIdsRef.current.has(b.id)
+            (b: any) => !previousPendingIdsRef.current.has(b.id) && !dismissedPendingBookings.has(b.id)
           );
 
-          // Only trigger for new bookings after initial load
+          // Only trigger for genuinely new pending bookings after initial load
+          // This represents "New Booking Created" scenario
           if (!isInitialLoadRef.current && newBookings.length > 0) {
+            console.log("🔔 New pending bookings detected:", newBookings.length);
+            
             // Play notification sound
             playNotificationSound();
 
-            // Show toast notifications
+            // Show toast notifications for new booking requests
             newBookings.forEach((booking: any) => {
               showToastNotification(booking);
             });
@@ -513,14 +617,122 @@ export default function NotificationProvider({ children }: NotificationProviderP
     }
   };
 
+  // Delete single notification
+  const deleteNotification = async (notifId: string) => {
+    // For pending bookings (prefixed with "pending-"), dismiss from UI
+    if (notifId.startsWith("pending-")) {
+      const bookingId = notifId.replace("pending-", "");
+      // We can't delete pending bookings from Firestore, but we hide them from the notification panel
+      setDismissedPendingBookings((prev) => new Set([...prev, bookingId]));
+      console.log("Pending booking notification dismissed:", bookingId);
+      return;
+    }
+
+    // Add to dismissed set (persisted to localStorage) so it won't come back
+    setDismissedNotificationIds((prev) => new Set([...prev, notifId]));
+    
+    // Optimistically update UI
+    setNotifications((prev) => prev.filter((n) => n.id !== notifId));
+
+    // Delete from Firestore via API route (server-side for proper permissions)
+    try {
+      const { auth } = await import("@/lib/firebase");
+      const user = auth.currentUser;
+      
+      if (!user) {
+        throw new Error("User not authenticated");
+      }
+
+      const token = await user.getIdToken();
+      
+      const response = await fetch(`/api/notifications/${notifId}`, {
+        method: "DELETE",
+        headers: {
+          "Authorization": `Bearer ${token}`,
+          "Content-Type": "application/json",
+        },
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(errorData.error || "Failed to delete notification");
+      }
+
+      console.log("Notification deleted:", notifId);
+    } catch (error) {
+      console.error("Error deleting notification:", error);
+      // The notification is already in dismissedNotificationIds, so it won't reappear
+    }
+  };
+
+  // Delete all notifications
+  const deleteAllNotifications = async () => {
+    if (combinedNotifications.length === 0) return;
+
+    // Get all Firestore notification IDs (not pending bookings)
+    const firestoreNotifications = combinedNotifications.filter((n) => !n.id.startsWith("pending-"));
+    
+    // Add all Firestore notification IDs to dismissed set (persisted)
+    setDismissedNotificationIds((prev) => {
+      const newSet = new Set([...prev]);
+      firestoreNotifications.forEach((n) => newSet.add(n.id));
+      return newSet;
+    });
+    
+    // Optimistically update UI
+    setNotifications([]);
+    // Dismiss all pending booking notifications (so they don't reappear)
+    setDismissedPendingBookings((prev) => {
+      const newSet = new Set([...prev]);
+      pendingBookings.forEach((b) => newSet.add(b.id));
+      return newSet;
+    });
+
+    // Delete from Firestore via API route (server-side for proper permissions)
+    if (firestoreNotifications.length > 0) {
+      try {
+        const { auth } = await import("@/lib/firebase");
+        const user = auth.currentUser;
+        
+        if (!user) {
+          throw new Error("User not authenticated");
+        }
+
+        const token = await user.getIdToken();
+        
+        const response = await fetch("/api/notifications/delete-all", {
+          method: "DELETE",
+          headers: {
+            "Authorization": `Bearer ${token}`,
+            "Content-Type": "application/json",
+          },
+        });
+
+        if (!response.ok) {
+          const errorData = await response.json().catch(() => ({}));
+          throw new Error(errorData.error || "Failed to delete all notifications");
+        }
+
+        console.log("All notifications deleted:", firestoreNotifications.length);
+      } catch (error) {
+        console.error("Error deleting all notifications:", error);
+        // The notifications are already in dismissedNotificationIds, so they won't reappear
+      }
+    }
+  };
+
   // Combine notifications from Firestore with pending bookings
   const combinedNotifications = useMemo(() => {
     // Convert pending bookings to notification format
-    // Only include bookings that are still Pending (filter out confirmed/canceled)
+    // Only include bookings that are still Pending and not dismissed
     const pendingNotifications: Notification[] = pendingBookings
       .filter((booking: any) => {
         // Only include if status is still Pending
         const status = booking.status || "Pending";
+        // Filter out dismissed notifications
+        if (dismissedPendingBookings.has(booking.id)) {
+          return false;
+        }
         return status === "Pending";
       })
       .map((booking: any) => ({
@@ -539,20 +751,40 @@ export default function NotificationProvider({ children }: NotificationProviderP
         status: "Pending",
       }));
 
-    // Filter notifications to exclude those with confirmed/canceled bookings
-    // Also show admin notifications regardless of status
+    // ADMIN NOTIFICATION RULES:
+    // Only show notifications for:
+    // 1. New Booking Created (booking_engine_new_booking, staff_booking_created, booking_needs_assignment, booking_request)
+    // 2. Staff Rejected a Service (staff_rejected)
     const validNotifications = notifications.filter((notif) => {
-      const isAdminNotification = notif.type === "staff_rejected" || 
-                                  notif.type === "staff_accepted" ||
-                                  notif.type === "staff_booking_created" ||
-                                  notif.type === "booking_needs_assignment" ||
-                                  notif.type === "booking_engine_new_booking";
-      if (isAdminNotification) return true;
+      // Skip dismissed/deleted notifications
+      if (dismissedNotificationIds.has(notif.id)) {
+        return false;
+      }
       
-      // Exclude if status is Confirmed, Canceled, or Completed
-      return notif.status !== "Confirmed" && 
-             notif.status !== "Canceled" && 
-             notif.status !== "Completed";
+      const isNewBookingNotification = 
+        notif.type === "booking_engine_new_booking" ||
+        notif.type === "staff_booking_created" ||
+        notif.type === "booking_needs_assignment" ||
+        notif.type === "booking_request";
+      
+      const isStaffRejectedNotification = notif.type === "staff_rejected";
+      
+      // For new booking notifications, only show if booking is still pending
+      if (isNewBookingNotification) {
+        const isPendingStatus = !notif.status || 
+          notif.status === "Pending" || 
+          notif.status === "AwaitingStaffApproval" ||
+          notif.status === "PartiallyApproved";
+        return isPendingStatus;
+      }
+      
+      // Always show staff rejection notifications (admin needs to reassign or cancel)
+      if (isStaffRejectedNotification) {
+        return true;
+      }
+      
+      // Don't show any other notification types
+      return false;
     });
 
     // Combine and deduplicate by bookingId (prefer Firestore notifications over pending)
@@ -562,7 +794,7 @@ export default function NotificationProvider({ children }: NotificationProviderP
     ).sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
 
     return unique.slice(0, 50);
-  }, [notifications, pendingBookings, readPendingBookings]);
+  }, [notifications, pendingBookings, readPendingBookings, dismissedPendingBookings, dismissedNotificationIds]);
 
   // Calculate unread count from combined notifications
   const combinedUnreadCount = useMemo(() => {
@@ -574,6 +806,8 @@ export default function NotificationProvider({ children }: NotificationProviderP
     unreadCount: combinedUnreadCount,
     markAsRead,
     markAllAsRead,
+    deleteNotification,
+    deleteAllNotifications,
   };
 
   return (

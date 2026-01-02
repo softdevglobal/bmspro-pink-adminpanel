@@ -16,9 +16,12 @@ export type StaffNotificationType =
   | "staff_reassignment";   // Staff receives reassigned booking
 
 // Admin-facing notification types
+// NOTE: staff_accepted is NOT sent to admin panel (per business logic).
+// Admins only receive notifications for:
+// 1. New bookings (booking_engine_new_booking, staff_booking_created, booking_needs_assignment)
+// 2. Staff rejections (staff_rejected) - admin needs to reassign or cancel
 export type AdminNotificationType = 
-  | "staff_accepted"        // Staff accepted a booking
-  | "staff_rejected";       // Staff rejected a booking
+  | "staff_rejected";       // Staff rejected a booking - admin needs to reassign
 
 // Owner-facing notification types (for staff-created bookings, etc.)
 export type OwnerNotificationType =
@@ -641,6 +644,8 @@ export function getStaffNotificationContent(
 
 /**
  * Get admin-facing notification content for staff actions
+ * NOTE: Only staff_rejected notifications are shown to admin
+ * (staff_accepted is not shown per business logic - admin doesn't need to know)
  */
 export function getAdminNotificationContent(
   type: AdminNotificationType,
@@ -656,11 +661,6 @@ export function getAdminNotificationContent(
   const datetime = bookingDate && bookingTime ? ` on ${bookingDate} at ${bookingTime}` : "";
   
   switch (type) {
-    case "staff_accepted":
-      return {
-        title: "Staff Accepted Booking",
-        message: `${staffName} has accepted the booking${code} for ${clientName || "customer"}${datetime}. Customer has been notified.`
-      };
     case "staff_rejected":
       return {
         title: "Booking Rejected by Staff",

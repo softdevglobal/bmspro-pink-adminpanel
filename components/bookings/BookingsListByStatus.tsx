@@ -486,19 +486,15 @@ export default function BookingsListByStatus({ status, title }: { status: Bookin
                 bs.staffName === "Any Staff"
               )
               .forEach(bookingService => {
-              // Use consistent key format
+              // Use consistent key format (same as assign staff modal)
               const serviceKey = String(bookingService.id || bookingService.serviceId || bookingService.name);
               
-              // Find service by ID first, then by name fallback
-              let service = servicesData.find((s: any) => 
-                String(s.id) === String(bookingService.id || bookingService.serviceId)
+              // Find service details - try matching by id, serviceId, or name (same as assign staff modal)
+              const serviceId = bookingService.id || bookingService.serviceId;
+              const service = servicesData.find((s: any) => 
+                String(s.id) === String(serviceId) || 
+                String(s.name).toLowerCase() === String(bookingService.name || '').toLowerCase()
               );
-              // Fallback: find by name if ID lookup fails
-              if (!service && bookingService.name) {
-                service = servicesData.find((s: any) => 
-                  s.name?.toLowerCase() === bookingService.name?.toLowerCase()
-                );
-              }
               
               const qualifiedStaffIds = (service && Array.isArray(service.staffIds)) ? service.staffIds.map(String) : [];
               
@@ -517,47 +513,29 @@ export default function BookingsListByStatus({ status, title }: { status: Bookin
                 }
               }
               
-              // Filter by service qualification if service has specific staff assigned
+              // CRITICAL: Filter by service qualification (same as assign staff modal)
               if (qualifiedStaffIds.length > 0) {
                 filtered = filtered.filter((s: any) => qualifiedStaffIds.includes(String(s.id)));
               }
               
-              // For rejected services, apply strict branch/schedule filtering
-              // For needs_assignment services, be more lenient (show all qualified staff at the branch)
-              const isRejected = bookingService.approvalStatus === "rejected";
-              
-              if (bookingToReassign.branchId) {
-                if (isRejected && bookingToReassign.date) {
-                  // Strict schedule check for rejected services
-                  const bookingDate = new Date(bookingToReassign.date);
-                  const daysOfWeek = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
-                  const dayName = daysOfWeek[bookingDate.getDay()];
-                  
-                  filtered = filtered.filter((s: any) => {
-                    if (s.weeklySchedule && typeof s.weeklySchedule === 'object') {
-                      const daySchedule = s.weeklySchedule[dayName];
-                      if (daySchedule && daySchedule.branchId) {
-                        return daySchedule.branchId === bookingToReassign.branchId;
-                      }
-                      if (daySchedule === null || daySchedule === undefined) {
-                        return false;
-                      }
+              // Filter by branch and day (check weeklySchedule) - same strict logic as assign staff modal
+              if (bookingToReassign.branchId && bookingToReassign.date) {
+                const bookingDate = new Date(bookingToReassign.date);
+                const daysOfWeek = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+                const dayName = daysOfWeek[bookingDate.getDay()];
+                
+                filtered = filtered.filter((s: any) => {
+                  if (s.weeklySchedule && typeof s.weeklySchedule === 'object') {
+                    const daySchedule = s.weeklySchedule[dayName];
+                    if (daySchedule && daySchedule.branchId) {
+                      return daySchedule.branchId === bookingToReassign.branchId;
                     }
-                    return s.branchId === bookingToReassign.branchId;
-                  });
-                } else {
-                  // Lenient: just check branch assignment (any day)
-                  filtered = filtered.filter((s: any) => {
-                    // Check if staff works at this branch on any day
-                    if (s.weeklySchedule && typeof s.weeklySchedule === 'object') {
-                      const worksAtBranch = Object.values(s.weeklySchedule).some((daySchedule: any) => 
-                        daySchedule && daySchedule.branchId === bookingToReassign.branchId
-                      );
-                      if (worksAtBranch) return true;
+                    if (daySchedule === null || daySchedule === undefined) {
+                      return false;
                     }
-                    return s.branchId === bookingToReassign.branchId;
-                  });
-                }
+                  }
+                  return s.branchId === bookingToReassign.branchId;
+                });
               }
               
               staffPerService[serviceKey] = filtered.map((s: any) => ({
@@ -570,14 +548,11 @@ export default function BookingsListByStatus({ status, title }: { status: Bookin
             
             setAvailableStaffPerService(staffPerService);
           } else {
-            // Single service - find by ID first, then by name fallback
-            let service = servicesData.find((s: any) => String(s.id) === String(bookingToReassign.serviceId));
-            // Fallback: find by name if ID lookup fails
-            if (!service && bookingToReassign.serviceName) {
-              service = servicesData.find((s: any) => 
-                s.name?.toLowerCase() === bookingToReassign.serviceName?.toLowerCase()
-              );
-            }
+            // Single service - try matching by id or name (same as assign staff modal)
+            const service = servicesData.find((s: any) => 
+              String(s.id) === String(bookingToReassign.serviceId) ||
+              String(s.name).toLowerCase() === String(bookingToReassign.serviceName || '').toLowerCase()
+            );
             const qualifiedStaffIds = (service && Array.isArray(service.staffIds)) ? service.staffIds.map(String) : [];
             
             let filtered = staffData.filter((s: any) => s.status === "Active");
@@ -586,11 +561,13 @@ export default function BookingsListByStatus({ status, title }: { status: Bookin
             if (bookingToReassign.rejectedByStaffUid) {
               filtered = filtered.filter((s: any) => s.id !== bookingToReassign.rejectedByStaffUid);
             }
-
+            
+            // CRITICAL: Filter by service qualification (same as assign staff modal)
             if (qualifiedStaffIds.length > 0) {
               filtered = filtered.filter((s: any) => qualifiedStaffIds.includes(String(s.id)));
             }
 
+            // Filter by branch and day (check weeklySchedule) - same strict logic as assign staff modal
             if (bookingToReassign.branchId && bookingToReassign.date) {
               const bookingDate = new Date(bookingToReassign.date);
               const daysOfWeek = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
@@ -1590,15 +1567,22 @@ export default function BookingsListByStatus({ status, title }: { status: Bookin
 
       {/* Staff Assignment Modal */}
       {staffAssignModalOpen && bookingToConfirm && (
-        <div className="fixed inset-0 z-[60] flex items-center justify-center p-4">
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
           {/* Backdrop */}
           <div
             className="absolute inset-0 bg-black/60 backdrop-blur-sm animate-fade-in"
-            onClick={() => !updatingState[bookingToConfirm.id] && setStaffAssignModalOpen(false)}
+            onClick={(e) => {
+              if (!updatingState[bookingToConfirm.id]) {
+                setStaffAssignModalOpen(false);
+              }
+            }}
           />
 
           {/* Modal */}
-          <div className="relative bg-white rounded-2xl shadow-2xl max-w-md w-full animate-scale-in overflow-hidden">
+          <div 
+            className="relative bg-white rounded-2xl shadow-2xl max-w-md w-full animate-scale-in overflow-hidden z-10"
+            onClick={(e) => e.stopPropagation()}
+          >
             {/* Header */}
             <div className="bg-gradient-to-r from-emerald-500 to-green-600 p-5">
               <div className="flex items-center gap-3">
@@ -1679,10 +1663,13 @@ export default function BookingsListByStatus({ status, title }: { status: Bookin
                                     {serviceStaff.map((staff) => (
                                       <button
                                         key={staff.id}
-                                        onClick={() => setSelectedStaffPerService(prev => ({
-                                          ...prev,
-                                          [serviceKey]: staff.id
-                                        }))}
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          setSelectedStaffPerService(prev => ({
+                                            ...prev,
+                                            [serviceKey]: staff.id
+                                          }));
+                                        }}
                                         className={`w-full text-left p-2 rounded-lg border-2 transition-all ${
                                           selectedStaff === staff.id
                                             ? "border-emerald-500 bg-emerald-50 shadow-sm"
@@ -1735,7 +1722,10 @@ export default function BookingsListByStatus({ status, title }: { status: Bookin
                             {availableStaff.map((staff) => (
                               <button
                                 key={staff.id}
-                                onClick={() => setSelectedStaffId(staff.id)}
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setSelectedStaffId(staff.id);
+                                }}
                                 className={`w-full text-left p-3 rounded-lg border-2 transition-all ${
                                   selectedStaffId === staff.id
                                     ? "border-emerald-500 bg-emerald-50 shadow-sm"
@@ -1779,14 +1769,20 @@ export default function BookingsListByStatus({ status, title }: { status: Bookin
             {/* Footer */}
             <div className="bg-slate-50 px-6 py-4 flex gap-3 justify-end border-t border-slate-200">
               <button
-                onClick={() => setStaffAssignModalOpen(false)}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setStaffAssignModalOpen(false);
+                }}
                 disabled={!!updatingState[bookingToConfirm.id]}
                 className="px-4 py-2.5 rounded-lg text-slate-700 hover:bg-slate-200 font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed text-sm"
               >
                 Cancel
               </button>
               <button
-                onClick={confirmWithStaffAssignment}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  confirmWithStaffAssignment();
+                }}
                 disabled={(() => {
                   if (!!updatingState[bookingToConfirm.id]) return true;
                   
@@ -1825,15 +1821,22 @@ export default function BookingsListByStatus({ status, title }: { status: Bookin
 
       {/* Reassignment Modal for StaffRejected bookings */}
       {reassignModalOpen && bookingToReassign && (
-        <div className="fixed inset-0 z-[60] flex items-center justify-center p-4">
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
           {/* Backdrop */}
           <div
             className="absolute inset-0 bg-black/60 backdrop-blur-sm animate-fade-in"
-            onClick={() => !updatingState[bookingToReassign.id] && setReassignModalOpen(false)}
+            onClick={(e) => {
+              if (!updatingState[bookingToReassign.id]) {
+                setReassignModalOpen(false);
+              }
+            }}
           />
 
           {/* Modal */}
-          <div className="relative bg-white rounded-2xl shadow-2xl max-w-md w-full animate-scale-in overflow-hidden max-h-[90vh] flex flex-col">
+          <div 
+            className="relative bg-white rounded-2xl shadow-2xl max-w-md w-full animate-scale-in overflow-hidden max-h-[90vh] flex flex-col z-10"
+            onClick={(e) => e.stopPropagation()}
+          >
             {/* Header */}
             <div className="bg-gradient-to-r from-amber-500 to-orange-600 p-5 shrink-0">
               <div className="flex items-center gap-3">
@@ -1909,15 +1912,27 @@ export default function BookingsListByStatus({ status, title }: { status: Bookin
                     {/* Multiple Services */}
                     {Array.isArray(bookingToReassign.services) && bookingToReassign.services.length > 0 ? (
                       <div className="space-y-4 max-h-64 overflow-y-auto">
-                        {/* First show accepted services (read-only) */}
-                        {bookingToReassign.services.filter(s => s.approvalStatus === "accepted").length > 0 && (
+                        {/* Show already assigned services (read-only info) */}
+                        {bookingToReassign.services.filter(s => 
+                          (s.approvalStatus === "pending" || s.approvalStatus === "accepted") && 
+                          s.staffId && 
+                          s.staffName && 
+                          s.staffName !== "Any Available" && 
+                          s.staffName !== "Any Staff"
+                        ).length > 0 && (
                           <div className="mb-4">
                             <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-2">
                               <i className="fas fa-check-circle text-emerald-500 mr-1"></i>
-                              Already Accepted (No changes needed)
+                              Already Assigned (Customer Selected)
                             </p>
                             <div className="space-y-2">
-                              {bookingToReassign.services.filter(s => s.approvalStatus === "accepted").map((service) => (
+                              {bookingToReassign.services.filter(s => 
+                                (s.approvalStatus === "pending" || s.approvalStatus === "accepted") && 
+                                s.staffId && 
+                                s.staffName && 
+                                s.staffName !== "Any Available" && 
+                                s.staffName !== "Any Staff"
+                              ).map((service) => (
                                 <div key={String(service.id || service.name)} className="flex items-center justify-between p-3 rounded-lg bg-emerald-50 border border-emerald-200">
                                   <div className="flex items-center gap-2">
                                     <i className="fas fa-spa text-emerald-600 text-sm"></i>
@@ -1927,46 +1942,7 @@ export default function BookingsListByStatus({ status, title }: { status: Bookin
                                     <span className="text-xs text-slate-500">{service.staffName}</span>
                                     <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-700 text-xs font-semibold">
                                       <i className="fas fa-check text-[8px]"></i>
-                                      Accepted
-                                    </span>
-                                  </div>
-                                </div>
-                              ))}
-                            </div>
-                          </div>
-                        )}
-                        
-                        {/* Show services with assigned staff pending approval (read-only) */}
-                        {bookingToReassign.services.filter(s => 
-                          s.approvalStatus === "pending" && 
-                          s.staffId && 
-                          s.staffName && 
-                          s.staffName !== "Any Available" && 
-                          s.staffName !== "Any Staff"
-                        ).length > 0 && (
-                          <div className="mb-4">
-                            <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-2">
-                              <i className="fas fa-clock text-blue-500 mr-1"></i>
-                              Assigned - Pending Staff Approval
-                            </p>
-                            <div className="space-y-2">
-                              {bookingToReassign.services.filter(s => 
-                                s.approvalStatus === "pending" && 
-                                s.staffId && 
-                                s.staffName && 
-                                s.staffName !== "Any Available" && 
-                                s.staffName !== "Any Staff"
-                              ).map((service) => (
-                                <div key={String(service.id || service.name)} className="flex items-center justify-between p-3 rounded-lg bg-blue-50 border border-blue-200">
-                                  <div className="flex items-center gap-2">
-                                    <i className="fas fa-spa text-blue-600 text-sm"></i>
-                                    <span className="font-medium text-slate-800">{service.name}</span>
-                                  </div>
-                                  <div className="flex items-center gap-2">
-                                    <span className="text-xs font-medium text-blue-700">{service.staffName}</span>
-                                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-blue-100 text-blue-700 text-xs font-semibold">
-                                      <i className="fas fa-hourglass-half text-[8px]"></i>
-                                      Awaiting
+                                      {service.approvalStatus === "accepted" ? "Accepted" : "Awaiting"}
                                     </span>
                                   </div>
                                 </div>
@@ -2027,10 +2003,13 @@ export default function BookingsListByStatus({ status, title }: { status: Bookin
                                         {serviceStaff.map((staff) => (
                                           <button
                                             key={staff.id}
-                                            onClick={() => setSelectedStaffPerService(prev => ({
-                                              ...prev,
-                                              [serviceKey]: staff.id
-                                            }))}
+                                            onClick={(e) => {
+                                              e.stopPropagation();
+                                              setSelectedStaffPerService(prev => ({
+                                                ...prev,
+                                                [serviceKey]: staff.id
+                                              }));
+                                            }}
                                             className={`w-full text-left p-2 rounded-lg border-2 transition-all ${
                                               selectedStaff === staff.id
                                                 ? "border-amber-500 bg-amber-50 shadow-sm"
@@ -2085,7 +2064,10 @@ export default function BookingsListByStatus({ status, title }: { status: Bookin
                             {availableStaff.map((staff) => (
                               <button
                                 key={staff.id}
-                                onClick={() => setSelectedStaffId(staff.id)}
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setSelectedStaffId(staff.id);
+                                }}
                                 className={`w-full text-left p-3 rounded-lg border-2 transition-all ${
                                   selectedStaffId === staff.id
                                     ? "border-amber-500 bg-amber-50 shadow-sm"
@@ -2129,27 +2111,38 @@ export default function BookingsListByStatus({ status, title }: { status: Bookin
             {/* Footer */}
             <div className="bg-slate-50 px-6 py-4 flex gap-3 justify-end border-t border-slate-200 shrink-0">
               <button
-                onClick={() => setReassignModalOpen(false)}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setReassignModalOpen(false);
+                }}
                 disabled={!!updatingState[bookingToReassign.id]}
                 className="px-4 py-2.5 rounded-lg text-slate-700 hover:bg-slate-200 font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed text-sm"
               >
                 Cancel
               </button>
               <button
-                onClick={confirmReassignment}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  confirmReassignment();
+                }}
                 disabled={(() => {
                   if (!!updatingState[bookingToReassign.id]) return true;
                   
                   const hasMultipleServices = Array.isArray(bookingToReassign.services) && bookingToReassign.services.length > 0;
                   
                   if (hasMultipleServices) {
-                    // Only check rejected/pending services - skip accepted ones
+                    // Only check rejected/unassigned services - assigned services are customer-selected and cannot be reassigned
                     const servicesToReassign = bookingToReassign.services!.filter(s => 
-                      s.approvalStatus === "rejected" || s.approvalStatus === "pending" || !s.approvalStatus
+                      s.approvalStatus === "rejected" || 
+                      s.approvalStatus === "needs_assignment" ||
+                      !s.approvalStatus ||
+                      (!s.staffId || s.staffName === "Any Available" || s.staffName === "Any Staff")
                     );
+                    
                     // If no services to reassign, allow button (edge case)
                     if (servicesToReassign.length === 0) return false;
                     
+                    // All rejected/unassigned services must have staff selected
                     return !servicesToReassign.every(s => {
                       const serviceKey = String(s.id || s.serviceId || s.name);
                       return selectedStaffPerService[serviceKey];
