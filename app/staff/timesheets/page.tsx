@@ -18,9 +18,16 @@ interface StaffMember {
   uid?: string;
 }
 
+// Extended check-in record for display with day-wise split times
+interface DisplayCheckInRecord extends StaffCheckInRecord {
+  effectiveStartTime: Date;
+  effectiveEndTime: Date | null;
+  isSplitEntry?: boolean; // Flag to indicate this is a split entry
+}
+
 interface DayWorkHours {
   date: Date;
-  checkIns: StaffCheckInRecord[];
+  checkIns: DisplayCheckInRecord[];
   totalHours: number;
   totalMinutes: number;
 }
@@ -97,6 +104,160 @@ const formatDurationFromMs = (milliseconds: number): string => {
   const hours = Math.floor(totalMinutes / 60);
   const minutes = totalMinutes % 60;
   return formatDuration(hours, minutes);
+};
+
+// Helper to get date key (YYYY-MM-DD)
+const getDateKey = (date: Date): string => {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+};
+
+// Helper to get start of day (midnight)
+const getStartOfDay = (date: Date): Date => {
+  const start = new Date(date);
+  start.setHours(0, 0, 0, 0);
+  return start;
+};
+
+// Helper to get end of day (23:59:59.999)
+const getEndOfDay = (date: Date): Date => {
+  const end = new Date(date);
+  end.setHours(23, 59, 59, 999);
+  return end;
+};
+
+// Helper type for split check-in entries
+interface SplitCheckInEntry {
+  dateKey: string;
+  checkIn: StaffCheckInRecord;
+  effectiveStartTime: Date;
+  effectiveEndTime: Date | null;
+  breakPeriods: Array<{
+    startTime?: Date | Timestamp | null;
+    endTime?: Date | Timestamp | null;
+  }>;
+}
+
+/**
+ * Split a check-in session that spans across midnight into day-wise entries
+ * Returns an array of split entries, one for each day the session spans
+ */
+const splitCheckInByDays = (checkIn: StaffCheckInRecord): SplitCheckInEntry[] => {
+  const checkInTime = toDate(checkIn.checkInTime);
+  const checkOutTime = checkIn.checkOutTime ? toDate(checkIn.checkOutTime) : new Date();
+  
+  const result: SplitCheckInEntry[] = [];
+  const breakPeriods = (checkIn as any).breakPeriods || [];
+  
+  // Get the date key for check-in date
+  const checkInDateKey = getDateKey(checkInTime);
+  const checkOutDateKey = getDateKey(checkOutTime);
+  
+  // If check-in and check-out are on the same day, no splitting needed
+  if (checkInDateKey === checkOutDateKey) {
+    result.push({
+      dateKey: checkInDateKey,
+      checkIn: checkIn,
+      effectiveStartTime: checkInTime,
+      effectiveEndTime: checkOutTime,
+      breakPeriods: breakPeriods
+    });
+    return result;
+  }
+  
+  // Session spans across multiple days - split it
+  let currentDate = new Date(checkInTime);
+  currentDate.setHours(0, 0, 0, 0);
+  const checkOutDate = new Date(checkOutTime);
+  checkOutDate.setHours(0, 0, 0, 0);
+  
+  while (currentDate <= checkOutDate) {
+    const dateKey = getDateKey(currentDate);
+    const dayStart = getStartOfDay(currentDate);
+    const dayEnd = getEndOfDay(currentDate);
+    
+    // Determine effective start and end times for this day
+    // For the first day, start from checkInTime; for subsequent days, start from dayStart
+    const isFirstDay = getDateKey(currentDate) === checkInDateKey;
+    const isLastDay = getDateKey(currentDate) === checkOutDateKey;
+    
+    // Create new Date objects to avoid reference issues
+    const effectiveStartTime = new Date(isFirstDay ? checkInTime : dayStart);
+    const effectiveEndTime = new Date(isLastDay ? checkOutTime : dayEnd);
+    
+    // Split break periods that fall within this day
+    const dayBreakPeriods = breakPeriods.map((bp: any) => {
+      if (!bp.startTime) return null;
+      
+      const breakStart = toDate(bp.startTime);
+      const breakEnd = bp.endTime ? toDate(bp.endTime) : new Date();
+      
+      // Check if break overlaps with this day segment
+      if (breakStart < effectiveEndTime && breakEnd > effectiveStartTime) {
+        // Clip break to this day's boundaries
+        const clippedStart = breakStart < effectiveStartTime ? effectiveStartTime : breakStart;
+        const clippedEnd = breakEnd > effectiveEndTime ? effectiveEndTime : breakEnd;
+        
+        // Only include if there's actual overlap (clippedStart < clippedEnd)
+        if (clippedStart < clippedEnd) {
+          return {
+            startTime: clippedStart,
+            endTime: clippedEnd
+          };
+        }
+      }
+      
+      // Break doesn't overlap with this day
+      return null;
+    }).filter((bp: any) => bp !== null);
+    
+    result.push({
+      dateKey: dateKey,
+      checkIn: checkIn,
+      effectiveStartTime: effectiveStartTime,
+      effectiveEndTime: effectiveEndTime,
+      breakPeriods: dayBreakPeriods
+    });
+    
+    // Move to next day
+    currentDate.setDate(currentDate.getDate() + 1);
+    currentDate.setHours(0, 0, 0, 0);
+  }
+  
+  return result;
+};
+
+/**
+ * Calculate duration for a split check-in entry using effective times
+ */
+const calculateDurationForSplitEntry = (entry: SplitCheckInEntry): { hours: number; minutes: number } => {
+  const start = entry.effectiveStartTime;
+  const end = entry.effectiveEndTime || new Date();
+  const totalDiff = end.getTime() - start.getTime();
+  
+  // Calculate break time for this day segment
+  let totalBreakMs = 0;
+  if (entry.breakPeriods && Array.isArray(entry.breakPeriods)) {
+    for (const breakPeriod of entry.breakPeriods) {
+      if (breakPeriod.startTime && breakPeriod.endTime) {
+        const breakStart = toDate(breakPeriod.startTime);
+        const breakEnd = toDate(breakPeriod.endTime);
+        totalBreakMs += breakEnd.getTime() - breakStart.getTime();
+      } else if (breakPeriod.startTime && !breakPeriod.endTime) {
+        // Active break - calculate from start to end of this segment
+        const breakStart = toDate(breakPeriod.startTime);
+        totalBreakMs += end.getTime() - breakStart.getTime();
+      }
+    }
+  }
+  
+  // Subtract break time from total time
+  const workingMs = totalDiff - totalBreakMs;
+  const hours = Math.floor(workingMs / (1000 * 60 * 60));
+  const minutes = Math.floor((workingMs % (1000 * 60 * 60)) / (1000 * 60));
+  return { hours: hours > 0 ? hours : 0, minutes: minutes > 0 ? minutes : 0 };
 };
 
 export default function TimesheetsPage() {
@@ -427,22 +588,33 @@ export default function TimesheetsPage() {
             console.log(`  Looking for staffId: ${staff.id}, ${staff.authUid}, ${staff.uid}`);
           }
 
-          // Group check-ins by date
-          const daysMap = new Map<string, StaffCheckInRecord[]>();
+          // Group check-ins by date (with day-wise splitting for cross-day sessions)
+          const daysMap = new Map<string, DisplayCheckInRecord[]>();
           
           checkIns.forEach(checkIn => {
-            const checkInDate = toDate(checkIn.checkInTime);
-            // Use local date components to match week range calculation (which uses local time)
-            // This ensures check-ins are grouped into the correct day column
-            const year = checkInDate.getFullYear();
-            const month = String(checkInDate.getMonth() + 1).padStart(2, '0');
-            const day = String(checkInDate.getDate()).padStart(2, '0');
-            const dateKey = `${year}-${month}-${day}`; // YYYY-MM-DD
+            // Split check-in into day-wise entries if it spans across midnight
+            const splitEntries = splitCheckInByDays(checkIn);
             
-            if (!daysMap.has(dateKey)) {
-              daysMap.set(dateKey, []);
-            }
-            daysMap.get(dateKey)!.push(checkIn);
+            splitEntries.forEach(entry => {
+              if (!daysMap.has(entry.dateKey)) {
+                daysMap.set(entry.dateKey, []);
+              }
+              
+              // Create display record with effective times
+              // Create a new object to avoid any reference issues with the original checkIn
+              const displayRecord: DisplayCheckInRecord = {
+                ...checkIn,
+                // Override with effective times for this day segment
+                checkInTime: entry.effectiveStartTime,
+                checkOutTime: entry.effectiveEndTime,
+                effectiveStartTime: entry.effectiveStartTime,
+                effectiveEndTime: entry.effectiveEndTime,
+                breakPeriods: entry.breakPeriods,
+                isSplitEntry: splitEntries.length > 1
+              };
+              
+              daysMap.get(entry.dateKey)!.push(displayRecord);
+            });
           });
 
           // Calculate hours for each day
@@ -539,20 +711,30 @@ export default function TimesheetsPage() {
           const unmatchedCheckInsForStaff = unmatchedCheckIns.filter(ci => ci.staffId === staffId);
           
           if (unmatchedCheckInsForStaff.length > 0) {
-            // Group check-ins by date
-            const daysMap = new Map<string, StaffCheckInRecord[]>();
+            // Group check-ins by date (with day-wise splitting for cross-day sessions)
+            const daysMap = new Map<string, DisplayCheckInRecord[]>();
             unmatchedCheckInsForStaff.forEach(checkIn => {
-              const checkInDate = toDate(checkIn.checkInTime);
-              // Use local date components to match week range calculation (which uses local time)
-              // This ensures check-ins are grouped into the correct day column
-              const year = checkInDate.getFullYear();
-              const month = String(checkInDate.getMonth() + 1).padStart(2, '0');
-              const day = String(checkInDate.getDate()).padStart(2, '0');
-              const dateKey = `${year}-${month}-${day}`; // YYYY-MM-DD
-              if (!daysMap.has(dateKey)) {
-                daysMap.set(dateKey, []);
-              }
-              daysMap.get(dateKey)!.push(checkIn);
+              // Split check-in into day-wise entries if it spans across midnight
+              const splitEntries = splitCheckInByDays(checkIn);
+              
+              splitEntries.forEach(entry => {
+                if (!daysMap.has(entry.dateKey)) {
+                  daysMap.set(entry.dateKey, []);
+                }
+                
+                // Create display record with effective times
+                const displayRecord: DisplayCheckInRecord = {
+                  ...checkIn,
+                  checkInTime: entry.effectiveStartTime,
+                  checkOutTime: entry.effectiveEndTime,
+                  effectiveStartTime: entry.effectiveStartTime,
+                  effectiveEndTime: entry.effectiveEndTime,
+                  breakPeriods: entry.breakPeriods,
+                  isSplitEntry: splitEntries.length > 1
+                };
+                
+                daysMap.get(entry.dateKey)!.push(displayRecord);
+              });
             });
 
             // Calculate hours for each day
@@ -1022,7 +1204,8 @@ export default function TimesheetsPage() {
                                   {day.checkIns.length > 0 ? (
                                     <div className="space-y-1">
                                       {day.checkIns.map((checkIn, ciIdx) => {
-                                        const duration = calculateDuration(checkIn.checkInTime, checkIn.checkOutTime);
+                                        const breakPeriods = (checkIn as any).breakPeriods || [];
+                                        const duration = calculateDuration(checkIn.checkInTime, checkIn.checkOutTime, breakPeriods);
                                         return (
                                           <div key={ciIdx} className="text-xs">
                                             <div className="font-medium text-slate-800 flex items-center justify-center gap-1.5 flex-wrap">
@@ -1038,11 +1221,7 @@ export default function TimesheetsPage() {
                                                 )}
                                               </span>
                                               <span className="font-semibold text-pink-600">
-                                                ({(() => {
-                                                  const breakPeriods = (checkIn as any).breakPeriods || [];
-                                                  const dur = calculateDuration(checkIn.checkInTime, checkIn.checkOutTime, breakPeriods);
-                                                  return formatDuration(dur.hours, dur.minutes);
-                                                })()})
+                                                ({formatDuration(duration.hours, duration.minutes)})
                                               </span>
                                             </div>
                                           </div>
