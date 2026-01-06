@@ -121,6 +121,8 @@ export async function updateSalonStaff(staffId: string, data: Partial<SalonStaff
   if (data.role) updatePayload.staffRole = data.role; // Update job title
   if (data.systemRole) updatePayload.role = data.systemRole; // Update system access level
   if (data.timezone !== undefined) updatePayload.timezone = data.timezone; // Update timezone
+  if (data.branchId !== undefined) updatePayload.branchId = data.branchId; // Update branch assignment
+  if (data.branchName !== undefined) updatePayload.branchName = data.branchName; // Update branch name
 
   // Build change description for audit log
   const changes: string[] = [];

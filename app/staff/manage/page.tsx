@@ -1287,21 +1287,26 @@ export default function SettingsPage() {
                 <div className="space-y-2.5 sm:space-y-3">
                   <div>
                     <label className="block text-xs font-bold text-slate-600 mb-1">Staff Type</label>
-                    <select
-                      name="system_role"
-                      className="w-full border border-indigo-300 rounded-lg p-2 sm:p-2.5 text-xs sm:text-sm bg-white focus:ring-2 focus:ring-indigo-500 focus:outline-none"
-                      defaultValue={(editingStaff as any)?.systemRole || "salon_staff"}
-                      onChange={(e) => setSelectedSystemRole(e.target.value)}
-                    >
-                      <option value="salon_staff">Standard Staff</option>
-                      <option value="salon_branch_admin">Branch Admin</option>
-                    </select>
-                    <p className="text-[10px] text-slate-500 mt-1">
-                      {selectedSystemRole === "salon_branch_admin" 
-                        ? "Has full management access to their assigned branch."
-                        : "Can be scheduled at different branches using the weekly roster below."
-                      }
-                    </p>
+                    {editingStaffId ? (
+                      // When editing: Show read-only display
+                      <div className="w-full border border-indigo-300 rounded-lg p-2 sm:p-2.5 text-xs sm:text-sm bg-gray-100">
+                        <span className="text-slate-700">
+                          {selectedSystemRole === "salon_branch_admin" ? "Branch Admin" : "Standard Staff"}
+                        </span>
+                        <input type="hidden" name="system_role" value={selectedSystemRole} />
+                      </div>
+                    ) : (
+                      // When creating new: Only allow Standard Staff
+                      <>
+                        <div className="w-full border border-indigo-300 rounded-lg p-2 sm:p-2.5 text-xs sm:text-sm bg-gray-100">
+                          <span className="text-slate-700">Standard Staff</span>
+                          <input type="hidden" name="system_role" value="salon_staff" />
+                        </div>
+                        <p className="text-[10px] text-slate-500 mt-1">
+                          Can be scheduled at different branches using the weekly roster below.
+                        </p>
+                      </>
+                    )}
                   </div>
                   
                   {/* Branch Selection - Only shown for Branch Admin */}
@@ -1310,13 +1315,23 @@ export default function SettingsPage() {
                       <label className="block text-xs font-bold text-slate-600 mb-1">
                         Assigned Branch <span className="text-rose-500">*</span>
                       </label>
-                      <select
-                        name="branch"
-                        className="w-full border border-indigo-300 rounded-lg p-2 sm:p-2.5 text-xs sm:text-sm bg-white focus:ring-2 focus:ring-indigo-500 focus:outline-none"
-                        value={selectedBranchId}
-                        onChange={(e) => setSelectedBranchId(e.target.value)}
-                        required
-                      >
+                      {editingStaffId ? (
+                        // When editing: Show read-only display
+                        <div className="w-full border border-indigo-300 rounded-lg p-2 sm:p-2.5 text-xs sm:text-sm bg-gray-100">
+                          <span className="text-slate-700">
+                            {data.branches.find(b => b.id === selectedBranchId)?.name || selectedBranchId || "Not assigned"}
+                          </span>
+                          <input type="hidden" name="branch" value={selectedBranchId} />
+                        </div>
+                      ) : (
+                        // When creating new: Allow selection
+                        <select
+                          name="branch"
+                          className="w-full border border-indigo-300 rounded-lg p-2 sm:p-2.5 text-xs sm:text-sm bg-white focus:ring-2 focus:ring-indigo-500 focus:outline-none"
+                          value={selectedBranchId}
+                          onChange={(e) => setSelectedBranchId(e.target.value)}
+                          required
+                        >
                         <option value="">-- Select Branch --</option>
                         {data.branches.length > 0 ? (
                           data.branches.map((b) => (
@@ -1330,6 +1345,7 @@ export default function SettingsPage() {
                           </option>
                         )}
                       </select>
+                      )}
                       <p className="text-[10px] text-indigo-600 mt-1 font-medium">
                         <i className="fas fa-info-circle mr-1" />
                         This admin will manage this branch on all opening days. Timezone will be automatically set from the branch.
