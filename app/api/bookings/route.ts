@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { adminAuth, adminDb, adminMessaging } from "@/lib/firebaseAdmin";
-import { FieldValue, FirebaseFirestore } from "firebase-admin/firestore";
+import { FieldValue, Firestore } from "firebase-admin/firestore";
 import { Message } from "firebase-admin/messaging";
 import { normalizeBookingStatus, shouldBlockSlots } from "@/lib/bookingTypes";
 import { generateBookingCode } from "@/lib/bookings";
@@ -23,7 +23,7 @@ function isAnyStaff(staffId?: string | null): boolean {
  * Check if a booking has "Any Staff" assignments
  */
 function hasAnyStaffBooking(
-  services?: Array<{ staffId?: string | null; staffName?: string | null }>,
+  services?: Array<{ staffId?: string | null; staffName?: string | null }> | null,
   staffId?: string | null
 ): boolean {
   // Check services array for multi-service bookings
@@ -38,7 +38,7 @@ function hasAnyStaffBooking(
  * Get all branch admin UIDs for a branch
  * Branch admins are stored in the users collection with role='salon_branch_admin' and matching branchId
  */
-async function getBranchAdminUids(db: FirebaseFirestore.Firestore, branchId: string, ownerUid: string): Promise<string[]> {
+async function getBranchAdminUids(db: Firestore, branchId: string, ownerUid: string): Promise<string[]> {
   try {
     // Query users collection for branch admins
     // Branch admins have: role='salon_branch_admin', ownerUid matches, and branchId matches
@@ -71,7 +71,7 @@ async function getBranchAdminUids(db: FirebaseFirestore.Firestore, branchId: str
 /**
  * Get FCM token for a user
  */
-async function getUserFcmToken(db: FirebaseFirestore.Firestore, userUid: string): Promise<string | null> {
+async function getUserFcmToken(db: Firestore, userUid: string): Promise<string | null> {
   try {
     // Check users collection first
     const userDoc = await db.collection("users").doc(userUid).get();
