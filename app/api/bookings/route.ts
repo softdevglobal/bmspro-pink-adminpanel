@@ -32,21 +32,21 @@ function hasAnyStaffBooking(
     return services.some(s => {
       // Check both staffId and staffName for "Any Staff" indicators
       const hasAnyStaffId = isAnyStaff(s.staffId);
-      const hasAnyStaffName = s.staffName && (
+      const hasAnyStaffName = !!(s.staffName && (
         s.staffName.toLowerCase().includes("any available") ||
         s.staffName.toLowerCase().includes("any staff") ||
         s.staffName.toLowerCase() === "any"
-      );
+      ));
       return hasAnyStaffId || hasAnyStaffName;
     });
   }
   // Single service booking - check both staffId and staffName
   const hasAnyStaffId = isAnyStaff(staffId);
-  const hasAnyStaffName = staffName && (
+  const hasAnyStaffName = !!(staffName && (
     staffName.toLowerCase().includes("any available") ||
     staffName.toLowerCase().includes("any staff") ||
     staffName.toLowerCase() === "any"
-  );
+  ));
   return hasAnyStaffId || hasAnyStaffName;
 }
 
