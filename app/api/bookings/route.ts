@@ -1,13 +1,150 @@
 import { NextRequest, NextResponse } from "next/server";
-import { adminAuth, adminDb } from "@/lib/firebaseAdmin";
-import { FieldValue } from "firebase-admin/firestore";
+import { adminAuth, adminDb, adminMessaging } from "@/lib/firebaseAdmin";
+import { FieldValue, FirebaseFirestore } from "firebase-admin/firestore";
+import { Message } from "firebase-admin/messaging";
 import { normalizeBookingStatus, shouldBlockSlots } from "@/lib/bookingTypes";
 import { generateBookingCode } from "@/lib/bookings";
 import { checkRateLimit, getClientIdentifier, RateLimiters, getRateLimitHeaders } from "@/lib/rateLimiterDistributed";
 import { logBookingCreatedServer } from "@/lib/auditLogServer";
-import { createStaffAssignmentNotification } from "@/lib/notifications";
+import { createStaffAssignmentNotification, createOwnerNotification } from "@/lib/notifications";
 
 export const runtime = "nodejs";
+
+/**
+ * Check if a staff ID represents "Any Staff" (unassigned)
+ */
+function isAnyStaff(staffId?: string | null): boolean {
+  if (!staffId) return true; // null, undefined, or empty
+  const str = String(staffId).trim().toLowerCase();
+  return str === "" || str === "null" || str.includes("any");
+}
+
+/**
+ * Check if a booking has "Any Staff" assignments
+ */
+function hasAnyStaffBooking(
+  services?: Array<{ staffId?: string | null; staffName?: string | null }>,
+  staffId?: string | null
+): boolean {
+  // Check services array for multi-service bookings
+  if (services && Array.isArray(services) && services.length > 0) {
+    return services.some(s => isAnyStaff(s.staffId));
+  }
+  // Single service booking
+  return isAnyStaff(staffId);
+}
+
+/**
+ * Get all branch admin UIDs for a branch
+ * Branch admins are stored in the users collection with role='salon_branch_admin' and matching branchId
+ */
+async function getBranchAdminUids(db: FirebaseFirestore.Firestore, branchId: string, ownerUid: string): Promise<string[]> {
+  try {
+    // Query users collection for branch admins
+    // Branch admins have: role='salon_branch_admin', ownerUid matches, and branchId matches
+    const branchAdminQuery = await db.collection("users")
+      .where("ownerUid", "==", ownerUid)
+      .where("role", "==", "salon_branch_admin")
+      .where("branchId", "==", branchId)
+      .get();
+    
+    const branchAdminUids = branchAdminQuery.docs.map(doc => doc.id);
+    
+    // Also check legacy adminStaffId in branch document (for backward compatibility)
+    if (branchAdminUids.length === 0) {
+      const branchDoc = await db.collection("branches").doc(branchId).get();
+      if (branchDoc.exists) {
+        const branchData = branchDoc.data();
+        if (branchData?.adminStaffId) {
+          return [branchData.adminStaffId];
+        }
+      }
+    }
+    
+    return branchAdminUids;
+  } catch (error) {
+    console.error("Error getting branch admins:", error);
+    return [];
+  }
+}
+
+/**
+ * Get FCM token for a user
+ */
+async function getUserFcmToken(db: FirebaseFirestore.Firestore, userUid: string): Promise<string | null> {
+  try {
+    // Check users collection first
+    const userDoc = await db.collection("users").doc(userUid).get();
+    if (userDoc.exists) {
+      const userData = userDoc.data();
+      if (userData?.fcmToken) {
+        return userData.fcmToken;
+      }
+    }
+    
+    // Also check salon_staff collection
+    const staffDoc = await db.collection("salon_staff").doc(userUid).get();
+    if (staffDoc.exists) {
+      const staffData = staffDoc.data();
+      if (staffData?.fcmToken) {
+        return staffData.fcmToken;
+      }
+    }
+    
+    return null;
+  } catch (error) {
+    console.error("Error getting FCM token for user:", userUid, error);
+    return null;
+  }
+}
+
+/**
+ * Send FCM push notification
+ */
+async function sendPushNotification(
+  fcmToken: string,
+  title: string,
+  body: string,
+  data?: Record<string, string>
+): Promise<void> {
+  try {
+    const messaging = adminMessaging();
+    
+    const message: Message = {
+      token: fcmToken,
+      notification: {
+        title,
+        body,
+      },
+      data: data || {},
+      android: {
+        priority: "high",
+        notification: {
+          sound: "default",
+          channelId: "appointments",
+        },
+      },
+      apns: {
+        payload: {
+          aps: {
+            sound: "default",
+            badge: 1,
+          },
+        },
+      },
+    };
+
+    await messaging.send(message);
+    console.log("✅ Push notification sent successfully");
+  } catch (error: any) {
+    // Don't throw error - push notification failure shouldn't break notification creation
+    console.error("⚠️ Error sending push notification:", error?.message || error);
+    if (error?.code === "messaging/invalid-registration-token" || 
+        error?.code === "messaging/registration-token-not-registered") {
+      console.log("Invalid FCM token detected, but continuing with notification creation");
+    }
+  }
+}
 
 type CreateBookingInput = {
   client: string;
@@ -527,6 +664,97 @@ export async function POST(req: NextRequest) {
           }
         } catch (notifError) {
           console.error("❌ Failed to send staff assignment notifications:", notifError);
+          // Don't fail the request if notification sending fails
+        }
+      }
+      
+      // Send notifications to owner and branch admins for "Any Staff" bookings
+      if (hasAnyStaffBooking(processedServices, body.staffId)) {
+        try {
+          const serviceList = processedServices && Array.isArray(processedServices) && processedServices.length > 0
+            ? processedServices.map(s => s.name || "Service").join(", ")
+            : serviceName || "Service";
+          
+          // Notify salon owner
+          await createOwnerNotification({
+            bookingId: ref.id,
+            bookingCode: bookingCode,
+            ownerUid: ownerUid,
+            clientName: String(body.client),
+            serviceName: serviceName || undefined,
+            services: processedServices?.map((s: any) => ({
+              name: s.name || "Service",
+              staffName: s.staffName || undefined,
+              staffId: s.staffId || undefined,
+            })),
+            branchName: branchName || undefined,
+            branchId: String(body.branchId),
+            bookingDate: String(body.date),
+            bookingTime: String(body.time),
+            type: "booking_needs_assignment",
+            status: finalStatus,
+          });
+          console.log(`✅ Booking ${bookingCode}: Owner notified for "Any Staff" booking`);
+          
+          // Notify all branch admins for this branch
+          const branchAdminUids = await getBranchAdminUids(db, String(body.branchId), ownerUid);
+          for (const branchAdminUid of branchAdminUids) {
+            // Skip if branch admin is the owner
+            if (branchAdminUid === ownerUid) {
+              continue;
+            }
+            
+            // Create branch admin notification matching booking engine format
+            const branchAdminNotificationPayload = {
+              bookingId: ref.id,
+              bookingCode: bookingCode,
+              type: "booking_needs_assignment",
+              title: "New Booking - Staff Assignment Required",
+              message: `New booking from ${body.client} for ${serviceList} on ${body.date} at ${body.time}. Please assign staff.`,
+              status: finalStatus,
+              ownerUid: ownerUid,
+              branchAdminUid: branchAdminUid,
+              targetAdminUid: branchAdminUid, // Target branch admin
+              clientName: String(body.client),
+              clientPhone: body.clientPhone || null,
+              serviceName: serviceName || null,
+              services: processedServices?.map((s: any) => ({
+                name: s.name || "Service",
+                staffName: s.staffName || "Needs Assignment",
+                staffId: s.staffId || null,
+              })) || null,
+              branchName: branchName || null,
+              branchId: String(body.branchId), // Include branchId for branch admin filtering
+              bookingDate: String(body.date),
+              bookingTime: String(body.time),
+              read: false,
+              createdAt: FieldValue.serverTimestamp(),
+            };
+            
+            const branchAdminNotifRef = await db.collection("notifications").add(branchAdminNotificationPayload);
+            
+            // Send FCM push notification to branch admin
+            const branchAdminFcmToken = await getUserFcmToken(db, branchAdminUid);
+            if (branchAdminFcmToken) {
+              await sendPushNotification(branchAdminFcmToken, branchAdminNotificationPayload.title, branchAdminNotificationPayload.message, {
+                notificationId: branchAdminNotifRef.id,
+                type: "booking_needs_assignment",
+                bookingId: ref.id,
+                bookingCode: bookingCode || "",
+              });
+              console.log(`✅ Booking ${bookingCode}: FCM push sent to branch admin ${branchAdminUid} for "Any Staff" booking`);
+            } else {
+              console.log(`⚠️ No FCM token found for branch admin ${branchAdminUid}, skipping push notification`);
+            }
+            
+            console.log(`✅ Booking ${bookingCode}: Branch admin ${branchAdminUid} notified for "Any Staff" booking`);
+          }
+          
+          if (branchAdminUids.length > 0) {
+            console.log(`✅ Booking ${bookingCode}: Notified ${branchAdminUids.length} branch admin(s) for "Any Staff" booking`);
+          }
+        } catch (anyStaffNotifError) {
+          console.error("❌ Failed to send owner/branch admin notifications for Any Staff booking:", anyStaffNotifError);
           // Don't fail the request if notification sending fails
         }
       }
