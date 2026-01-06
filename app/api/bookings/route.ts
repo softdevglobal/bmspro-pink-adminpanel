@@ -24,14 +24,30 @@ function isAnyStaff(staffId?: string | null): boolean {
  */
 function hasAnyStaffBooking(
   services?: Array<{ staffId?: string | null; staffName?: string | null }> | null,
-  staffId?: string | null
+  staffId?: string | null,
+  staffName?: string | null
 ): boolean {
   // Check services array for multi-service bookings
   if (services && Array.isArray(services) && services.length > 0) {
-    return services.some(s => isAnyStaff(s.staffId));
+    return services.some(s => {
+      // Check both staffId and staffName for "Any Staff" indicators
+      const hasAnyStaffId = isAnyStaff(s.staffId);
+      const hasAnyStaffName = s.staffName && (
+        s.staffName.toLowerCase().includes("any available") ||
+        s.staffName.toLowerCase().includes("any staff") ||
+        s.staffName.toLowerCase() === "any"
+      );
+      return hasAnyStaffId || hasAnyStaffName;
+    });
   }
-  // Single service booking
-  return isAnyStaff(staffId);
+  // Single service booking - check both staffId and staffName
+  const hasAnyStaffId = isAnyStaff(staffId);
+  const hasAnyStaffName = staffName && (
+    staffName.toLowerCase().includes("any available") ||
+    staffName.toLowerCase().includes("any staff") ||
+    staffName.toLowerCase() === "any"
+  );
+  return hasAnyStaffId || hasAnyStaffName;
 }
 
 /**
@@ -669,11 +685,16 @@ export async function POST(req: NextRequest) {
       }
       
       // Send notifications to owner and branch admins for "Any Staff" bookings
-      if (hasAnyStaffBooking(processedServices, body.staffId)) {
+      const hasAnyStaff = hasAnyStaffBooking(processedServices, body.staffId, body.staffName);
+      console.log(`📋 Booking ${bookingCode}: Checking for Any Staff booking - hasAnyStaff: ${hasAnyStaff}, staffId: ${body.staffId}, staffName: ${body.staffName}, processedServices: ${JSON.stringify(processedServices?.map(s => ({ name: s.name, staffId: s.staffId, staffName: s.staffName })))}`);
+      
+      if (hasAnyStaff) {
         try {
           const serviceList = processedServices && Array.isArray(processedServices) && processedServices.length > 0
             ? processedServices.map(s => s.name || "Service").join(", ")
             : serviceName || "Service";
+          
+          console.log(`📋 Booking ${bookingCode}: Detected Any Staff booking - notifying owner and branch admins`);
           
           // Notify salon owner
           await createOwnerNotification({
@@ -697,12 +718,18 @@ export async function POST(req: NextRequest) {
           console.log(`✅ Booking ${bookingCode}: Owner notified for "Any Staff" booking`);
           
           // Notify all branch admins for this branch
+          console.log(`📋 Booking ${bookingCode}: Looking up branch admins for branchId: ${body.branchId}, ownerUid: ${ownerUid}`);
           const branchAdminUids = await getBranchAdminUids(db, String(body.branchId), ownerUid);
+          console.log(`📋 Booking ${bookingCode}: Found ${branchAdminUids.length} branch admin(s): ${branchAdminUids.join(", ")}`);
+          
           for (const branchAdminUid of branchAdminUids) {
             // Skip if branch admin is the owner
             if (branchAdminUid === ownerUid) {
+              console.log(`⏭️ Booking ${bookingCode}: Skipping branch admin ${branchAdminUid} (is owner)`);
               continue;
             }
+            
+            console.log(`📋 Booking ${bookingCode}: Creating notification for branch admin ${branchAdminUid}`);
             
             // Create branch admin notification matching booking engine format
             const branchAdminNotificationPayload = {
@@ -732,10 +759,13 @@ export async function POST(req: NextRequest) {
             };
             
             const branchAdminNotifRef = await db.collection("notifications").add(branchAdminNotificationPayload);
+            console.log(`✅ Booking ${bookingCode}: Branch admin notification created in Firestore with ID: ${branchAdminNotifRef.id}`);
             
             // Send FCM push notification to branch admin
+            console.log(`📱 Booking ${bookingCode}: Looking up FCM token for branch admin ${branchAdminUid}...`);
             const branchAdminFcmToken = await getUserFcmToken(db, branchAdminUid);
             if (branchAdminFcmToken) {
+              console.log(`📱 Booking ${bookingCode}: Found FCM token for branch admin ${branchAdminUid}, sending push notification...`);
               await sendPushNotification(branchAdminFcmToken, branchAdminNotificationPayload.title, branchAdminNotificationPayload.message, {
                 notificationId: branchAdminNotifRef.id,
                 type: "booking_needs_assignment",
@@ -744,7 +774,8 @@ export async function POST(req: NextRequest) {
               });
               console.log(`✅ Booking ${bookingCode}: FCM push sent to branch admin ${branchAdminUid} for "Any Staff" booking`);
             } else {
-              console.log(`⚠️ No FCM token found for branch admin ${branchAdminUid}, skipping push notification`);
+              console.log(`⚠️ Booking ${bookingCode}: No FCM token found for branch admin ${branchAdminUid}, skipping push notification`);
+              console.log(`⚠️ Booking ${bookingCode}: Notification was still created in Firestore (ID: ${branchAdminNotifRef.id}) - mobile app will receive it when it syncs`);
             }
             
             console.log(`✅ Booking ${bookingCode}: Branch admin ${branchAdminUid} notified for "Any Staff" booking`);
@@ -752,11 +783,16 @@ export async function POST(req: NextRequest) {
           
           if (branchAdminUids.length > 0) {
             console.log(`✅ Booking ${bookingCode}: Notified ${branchAdminUids.length} branch admin(s) for "Any Staff" booking`);
+          } else {
+            console.log(`⚠️ Booking ${bookingCode}: No branch admins found for branch ${body.branchId}`);
           }
         } catch (anyStaffNotifError) {
           console.error("❌ Failed to send owner/branch admin notifications for Any Staff booking:", anyStaffNotifError);
+          console.error("❌ Error details:", anyStaffNotifError);
           // Don't fail the request if notification sending fails
         }
+      } else {
+        console.log(`ℹ️ Booking ${bookingCode}: No Any Staff detected - skipping owner/branch admin notification`);
       }
       
       return NextResponse.json({ id: ref.id });
