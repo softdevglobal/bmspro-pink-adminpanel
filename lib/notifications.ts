@@ -182,16 +182,21 @@ export async function createNotification(data: Omit<Notification, "id" | "create
     
     const ref = await db.collection("notifications").add(cleanData);
     
-    // Send push notification if staffUid, targetAdminUid, targetOwnerUid, or customerUid is present
+    // Send push notification if staffUid, targetAdminUid, targetOwnerUid, branchAdminUid, or customerUid is present
     const staffUid = (data as any).staffUid;
     const targetAdminUid = (data as any).targetAdminUid;
     const targetOwnerUid = (data as any).targetOwnerUid;
+    const branchAdminUid = (data as any).branchAdminUid;
     const customerUid = (data as any).customerUid;
     
     // Determine who to send push notification to
-    const userId = staffUid || targetAdminUid || targetOwnerUid || customerUid;
+    // Priority: branchAdminUid > targetAdminUid > staffUid > targetOwnerUid > customerUid
+    const userId = branchAdminUid || targetAdminUid || staffUid || targetOwnerUid || customerUid;
     
     if (userId) {
+      const notificationType = cleanData.type || "unknown";
+      console.log(`📤 Creating notification type: ${notificationType}, targeting user: ${userId} (branchAdminUid: ${branchAdminUid || "none"}, targetAdminUid: ${targetAdminUid || "none"})`);
+      
       const fcmToken = await getUserFcmToken(userId);
       if (fcmToken) {
         await sendPushNotification(
@@ -204,10 +209,12 @@ export async function createNotification(data: Omit<Notification, "id" | "create
             bookingId: cleanData.bookingId,
           }
         );
-        console.log(`✅ Push notification sent to user: ${userId}`);
+        console.log(`✅ Push notification sent to user: ${userId} for notification type: ${notificationType}`);
       } else {
-        console.log(`⚠️ No FCM token found for user: ${userId}`);
+        console.log(`⚠️ No FCM token found for user: ${userId} (notification still created in Firestore with ID: ${ref.id})`);
       }
+    } else {
+      console.log(`⚠️ No target user found for notification type: ${cleanData.type || "unknown"} (notification still created in Firestore with ID: ${ref.id})`);
     }
     
     return ref.id;
