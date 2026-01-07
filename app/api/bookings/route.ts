@@ -730,11 +730,12 @@ export async function POST(req: NextRequest) {
             }
             
             console.log(`📋 Booking ${bookingCode}: Creating notification for branch admin ${branchAdminUid}`);
+            console.log(`📋 Booking ${bookingCode}: Branch admin details - branchId: ${body.branchId}, ownerUid: ${ownerUid}`);
             
             // Use createBranchAdminNotification helper to ensure proper notification creation and push
             try {
               const { createBranchAdminNotification } = await import("@/lib/notifications");
-              await createBranchAdminNotification({
+              const notificationId = await createBranchAdminNotification({
                 bookingId: ref.id,
                 bookingCode: bookingCode,
                 branchAdminUid: branchAdminUid,
@@ -753,10 +754,79 @@ export async function POST(req: NextRequest) {
                 status: finalStatus,
                 type: "booking_needs_assignment", // Explicitly set type for "any-staff" bookings
               });
-              console.log(`✅ Booking ${bookingCode}: Branch admin ${branchAdminUid} notification created and push sent`);
+              console.log(`✅ Booking ${bookingCode}: Branch admin ${branchAdminUid} notification created with ID: ${notificationId}`);
+              
+              // Verify the notification was created correctly by reading it back
+              try {
+                const verifyNotif = await db.collection("notifications").doc(notificationId).get();
+                if (verifyNotif.exists) {
+                  const notifData = verifyNotif.data();
+                  console.log(`✅ Booking ${bookingCode}: Verified notification exists - branchAdminUid: ${notifData?.branchAdminUid}, targetAdminUid: ${notifData?.targetAdminUid}, branchId: ${notifData?.branchId}, type: ${notifData?.type}`);
+                  
+                  if (notifData?.branchAdminUid !== branchAdminUid) {
+                    console.error(`❌ Booking ${bookingCode}: WARNING - branchAdminUid mismatch! Expected: ${branchAdminUid}, Got: ${notifData?.branchAdminUid}`);
+                  }
+                  if (!notifData?.branchId || notifData.branchId !== String(body.branchId)) {
+                    console.error(`❌ Booking ${bookingCode}: WARNING - branchId missing or incorrect! Expected: ${body.branchId}, Got: ${notifData?.branchId}`);
+                  }
+                } else {
+                  console.error(`❌ Booking ${bookingCode}: Notification was not found in Firestore after creation!`);
+                }
+              } catch (verifyError) {
+                console.error(`❌ Booking ${bookingCode}: Error verifying notification:`, verifyError);
+              }
             } catch (branchAdminNotifError) {
               console.error(`❌ Booking ${bookingCode}: Failed to create branch admin notification:`, branchAdminNotifError);
-              // Don't fail the booking creation if notification fails
+              console.error(`❌ Booking ${bookingCode}: Error details:`, branchAdminNotifError);
+              
+              // Fallback: Create notification directly in Firestore if helper fails
+              try {
+                console.log(`📋 Booking ${bookingCode}: Attempting fallback notification creation for branch admin ${branchAdminUid}`);
+                const fallbackNotification = {
+                  bookingId: ref.id,
+                  bookingCode: bookingCode,
+                  type: "booking_needs_assignment",
+                  title: "New Booking - Staff Assignment Required",
+                  message: `New booking from ${body.client} for ${serviceList} on ${body.date} at ${body.time}. Please assign staff.`,
+                  status: finalStatus,
+                  ownerUid: ownerUid,
+                  branchAdminUid: branchAdminUid, // CRITICAL: Must match user.uid for mobile app query
+                  targetAdminUid: branchAdminUid, // Also set for mobile app queries
+                  branchId: String(body.branchId), // CRITICAL: Must be set for branch filtering
+                  clientName: String(body.client),
+                  clientPhone: body.clientPhone || null,
+                  serviceName: serviceName || null,
+                  services: processedServices?.map((s: any) => ({
+                    name: s.name || "Service",
+                    staffName: s.staffName || "Needs Assignment",
+                    staffId: s.staffId || null,
+                  })) || null,
+                  branchName: branchName || null,
+                  bookingDate: String(body.date),
+                  bookingTime: String(body.time),
+                  read: false,
+                  createdAt: FieldValue.serverTimestamp(),
+                };
+                
+                const fallbackNotifRef = await db.collection("notifications").add(fallbackNotification);
+                console.log(`✅ Booking ${bookingCode}: Fallback notification created with ID: ${fallbackNotifRef.id}`);
+                
+                // Send FCM push notification
+                const branchAdminFcmToken = await getUserFcmToken(db, branchAdminUid);
+                if (branchAdminFcmToken) {
+                  await sendPushNotification(branchAdminFcmToken, fallbackNotification.title, fallbackNotification.message, {
+                    notificationId: fallbackNotifRef.id,
+                    type: "booking_needs_assignment",
+                    bookingId: ref.id,
+                    bookingCode: bookingCode || "",
+                  });
+                  console.log(`✅ Booking ${bookingCode}: FCM push sent to branch admin ${branchAdminUid} (fallback)`);
+                } else {
+                  console.log(`⚠️ Booking ${bookingCode}: No FCM token for branch admin ${branchAdminUid} (fallback)`);
+                }
+              } catch (fallbackError) {
+                console.error(`❌ Booking ${bookingCode}: Fallback notification creation also failed:`, fallbackError);
+              }
             }
             
             console.log(`✅ Booking ${bookingCode}: Branch admin ${branchAdminUid} notification process completed`);

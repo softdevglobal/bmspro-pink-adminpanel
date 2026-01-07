@@ -792,9 +792,9 @@ export async function createBranchAdminNotification(data: {
     message,
     status: data.status || "Pending",
     ownerUid: data.ownerUid,
-    branchAdminUid: data.branchAdminUid, // Target the branch admin
+    branchAdminUid: data.branchAdminUid, // Target the branch admin - CRITICAL for mobile app queries
     targetAdminUid: data.branchAdminUid, // Also set targetAdminUid for mobile app queries
-    branchId: data.branchId || null, // Include branchId for branch admin filtering
+    branchId: data.branchId || null, // Include branchId for branch admin filtering - CRITICAL
     clientName: data.clientName,
     serviceName: data.serviceName,
     services: data.services,
@@ -802,6 +802,14 @@ export async function createBranchAdminNotification(data: {
     bookingDate: data.bookingDate,
     bookingTime: data.bookingTime,
   };
+  
+  // Ensure branchAdminUid is set (required for mobile app to receive notification)
+  if (!notificationData.branchAdminUid) {
+    console.error(`❌ createBranchAdminNotification: branchAdminUid is missing! This notification will not be received by the mobile app.`);
+    throw new Error("branchAdminUid is required for branch admin notifications");
+  }
+  
+  console.log(`📤 createBranchAdminNotification: Creating notification for branchAdminUid: ${notificationData.branchAdminUid}, branchId: ${notificationData.branchId}, type: ${notificationType}`);
 
   return createNotification(notificationData);
 }
