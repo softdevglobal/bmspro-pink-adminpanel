@@ -31,6 +31,7 @@ export default function SettingsPage() {
   const [deleteTarget, setDeleteTarget] = useState<Staff | null>(null);
   const [deleting, setDeleting] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
+  const [passwordError, setPasswordError] = useState<string | null>(null);
   const [suspendTarget, setSuspendTarget] = useState<Staff | null>(null);
   const [suspending, setSuspending] = useState(false);
   const [weeklySchedule, setWeeklySchedule] = useState<WeeklySchedule>({});
@@ -240,6 +241,32 @@ export default function SettingsPage() {
       : (String(formData.get("timezone") || selectedTimezone || "Australia/Sydney"));
 
     if (!name || !role || !email || !mobile || !ownerUid) return;
+    
+    // Validate password: For new staff (not editing), password is required and must be at least 6 characters
+    // For editing existing staff, password is optional but if provided must be at least 6 characters
+    if (!editingStaffId) {
+      // Creating new staff - password is required
+      if (!password || password.length === 0) {
+        setPasswordError("Password is required (minimum 6 characters)");
+        showToast("Password is required when creating a new staff member");
+        return;
+      }
+      if (password.length < 6) {
+        setPasswordError("Password must be at least 6 characters long");
+        showToast("Password must be at least 6 characters long");
+        return;
+      }
+    } else {
+      // Editing existing staff - password is optional but if provided must be at least 6 characters
+      if (password && password.length > 0 && password.length < 6) {
+        setPasswordError("Password must be at least 6 characters long");
+        showToast("Password must be at least 6 characters long");
+        return;
+      }
+    }
+    
+    // Clear password error if validation passes
+    setPasswordError(null);
     
     // Branch Admin must have a branch assigned
     if (systemRole === "salon_branch_admin" && !branchId) {
@@ -1232,13 +1259,37 @@ export default function SettingsPage() {
                   </div>
                   {(!editingStaffId || (editingStaffId && !editingStaff?.authUid)) && (
                     <div>
-                      <label className="block text-xs font-bold text-slate-600 mb-1">Password</label>
+                      <label className="block text-xs font-bold text-slate-600 mb-1">
+                        Password {!editingStaffId && <span className="text-red-500">*</span>}
+                        {!editingStaffId && <span className="text-slate-500 text-[10px] ml-1">(required, min 6 characters)</span>}
+                      </label>
                       <div className="relative">
                         <input
                           type={showPassword ? "text" : "password"}
                           name="password"
-                          className="w-full border border-slate-300 rounded-lg p-2 sm:p-2.5 pr-10 text-xs sm:text-sm focus:ring-2 focus:ring-pink-500 focus:outline-none"
-                          placeholder={editingStaffId ? "Create password for login" : "Leave empty for auto-generated"}
+                          className={`w-full border rounded-lg p-2 sm:p-2.5 pr-10 text-xs sm:text-sm focus:ring-2 focus:outline-none ${
+                            passwordError 
+                              ? "border-red-500 focus:ring-red-500" 
+                              : "border-slate-300 focus:ring-pink-500"
+                          }`}
+                          placeholder={editingStaffId ? "Create password for login (min 6 characters)" : "Enter password (minimum 6 characters required)"}
+                          required={!editingStaffId}
+                          onChange={(e) => {
+                            const value = e.target.value;
+                            if (value && value.length > 0 && value.length < 6) {
+                              setPasswordError("Password must be at least 6 characters long");
+                            } else {
+                              setPasswordError(null);
+                            }
+                          }}
+                          onBlur={(e) => {
+                            const value = e.target.value;
+                            if (value && value.length > 0 && value.length < 6) {
+                              setPasswordError("Password must be at least 6 characters long");
+                            } else {
+                              setPasswordError(null);
+                            }
+                          }}
                         />
                         <button
                           type="button"
@@ -1248,7 +1299,15 @@ export default function SettingsPage() {
                           <i className={`fa-solid ${showPassword ? "fa-eye-slash" : "fa-eye"}`} />
                         </button>
                       </div>
-                      <p className="text-[10px] text-slate-500 mt-1">Set a password for them to login immediately.</p>
+                      {passwordError ? (
+                        <p className="text-[10px] text-red-600 mt-1">{passwordError}</p>
+                      ) : (
+                        <p className="text-[10px] text-slate-500 mt-1">
+                          {editingStaffId 
+                            ? "Set a password for them to login immediately (minimum 6 characters)." 
+                            : "Password is required when creating a new staff member. Must be at least 6 characters long."}
+                        </p>
+                      )}
                     </div>
                   )}
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 sm:gap-3">

@@ -48,6 +48,11 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Invalid email format" }, { status: 400 });
     }
 
+    // Validate password: if provided, must be at least 6 characters
+    if (password && typeof password === "string" && password.length < 6) {
+      return NextResponse.json({ error: "Password must be at least 6 characters long" }, { status: 400 });
+    }
+
     // Security: If ownerUid is provided, verify it matches the authenticated user's ownerUid
     // This prevents creating staff for other salons
     if (ownerUid && !verifyTenantAccess(ownerUid, userData.ownerUid)) {
@@ -93,11 +98,18 @@ export async function POST(req: NextRequest) {
     } catch (error: any) {
       if (error.code === "auth/user-not-found") {
         // Create new user
+        // Password is required for new staff accounts and must be at least 6 characters
+        if (!password || typeof password !== "string" || password.length < 6) {
+          return NextResponse.json({ 
+            error: "Password is required and must be at least 6 characters long when creating a new staff member" 
+          }, { status: 400 });
+        }
+        
         try {
           const user = await auth.createUser({
             email: email.trim().toLowerCase(),
             displayName: displayName || "",
-            password: (password && password.length >= 6) ? password : Math.random().toString(36).slice(2, 10) + Math.random().toString(36).slice(2, 10),
+            password: password, // Password is required and validated above
             emailVerified: false,
             disabled: false,
           });
