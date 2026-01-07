@@ -182,13 +182,14 @@ export async function createNotification(data: Omit<Notification, "id" | "create
     
     const ref = await db.collection("notifications").add(cleanData);
     
-    // Send push notification if staffUid, targetAdminUid, or targetOwnerUid is present
+    // Send push notification if staffUid, targetAdminUid, targetOwnerUid, or customerUid is present
     const staffUid = (data as any).staffUid;
     const targetAdminUid = (data as any).targetAdminUid;
     const targetOwnerUid = (data as any).targetOwnerUid;
+    const customerUid = (data as any).customerUid;
     
     // Determine who to send push notification to
-    const userId = staffUid || targetAdminUid || targetOwnerUid;
+    const userId = staffUid || targetAdminUid || targetOwnerUid || customerUid;
     
     if (userId) {
       const fcmToken = await getUserFcmToken(userId);
