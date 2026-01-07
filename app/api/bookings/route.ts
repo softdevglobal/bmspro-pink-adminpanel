@@ -748,12 +748,14 @@ export async function POST(req: NextRequest) {
                   staffId: s.staffId || undefined,
                 })),
                 branchName: branchName || undefined,
-                branchId: String(body.branchId),
+                branchId: String(body.branchId), // CRITICAL: Must be a string, not null
                 bookingDate: String(body.date),
                 bookingTime: String(body.time),
                 status: finalStatus,
                 type: "booking_needs_assignment", // Explicitly set type for "any-staff" bookings
               });
+              
+              console.log(`📋 Booking ${bookingCode}: createBranchAdminNotification called with branchAdminUid: ${branchAdminUid}, branchId: ${body.branchId}`);
               console.log(`✅ Booking ${bookingCode}: Branch admin ${branchAdminUid} notification created with ID: ${notificationId}`);
               
               // Verify the notification was created correctly by reading it back

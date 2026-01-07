@@ -810,7 +810,34 @@ export async function createBranchAdminNotification(data: {
   }
   
   console.log(`📤 createBranchAdminNotification: Creating notification for branchAdminUid: ${notificationData.branchAdminUid}, branchId: ${notificationData.branchId}, type: ${notificationType}`);
-
-  return createNotification(notificationData);
+  
+  const notificationId = await createNotification(notificationData);
+  
+  // Verify the notification was created with correct fields
+  try {
+    const db = adminDb();
+    const verifyDoc = await db.collection("notifications").doc(notificationId).get();
+    if (verifyDoc.exists) {
+      const verifyData = verifyDoc.data();
+      console.log(`✅ createBranchAdminNotification: Verified notification ${notificationId}`);
+      console.log(`   - branchAdminUid: ${verifyData?.branchAdminUid} (expected: ${data.branchAdminUid})`);
+      console.log(`   - targetAdminUid: ${verifyData?.targetAdminUid} (expected: ${data.branchAdminUid})`);
+      console.log(`   - branchId: ${verifyData?.branchId} (expected: ${data.branchId})`);
+      console.log(`   - type: ${verifyData?.type}`);
+      
+      if (verifyData?.branchAdminUid !== data.branchAdminUid) {
+        console.error(`❌ createBranchAdminNotification: CRITICAL - branchAdminUid mismatch!`);
+      }
+      if (!verifyData?.branchId || verifyData.branchId !== data.branchId) {
+        console.error(`❌ createBranchAdminNotification: CRITICAL - branchId missing or incorrect!`);
+      }
+    } else {
+      console.error(`❌ createBranchAdminNotification: Notification ${notificationId} was not found in Firestore!`);
+    }
+  } catch (verifyError) {
+    console.error(`❌ createBranchAdminNotification: Error verifying notification:`, verifyError);
+  }
+  
+  return notificationId;
 }
 
