@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { adminAuth, adminDb, adminMessaging } from "@/lib/firebaseAdmin";
-import { FieldValue, Firestore } from "firebase-admin/firestore";
+import { FieldValue, Firestore, FieldPath } from "firebase-admin/firestore";
 import { Message } from "firebase-admin/messaging";
 import { normalizeBookingStatus, shouldBlockSlots } from "@/lib/bookingTypes";
 import { generateBookingCode } from "@/lib/bookings";
@@ -759,23 +759,84 @@ export async function POST(req: NextRequest) {
               console.log(`✅ Booking ${bookingCode}: Branch admin ${branchAdminUid} notification created with ID: ${notificationId}`);
               
               // Verify the notification was created correctly by reading it back
+              let notificationData: any = null;
               try {
                 const verifyNotif = await db.collection("notifications").doc(notificationId).get();
                 if (verifyNotif.exists) {
-                  const notifData = verifyNotif.data();
-                  console.log(`✅ Booking ${bookingCode}: Verified notification exists - branchAdminUid: ${notifData?.branchAdminUid}, targetAdminUid: ${notifData?.targetAdminUid}, branchId: ${notifData?.branchId}, type: ${notifData?.type}`);
+                  notificationData = verifyNotif.data();
+                  console.log(`✅ Booking ${bookingCode}: Verified notification exists - branchAdminUid: ${notificationData?.branchAdminUid}, targetAdminUid: ${notificationData?.targetAdminUid}, branchId: ${notificationData?.branchId}, type: ${notificationData?.type}`);
                   
-                  if (notifData?.branchAdminUid !== branchAdminUid) {
-                    console.error(`❌ Booking ${bookingCode}: WARNING - branchAdminUid mismatch! Expected: ${branchAdminUid}, Got: ${notifData?.branchAdminUid}`);
+                  if (notificationData?.branchAdminUid !== branchAdminUid) {
+                    console.error(`❌ Booking ${bookingCode}: WARNING - branchAdminUid mismatch! Expected: ${branchAdminUid}, Got: ${notificationData?.branchAdminUid}`);
                   }
-                  if (!notifData?.branchId || notifData.branchId !== String(body.branchId)) {
-                    console.error(`❌ Booking ${bookingCode}: WARNING - branchId missing or incorrect! Expected: ${body.branchId}, Got: ${notifData?.branchId}`);
+                  if (!notificationData?.branchId || notificationData.branchId !== String(body.branchId)) {
+                    console.error(`❌ Booking ${bookingCode}: WARNING - branchId missing or incorrect! Expected: ${body.branchId}, Got: ${notificationData?.branchId}`);
+                  }
+                  
+                  // CRITICAL: Test if the notification can be queried by the mobile app's query
+                  // This verifies the notification structure is correct for mobile app queries
+                  try {
+                    const testQuery = await db.collection("notifications")
+                      .where("branchAdminUid", "==", branchAdminUid)
+                      .limit(1)
+                      .get();
+                    
+                    const foundNotification = testQuery.docs.find(doc => doc.id === notificationId);
+                    if (!foundNotification) {
+                      console.error(`❌ Booking ${bookingCode}: CRITICAL - Notification cannot be queried by branchAdminUid!`);
+                      console.error(`❌ Booking ${bookingCode}: Query returned ${testQuery.docs.length} docs, but our notification (${notificationId}) was not found!`);
+                      console.error(`❌ Booking ${bookingCode}: This means the mobile app will NOT receive this notification!`);
+                      console.error(`❌ Booking ${bookingCode}: Notification branchAdminUid value: ${notificationData?.branchAdminUid}`);
+                      console.error(`❌ Booking ${bookingCode}: Expected branchAdminUid: ${branchAdminUid}`);
+                    } else {
+                      console.log(`✅ Booking ${bookingCode}: Notification is queryable by mobile app (branchAdminUid query works)`);
+                    }
+                  } catch (queryError) {
+                    console.error(`❌ Booking ${bookingCode}: Error testing notification query:`, queryError);
                   }
                 } else {
                   console.error(`❌ Booking ${bookingCode}: Notification was not found in Firestore after creation!`);
                 }
               } catch (verifyError) {
                 console.error(`❌ Booking ${bookingCode}: Error verifying notification:`, verifyError);
+              }
+              
+              // CRITICAL: Ensure push notification is sent directly
+              // Even though createNotification should send it, we'll send it explicitly here to guarantee delivery
+              try {
+                console.log(`📱 Booking ${bookingCode}: Sending push notification to branch admin ${branchAdminUid}...`);
+                const branchAdminFcmToken = await getUserFcmToken(db, branchAdminUid);
+                
+                if (branchAdminFcmToken) {
+                  const pushTitle = notificationData?.title || "New Booking - Staff Assignment Required";
+                  const pushMessage = notificationData?.message || `New booking from ${body.client} for ${serviceList} on ${body.date} at ${body.time}. Please assign staff.`;
+                  
+                  console.log(`📱 Booking ${bookingCode}: FCM token found (${branchAdminFcmToken.substring(0, 20)}...), sending push...`);
+                  console.log(`📱 Booking ${bookingCode}: Push title: "${pushTitle}"`);
+                  console.log(`📱 Booking ${bookingCode}: Push message: "${pushMessage}"`);
+                  
+                  await sendPushNotification(branchAdminFcmToken, pushTitle, pushMessage, {
+                    notificationId: notificationId,
+                    type: "booking_needs_assignment",
+                    bookingId: ref.id,
+                    bookingCode: bookingCode || "",
+                    branchId: String(body.branchId),
+                  });
+                  
+                  console.log(`✅ Booking ${bookingCode}: Push notification sent successfully to branch admin ${branchAdminUid}`);
+                } else {
+                  console.error(`❌ Booking ${bookingCode}: No FCM token found for branch admin ${branchAdminUid}`);
+                  console.error(`❌ Booking ${bookingCode}: Branch admin ${branchAdminUid} needs to:`);
+                  console.error(`   1. Open the mobile app`);
+                  console.error(`   2. Grant notification permissions`);
+                  console.error(`   3. The app will automatically save FCM token to Firestore`);
+                  console.log(`⚠️ Booking ${bookingCode}: Notification is available in Firestore (ID: ${notificationId}) - mobile app will receive it via Firestore listener when app is open`);
+                }
+              } catch (pushError: any) {
+                console.error(`❌ Booking ${bookingCode}: Error sending push notification to branch admin ${branchAdminUid}:`, pushError);
+                console.error(`❌ Booking ${bookingCode}: Push error code: ${pushError?.code || "unknown"}`);
+                console.error(`❌ Booking ${bookingCode}: Push error message: ${pushError?.message || pushError}`);
+                console.log(`⚠️ Booking ${bookingCode}: Notification is still available in Firestore (ID: ${notificationId}) - mobile app will receive it via Firestore listener`);
               }
             } catch (branchAdminNotifError) {
               console.error(`❌ Booking ${bookingCode}: Failed to create branch admin notification:`, branchAdminNotifError);

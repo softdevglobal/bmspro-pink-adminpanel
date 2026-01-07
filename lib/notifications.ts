@@ -207,6 +207,21 @@ export async function createNotification(data: Omit<Notification, "id" | "create
       }
     });
     
+    // CRITICAL: Ensure branchAdminUid is explicitly set (don't allow null/undefined)
+    // This is required for mobile app queries to work
+    if ((data as any).branchAdminUid !== undefined && (data as any).branchAdminUid !== null) {
+      cleanData.branchAdminUid = (data as any).branchAdminUid;
+      console.log(`📤 createNotification: Setting branchAdminUid to: ${cleanData.branchAdminUid}`);
+    }
+    
+    // CRITICAL: Ensure targetAdminUid is set if branchAdminUid is set
+    if (cleanData.branchAdminUid && !cleanData.targetAdminUid) {
+      cleanData.targetAdminUid = cleanData.branchAdminUid;
+      console.log(`📤 createNotification: Setting targetAdminUid to match branchAdminUid: ${cleanData.targetAdminUid}`);
+    }
+    
+    console.log(`📤 createNotification: Final notification data - branchAdminUid: ${cleanData.branchAdminUid || "NOT SET"}, targetAdminUid: ${cleanData.targetAdminUid || "NOT SET"}, type: ${cleanData.type || "unknown"}`);
+    
     const ref = await db.collection("notifications").add(cleanData);
     
     // Send push notification if staffUid, targetAdminUid, targetOwnerUid, branchAdminUid, or customerUid is present
