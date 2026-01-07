@@ -731,75 +731,32 @@ export async function POST(req: NextRequest) {
             
             console.log(`📋 Booking ${bookingCode}: Creating notification for branch admin ${branchAdminUid}`);
             
-            // Create branch admin notification matching booking engine format
-            const branchAdminNotificationPayload = {
-              bookingId: ref.id,
-              bookingCode: bookingCode,
-              type: "booking_needs_assignment",
-              title: "New Booking - Staff Assignment Required",
-              message: `New booking from ${body.client} for ${serviceList} on ${body.date} at ${body.time}. Please assign staff.`,
-              status: finalStatus,
-              ownerUid: ownerUid,
-              branchAdminUid: branchAdminUid,
-              targetAdminUid: branchAdminUid, // Target branch admin
-              clientName: String(body.client),
-              clientPhone: body.clientPhone || null,
-              serviceName: serviceName || null,
-              services: processedServices?.map((s: any) => ({
-                name: s.name || "Service",
-                staffName: s.staffName || "Needs Assignment",
-                staffId: s.staffId || null,
-              })) || null,
-              branchName: branchName || null,
-              branchId: String(body.branchId), // Include branchId for branch admin filtering
-              bookingDate: String(body.date),
-              bookingTime: String(body.time),
-              read: false,
-              createdAt: FieldValue.serverTimestamp(),
-            };
-            
-            // Always create the notification in Firestore first
-            let branchAdminNotifRef;
+            // Use createBranchAdminNotification helper to ensure proper notification creation and push
             try {
-              branchAdminNotifRef = await db.collection("notifications").add(branchAdminNotificationPayload);
-              console.log(`✅ Booking ${bookingCode}: Branch admin notification created in Firestore with ID: ${branchAdminNotifRef.id}`);
-              
-              // Verify the notification was created by reading it back
-              const verifyNotif = await branchAdminNotifRef.get();
-              if (verifyNotif.exists) {
-                console.log(`✅ Booking ${bookingCode}: Verified notification exists in Firestore for branch admin ${branchAdminUid}`);
-              } else {
-                console.error(`❌ Booking ${bookingCode}: Notification was not found in Firestore after creation!`);
-              }
-              
-              console.log(`📋 Booking ${bookingCode}: Notification details - type: ${branchAdminNotificationPayload.type}, branchAdminUid: ${branchAdminNotificationPayload.branchAdminUid}, targetAdminUid: ${branchAdminNotificationPayload.targetAdminUid}, branchId: ${branchAdminNotificationPayload.branchId}`);
-            } catch (notifCreateError) {
-              console.error(`❌ Booking ${bookingCode}: Failed to create notification in Firestore for branch admin ${branchAdminUid}:`, notifCreateError);
-              throw notifCreateError; // Re-throw to be caught by outer try-catch
-            }
-            
-            // Send FCM push notification to branch admin (non-blocking - notification already created)
-            try {
-              console.log(`📱 Booking ${bookingCode}: Looking up FCM token for branch admin ${branchAdminUid}...`);
-              const branchAdminFcmToken = await getUserFcmToken(db, branchAdminUid);
-              if (branchAdminFcmToken) {
-                console.log(`📱 Booking ${bookingCode}: Found FCM token for branch admin ${branchAdminUid}, sending push notification...`);
-                await sendPushNotification(branchAdminFcmToken, branchAdminNotificationPayload.title, branchAdminNotificationPayload.message, {
-                  notificationId: branchAdminNotifRef.id,
-                  type: "booking_needs_assignment",
-                  bookingId: ref.id,
-                  bookingCode: bookingCode || "",
-                });
-                console.log(`✅ Booking ${bookingCode}: FCM push sent to branch admin ${branchAdminUid} for "Any Staff" booking`);
-              } else {
-                console.log(`⚠️ Booking ${bookingCode}: No FCM token found for branch admin ${branchAdminUid}`);
-                console.log(`⚠️ Booking ${bookingCode}: Notification was created in Firestore (ID: ${branchAdminNotifRef.id}) - mobile app will receive it when it syncs`);
-                console.log(`⚠️ Booking ${bookingCode}: To receive push notifications, branch admin ${branchAdminUid} needs to have an FCM token in their user document`);
-              }
-            } catch (fcmError) {
-              // Don't fail if FCM push fails - notification is already in Firestore
-              console.error(`⚠️ Booking ${bookingCode}: FCM push failed for branch admin ${branchAdminUid}, but notification was created:`, fcmError);
-              console.log(`⚠️ Booking ${bookingCode}: Notification is available in Firestore (ID: ${branchAdminNotifRef.id}) - mobile app will receive it when it syncs`);
+              const { createBranchAdminNotification } = await import("@/lib/notifications");
+              await createBranchAdminNotification({
+                bookingId: ref.id,
+                bookingCode: bookingCode,
+                branchAdminUid: branchAdminUid,
+                ownerUid: ownerUid,
+                clientName: String(body.client),
+                serviceName: serviceName || undefined,
+                services: processedServices?.map((s: any) => ({
+                  name: s.name || "Service",
+                  staffName: s.staffName || "Needs Assignment",
+                  staffId: s.staffId || undefined,
+                })),
+                branchName: branchName || undefined,
+                branchId: String(body.branchId),
+                bookingDate: String(body.date),
+                bookingTime: String(body.time),
+                status: finalStatus,
+                type: "booking_needs_assignment", // Explicitly set type for "any-staff" bookings
+              });
+              console.log(`✅ Booking ${bookingCode}: Branch admin ${branchAdminUid} notification created and push sent`);
+            } catch (branchAdminNotifError) {
+              console.error(`❌ Booking ${bookingCode}: Failed to create branch admin notification:`, branchAdminNotifError);
+              // Don't fail the booking creation if notification fails
             }
             
             console.log(`✅ Booking ${bookingCode}: Branch admin ${branchAdminUid} notification process completed`);

@@ -757,23 +757,37 @@ export async function createBranchAdminNotification(data: {
   serviceName?: string;
   services?: Array<{ name: string; staffName?: string; staffId?: string }>;
   branchName?: string;
+  branchId?: string;
   bookingDate: string;
   bookingTime: string;
   status?: BookingStatus;
+  type?: "booking_engine_new_booking" | "booking_needs_assignment" | "branch_booking_created";
+  title?: string;
+  message?: string;
 }): Promise<string> {
   const serviceList = data.services && data.services.length > 0
     ? data.services.map(s => s.name).join(", ")
     : data.serviceName || "Service";
 
+  const notificationType = data.type || "branch_booking_created";
+  const title = data.title || (notificationType === "booking_needs_assignment" 
+    ? "New Booking - Staff Assignment Required"
+    : "New Booking for Your Branch");
+  const message = data.message || (notificationType === "booking_needs_assignment"
+    ? `New booking from ${data.clientName} for ${serviceList} on ${data.bookingDate} at ${data.bookingTime}. Please assign staff.`
+    : `${data.clientName} booked ${serviceList} at ${data.branchName || "Your branch"} on ${data.bookingDate} at ${data.bookingTime}`);
+
   const notificationData: any = {
     bookingId: data.bookingId,
     bookingCode: data.bookingCode,
-    type: "booking_engine_new_booking",
-    title: "New Booking for Your Branch",
-    message: `${data.clientName} booked ${serviceList} at ${data.branchName || "Your branch"} on ${data.bookingDate} at ${data.bookingTime}`,
+    type: notificationType,
+    title,
+    message,
     status: data.status || "Pending",
     ownerUid: data.ownerUid,
     branchAdminUid: data.branchAdminUid, // Target the branch admin
+    targetAdminUid: data.branchAdminUid, // Also set targetAdminUid for mobile app queries
+    branchId: data.branchId || null, // Include branchId for branch admin filtering
     clientName: data.clientName,
     serviceName: data.serviceName,
     services: data.services,
