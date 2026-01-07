@@ -127,35 +127,62 @@ async function sendPushNotification(
       },
     };
 
-    await messaging.send(message);
-    console.log("Push notification sent successfully");
+    console.log(`📤 Sending FCM message - title: "${title}", body: "${body}", token: ${fcmToken.substring(0, 20)}...`);
+    const response = await messaging.send(message);
+    console.log(`✅ Push notification sent successfully - message ID: ${response}`);
   } catch (error: any) {
     // Don't throw error - push notification failure shouldn't break notification creation
-    console.error("Error sending push notification:", error);
+    console.error(`❌ Error sending push notification:`, error);
+    console.error(`❌ Error code: ${error?.code || "unknown"}`);
+    console.error(`❌ Error message: ${error?.message || error}`);
+    
     if (error.code === "messaging/invalid-registration-token" || 
         error.code === "messaging/registration-token-not-registered") {
       // Token is invalid, we might want to remove it from the user document
-      console.log("Invalid FCM token detected, but continuing with notification creation");
+      console.log(`⚠️ Invalid FCM token detected (${error.code}), but continuing with notification creation`);
+      console.log(`⚠️ User needs to re-open the mobile app to refresh their FCM token`);
+    } else if (error.code === "messaging/registration-token-not-registered") {
+      console.log(`⚠️ FCM token not registered - user may have uninstalled the app`);
+    } else {
+      console.log(`⚠️ Unknown FCM error - notification still created in Firestore`);
     }
   }
 }
 
 /**
  * Get FCM token for a user
+ * Checks both users and salon_staff collections (mobile app saves to both)
  */
 async function getUserFcmToken(userUid: string): Promise<string | null> {
   try {
     const db = adminDb();
-    const userDoc = await db.collection("users").doc(userUid).get();
     
-    if (!userDoc.exists) {
-      return null;
+    // Check users collection first
+    const userDoc = await db.collection("users").doc(userUid).get();
+    if (userDoc.exists) {
+      const userData = userDoc.data();
+      const fcmToken = userData?.fcmToken;
+      if (fcmToken) {
+        console.log(`📱 Found FCM token in users collection for user: ${userUid}`);
+        return fcmToken;
+      }
     }
     
-    const userData = userDoc.data();
-    return userData?.fcmToken || null;
+    // Also check salon_staff collection (mobile app saves to both)
+    const staffDoc = await db.collection("salon_staff").doc(userUid).get();
+    if (staffDoc.exists) {
+      const staffData = staffDoc.data();
+      const fcmToken = staffData?.fcmToken;
+      if (fcmToken) {
+        console.log(`📱 Found FCM token in salon_staff collection for user: ${userUid}`);
+        return fcmToken;
+      }
+    }
+    
+    console.log(`⚠️ No FCM token found for user: ${userUid} (checked both users and salon_staff collections)`);
+    return null;
   } catch (error) {
-    console.error("Error getting FCM token:", error);
+    console.error(`❌ Error getting FCM token for user ${userUid}:`, error);
     return null;
   }
 }
@@ -195,26 +222,41 @@ export async function createNotification(data: Omit<Notification, "id" | "create
     
     if (userId) {
       const notificationType = cleanData.type || "unknown";
-      console.log(`📤 Creating notification type: ${notificationType}, targeting user: ${userId} (branchAdminUid: ${branchAdminUid || "none"}, targetAdminUid: ${targetAdminUid || "none"})`);
+      console.log(`📤 Creating notification type: ${notificationType}, targeting user: ${userId}`);
+      console.log(`📤   - branchAdminUid: ${branchAdminUid || "none"}`);
+      console.log(`📤   - targetAdminUid: ${targetAdminUid || "none"}`);
+      console.log(`📤   - staffUid: ${staffUid || "none"}`);
+      console.log(`📤   - targetOwnerUid: ${targetOwnerUid || "none"}`);
+      console.log(`📤   - customerUid: ${customerUid || "none"}`);
+      console.log(`📤   - Selected userId for push: ${userId}`);
       
       const fcmToken = await getUserFcmToken(userId);
       if (fcmToken) {
-        await sendPushNotification(
-          fcmToken,
-          cleanData.title,
-          cleanData.message,
-          {
-            notificationId: ref.id,
-            type: cleanData.type,
-            bookingId: cleanData.bookingId,
-          }
-        );
-        console.log(`✅ Push notification sent to user: ${userId} for notification type: ${notificationType}`);
+        console.log(`📱 FCM token found for user ${userId}, sending push notification...`);
+        try {
+          await sendPushNotification(
+            fcmToken,
+            cleanData.title,
+            cleanData.message,
+            {
+              notificationId: ref.id,
+              type: cleanData.type,
+              bookingId: cleanData.bookingId,
+            }
+          );
+          console.log(`✅ Push notification sent successfully to user: ${userId} for notification type: ${notificationType}`);
+        } catch (pushError: any) {
+          console.error(`❌ Error sending push notification to user ${userId}:`, pushError);
+          console.error(`❌ Push error details:`, pushError?.message || pushError);
+          // Don't throw - notification is already created in Firestore
+        }
       } else {
         console.log(`⚠️ No FCM token found for user: ${userId} (notification still created in Firestore with ID: ${ref.id})`);
+        console.log(`⚠️ User ${userId} needs to have the mobile app open to receive notifications via Firestore listener`);
       }
     } else {
       console.log(`⚠️ No target user found for notification type: ${cleanData.type || "unknown"} (notification still created in Firestore with ID: ${ref.id})`);
+      console.log(`⚠️ Notification fields - branchAdminUid: ${branchAdminUid || "none"}, targetAdminUid: ${targetAdminUid || "none"}, staffUid: ${staffUid || "none"}`);
     }
     
     return ref.id;
