@@ -443,10 +443,11 @@ export async function POST(req: NextRequest, context: { params: Promise<{ id: st
       // Send email when status changes to Confirmed (AFTER database update)
       // Check if this is a transition TO Confirmed (from AwaitingStaffApproval or PartiallyApproved)
       // Use verifiedStatus to ensure we're checking the actual database state
+      // Note: currentStatus is already narrowed to "AwaitingStaffApproval" | "PartiallyApproved" by the check above,
+      // so it can never be "Confirmed" - no need to check again
       const isTransitioningToConfirmed = 
         (newBookingStatus === "Confirmed" || verifiedStatus === "Confirmed") && 
-        (currentStatus === "AwaitingStaffApproval" || currentStatus === "PartiallyApproved") &&
-        currentStatus !== "Confirmed";
+        (currentStatus === "AwaitingStaffApproval" || currentStatus === "PartiallyApproved");
       
       if (isTransitioningToConfirmed) {
         // Verify customer email exists before attempting to send
