@@ -7,7 +7,7 @@ import { generateBookingCode } from "@/lib/bookings";
 import { checkRateLimit, getClientIdentifier, RateLimiters, getRateLimitHeaders } from "@/lib/rateLimiterDistributed";
 import { logBookingCreatedServer } from "@/lib/auditLogServer";
 import { createStaffAssignmentNotification, createOwnerNotification } from "@/lib/notifications";
-import { sendBookingRequestReceivedEmail } from "@/lib/emailService";
+import { sendBookingRequestReceivedEmail, sendBookingEmail } from "@/lib/emailService";
 
 export const runtime = "nodejs";
 
@@ -624,19 +624,40 @@ export async function POST(req: NextRequest) {
       }
       
       // Send email to customer when booking is created (Request Received)
+      // For "AwaitingStaffApproval" status, send "Pending" email since it's essentially a pending state
+      // For "Confirmed" status (staff bookings), send "Confirmed" email
+      // For "Pending" status, send "Pending" email
       try {
         console.log(`[BOOKING] Attempting to send email for booking ${ref.id}`, {
           clientEmail: body.clientEmail,
           client: body.client,
           bookingCode,
+          finalStatus,
         });
-        await sendBookingRequestReceivedEmail(
-          ref.id,
-          bookingCode,
-          body.clientEmail || null,
-          String(body.client),
-          ownerUid,
-          {
+        
+        // Determine email status based on booking status
+        // "AwaitingStaffApproval" should send a "Pending" email (booking is waiting for approval)
+        // "Confirmed" should send a "Confirmed" email
+        // "Pending" should send a "Pending" email
+        let emailStatus: "Pending" | "Confirmed" = "Pending";
+        if (finalStatus === "Confirmed") {
+          emailStatus = "Confirmed";
+        } else {
+          // For "AwaitingStaffApproval" and "Pending", send "Pending" email
+          emailStatus = "Pending";
+        }
+        
+        // Use sendBookingEmail directly to send with the correct status
+        // This ensures emails are sent for all statuses, including "AwaitingStaffApproval"
+        // Only send email if customer email is provided
+        if (body.clientEmail && body.clientEmail.trim()) {
+          const emailResult = await sendBookingEmail({
+            bookingId: ref.id,
+            bookingCode: bookingCode || undefined,
+            customerEmail: body.clientEmail.trim(),
+            customerName: String(body.client),
+            status: emailStatus,
+            ownerUid,
             branchName: branchName || null,
             bookingDate: String(body.date),
             bookingTime: String(body.time),
@@ -650,9 +671,16 @@ export async function POST(req: NextRequest) {
               duration: s.duration || Number(body.duration) || null,
             })),
             staffName: staffName || null,
+          });
+          
+          if (emailResult.success) {
+            console.log(`[BOOKING] Email sending completed for booking ${ref.id} with status ${emailStatus}`);
+          } else {
+            console.error(`[BOOKING] Email sending failed for booking ${ref.id}:`, emailResult.error);
           }
-        );
-        console.log(`[BOOKING] Email sending completed for booking ${ref.id}`);
+        } else {
+          console.log(`[BOOKING] No customer email provided for booking ${ref.id}, skipping email`);
+        }
       } catch (emailError: any) {
         console.error(`[BOOKING] ❌ Failed to send booking request received email for ${ref.id}:`, emailError);
         console.error(`[BOOKING] Error details:`, {
