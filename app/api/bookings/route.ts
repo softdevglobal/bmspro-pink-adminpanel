@@ -629,13 +629,34 @@ export async function POST(req: NextRequest) {
       // For "Confirmed" status (staff bookings), send "Confirmed" email
       // For "Pending" status, send "Pending" email
       try {
-        const customerEmail = body.clientEmail?.trim() || null;
+        // Handle email field from various sources (mobile app might send it differently)
+        let customerEmail: string | null = null;
+        if (body.clientEmail) {
+          const trimmed = String(body.clientEmail).trim();
+          customerEmail = trimmed.length > 0 ? trimmed : null;
+        }
+        
+        // Get user role for logging
+        let userRole = 'unknown';
+        try {
+          const currentUserDoc = await adminDb().doc(`users/${currentUserId}`).get();
+          const currentUserData = currentUserDoc.data();
+          if (currentUserData) {
+            userRole = currentUserData.role || currentUserData.systemRole || 'unknown';
+          }
+        } catch (e) {
+          // Ignore error, use default
+        }
+        
         console.log(`[BOOKING] Attempting to send email for booking ${ref.id}`, {
           clientEmail: customerEmail,
+          clientEmailRaw: body.clientEmail,
+          clientEmailType: typeof body.clientEmail,
           client: body.client,
           bookingCode,
           finalStatus,
           hasEmail: !!customerEmail,
+          userRole: userRole,
         });
         
         // Determine email status based on booking status
