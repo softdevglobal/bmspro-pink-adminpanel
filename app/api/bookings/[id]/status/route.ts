@@ -16,6 +16,7 @@ import {
   logBookingReassignedServer 
 } from "@/lib/auditLogServer";
 import { checkRateLimit, getClientIdentifier, RateLimiters, getRateLimitHeaders } from "@/lib/rateLimiterDistributed";
+import { sendBookingStatusChangeEmail } from "@/lib/emailService";
 
 // Helper to get activity type from status
 function getActivityType(status: string): string {
@@ -410,6 +411,40 @@ export async function PATCH(req: NextRequest, context: { params: Promise<{ id: s
         console.log("Sent customer confirmation notification");
       }
       
+      // Send email when status changes to Confirmed (regardless of transition path)
+      if (actualNextStatus === "Confirmed" && currentStatus !== "Confirmed") {
+        try {
+          console.log(`[EMAIL] Sending confirmation email for booking ${id}`);
+          await sendBookingStatusChangeEmail(
+            id,
+            actualNextStatus,
+            data.clientEmail,
+            clientName,
+            ownerUid,
+            {
+              bookingCode: data.bookingCode,
+              branchName: data.branchName,
+              bookingDate: finalBookingDate,
+              bookingTime: finalBookingTime,
+              duration: data.duration,
+              price: data.price,
+              serviceName: finalServiceName,
+              services: finalServices?.map((s: any) => ({
+                name: s.name || "Service",
+                staffName: s.staffName || null,
+                time: s.time || finalBookingTime || null,
+                duration: s.duration || data.duration || null,
+              })),
+              staffName: finalStaffName,
+            }
+          );
+          console.log(`[EMAIL] ✅ Confirmation email sent successfully for booking ${id}`);
+        } catch (emailError) {
+          console.error(`[EMAIL] ❌ Failed to send booking confirmation email for ${id}:`, emailError);
+          // Don't fail the request if email sending fails
+        }
+      }
+      
       // CASE 3: Staff rejects booking -> Send notification to ADMIN
       else if (isStaffRejecting) {
         const { createAdminRejectionNotification } = await import("@/lib/notifications");
@@ -456,6 +491,36 @@ export async function PATCH(req: NextRequest, context: { params: Promise<{ id: s
           bookingTime: finalBookingTime,
           ownerUid: ownerUid,
         });
+        
+        // Send email to customer when booking is cancelled
+        try {
+          await sendBookingStatusChangeEmail(
+            id,
+            actualNextStatus,
+            data.clientEmail,
+            clientName,
+            ownerUid,
+            {
+              bookingCode: data.bookingCode,
+              branchName: data.branchName,
+              bookingDate: finalBookingDate,
+              bookingTime: finalBookingTime,
+              duration: data.duration,
+              price: data.price,
+              serviceName: finalServiceName,
+              services: finalServices?.map((s: any) => ({
+                name: s.name || "Service",
+                staffName: s.staffName || null,
+                time: s.time || finalBookingTime || null,
+                duration: s.duration || data.duration || null,
+              })),
+              staffName: finalStaffName,
+            }
+          );
+        } catch (emailError) {
+          console.error("Failed to send booking cancellation email:", emailError);
+          // Don't fail the request if email sending fails
+        }
         
         console.log("Sent customer cancellation notification");
       }
@@ -504,6 +569,40 @@ export async function PATCH(req: NextRequest, context: { params: Promise<{ id: s
         await createNotification(notificationData);
         
         console.log("Sent customer completion notification");
+      }
+      
+      // Send email when status changes to Completed (regardless of transition path)
+      if (actualNextStatus === "Completed" && currentStatus !== "Completed") {
+        try {
+          console.log(`[EMAIL] Sending completion email for booking ${id}`);
+          await sendBookingStatusChangeEmail(
+            id,
+            actualNextStatus,
+            data.clientEmail,
+            clientName,
+            ownerUid,
+            {
+              bookingCode: data.bookingCode,
+              branchName: data.branchName,
+              bookingDate: finalBookingDate,
+              bookingTime: finalBookingTime,
+              duration: data.duration,
+              price: data.price,
+              serviceName: finalServiceName,
+              services: finalServices?.map((s: any) => ({
+                name: s.name || "Service",
+                staffName: s.staffName || null,
+                time: s.time || finalBookingTime || null,
+                duration: s.duration || data.duration || null,
+              })),
+              staffName: finalStaffName,
+            }
+          );
+          console.log(`[EMAIL] ✅ Completion email sent successfully for booking ${id}`);
+        } catch (emailError) {
+          console.error(`[EMAIL] ❌ Failed to send booking completion email for ${id}:`, emailError);
+          // Don't fail the request if email sending fails
+        }
       }
     } catch (notifError) {
       console.error("Failed to create notification:", notifError);

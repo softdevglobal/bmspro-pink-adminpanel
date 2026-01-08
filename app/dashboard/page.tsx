@@ -40,6 +40,7 @@ export default function DashboardPage() {
   // Use notification context from NotificationProvider
   const { notifications, unreadCount, markAsRead, markAllAsRead, deleteNotification, deleteAllNotifications } = useNotifications();
   const [notificationPanelOpen, setNotificationPanelOpen] = useState(false);
+  const [showDeleteAllModal, setShowDeleteAllModal] = useState(false);
   
   const revCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const statusCanvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -2083,11 +2084,7 @@ export default function DashboardPage() {
                   )}
                   {notifications.length > 0 && (
                     <button 
-                      onClick={() => {
-                        if (window.confirm('Are you sure you want to delete all notifications?')) {
-                          deleteAllNotifications();
-                        }
-                      }}
+                      onClick={() => setShowDeleteAllModal(true)}
                       className="px-3 py-1.5 text-xs bg-red-500/20 hover:bg-red-500/30 text-red-200 rounded-lg transition font-medium"
                       title="Delete all notifications"
                     >
@@ -2277,6 +2274,60 @@ export default function DashboardPage() {
           animation: slideIn 0.4s cubic-bezier(0.16, 1, 0.3, 1);
         }
       `}</style>
+
+      {/* Delete All Notifications Confirmation Modal */}
+      {showDeleteAllModal && (
+        <div 
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm"
+          onClick={() => setShowDeleteAllModal(false)}
+        >
+          <div 
+            className="bg-white rounded-2xl shadow-2xl max-w-md w-full mx-4 transform transition-all animate-slideIn"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Modal Header */}
+            <div className="px-6 py-5 border-b border-slate-200">
+              <div className="flex items-center gap-3">
+                <div className="w-12 h-12 rounded-full bg-red-100 flex items-center justify-center">
+                  <i className="fas fa-exclamation-triangle text-red-600 text-xl"></i>
+                </div>
+                <div>
+                  <h3 className="text-lg font-semibold text-slate-900">Delete All Notifications</h3>
+                  <p className="text-sm text-slate-500 mt-0.5">This action cannot be undone</p>
+                </div>
+              </div>
+            </div>
+
+            {/* Modal Body */}
+            <div className="px-6 py-5">
+              <p className="text-slate-700">
+                Are you sure you want to delete all <span className="font-semibold text-slate-900">{notifications.length}</span> notification{notifications.length !== 1 ? 's' : ''}? 
+                This will permanently remove all notifications from your account.
+              </p>
+            </div>
+
+            {/* Modal Footer */}
+            <div className="px-6 py-4 border-t border-slate-200 flex items-center justify-end gap-3">
+              <button
+                onClick={() => setShowDeleteAllModal(false)}
+                className="px-4 py-2 text-sm font-medium text-slate-700 bg-slate-100 hover:bg-slate-200 rounded-lg transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={() => {
+                  deleteAllNotifications();
+                  setShowDeleteAllModal(false);
+                }}
+                className="px-4 py-2 text-sm font-medium text-white bg-red-600 hover:bg-red-700 rounded-lg transition-colors flex items-center gap-2"
+              >
+                <i className="fas fa-trash"></i>
+                Delete All
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
       
     </div>
   );

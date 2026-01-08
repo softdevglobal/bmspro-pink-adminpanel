@@ -7,6 +7,7 @@ import { generateBookingCode } from "@/lib/bookings";
 import { checkRateLimit, getClientIdentifier, RateLimiters, getRateLimitHeaders } from "@/lib/rateLimiterDistributed";
 import { logBookingCreatedServer } from "@/lib/auditLogServer";
 import { createStaffAssignmentNotification, createOwnerNotification } from "@/lib/notifications";
+import { sendBookingRequestReceivedEmail } from "@/lib/emailService";
 
 export const runtime = "nodejs";
 
@@ -620,6 +621,45 @@ export async function POST(req: NextRequest) {
       } catch (auditError) {
         console.error("Failed to create audit log for booking creation:", auditError);
         // Don't fail the request if audit log creation fails
+      }
+      
+      // Send email to customer when booking is created (Request Received)
+      try {
+        console.log(`[BOOKING] Attempting to send email for booking ${ref.id}`, {
+          clientEmail: body.clientEmail,
+          client: body.client,
+          bookingCode,
+        });
+        await sendBookingRequestReceivedEmail(
+          ref.id,
+          bookingCode,
+          body.clientEmail || null,
+          String(body.client),
+          ownerUid,
+          {
+            branchName: branchName || null,
+            bookingDate: String(body.date),
+            bookingTime: String(body.time),
+            duration: Number(body.duration) || null,
+            price: Number(body.price) || null,
+            serviceName: serviceName || null,
+            services: processedServices?.map((s: any) => ({
+              name: s.name || "Service",
+              staffName: s.staffName || null,
+              time: s.time || String(body.time),
+              duration: s.duration || Number(body.duration) || null,
+            })),
+            staffName: staffName || null,
+          }
+        );
+        console.log(`[BOOKING] Email sending completed for booking ${ref.id}`);
+      } catch (emailError: any) {
+        console.error(`[BOOKING] ❌ Failed to send booking request received email for ${ref.id}:`, emailError);
+        console.error(`[BOOKING] Error details:`, {
+          message: emailError?.message,
+          stack: emailError?.stack,
+        });
+        // Don't fail the request if email sending fails
       }
       
       // Send notifications to assigned staff members if booking requires approval

@@ -5,6 +5,7 @@ import { normalizeBookingStatus, type BookingService, type ServiceCompletionStat
 import { createNotification, getNotificationContent } from "@/lib/notifications";
 import { checkRateLimit, getClientIdentifier, RateLimiters, getRateLimitHeaders } from "@/lib/rateLimiterDistributed";
 import { logBookingServiceCompletedServer } from "@/lib/auditLogServer";
+import { sendBookingStatusChangeEmail } from "@/lib/emailService";
 
 export const runtime = "nodejs";
 
@@ -180,6 +181,10 @@ export async function POST(req: NextRequest, context: { params: Promise<{ id: st
       }
 
       await bookingRef.update(updateData);
+      
+      // IMPORTANT: Wait a moment to ensure database update is committed
+      // This ensures the status change is reflected before we check for duplicates
+      await new Promise(resolve => setTimeout(resolve, 100));
 
       // Create activity log
       try {
@@ -274,6 +279,44 @@ export async function POST(req: NextRequest, context: { params: Promise<{ id: st
         } catch (e) {
           console.error("Failed to send customer notification:", e);
         }
+        
+        // Send email when status changes to Completed (AFTER database update)
+        if (currentStatus !== "Completed") {
+          try {
+            console.log(`[EMAIL] Status changed to Completed for booking ${id} (service-complete multi-service)`);
+            console.log(`[EMAIL] Previous status: ${currentStatus}, New status: Completed`);
+            await sendBookingStatusChangeEmail(
+              id,
+              "Completed",
+              bookingData.clientEmail,
+              clientName,
+              ownerUid,
+              {
+                bookingCode: bookingData.bookingCode,
+                branchName: bookingData.branchName,
+                bookingDate: finalBookingDate,
+                bookingTime: finalBookingTime,
+                duration: bookingData.duration,
+                price: bookingData.price,
+                serviceName: bookingData.serviceName,
+                services: updatedServices.map((s: any) => ({
+                  name: s.name || "Service",
+                  staffName: s.staffName || null,
+                  time: s.time || finalBookingTime || null,
+                  duration: s.duration || bookingData.duration || null,
+                })),
+                staffName: staffName,
+              }
+            );
+            console.log(`[EMAIL] ✅ Completion email sent successfully for booking ${id}`);
+          } catch (emailError) {
+            console.error(`[EMAIL] ❌ Failed to send booking completion email for ${id}:`, emailError);
+            console.error(`[EMAIL] Error stack:`, emailError instanceof Error ? emailError.stack : 'No stack trace');
+            // Don't fail the request if email sending fails
+          }
+        } else {
+          console.log(`[EMAIL] Skipping email - status already Completed`);
+        }
       }
 
       // Calculate progress for response
@@ -325,6 +368,9 @@ export async function POST(req: NextRequest, context: { params: Promise<{ id: st
       };
 
       await bookingRef.update(updateData);
+      
+      // IMPORTANT: Wait a moment to ensure database update is committed
+      await new Promise(resolve => setTimeout(resolve, 100));
 
       // Create activity log
       try {
@@ -405,6 +451,38 @@ export async function POST(req: NextRequest, context: { params: Promise<{ id: st
         console.log("Sent booking completion notification to customer");
       } catch (e) {
         console.error("Failed to send customer notification:", e);
+      }
+      
+      // Send email when status changes to Completed (AFTER database update)
+      if (currentStatus !== "Completed") {
+        try {
+          console.log(`[EMAIL] Status changed to Completed for booking ${id} (service-complete single service)`);
+          console.log(`[EMAIL] Previous status: ${currentStatus}, New status: Completed`);
+          await sendBookingStatusChangeEmail(
+            id,
+            "Completed",
+            bookingData.clientEmail,
+            clientName,
+            ownerUid,
+            {
+              bookingCode: bookingData.bookingCode,
+              branchName: bookingData.branchName,
+              bookingDate: finalBookingDate,
+              bookingTime: finalBookingTime,
+              duration: bookingData.duration,
+              price: bookingData.price,
+              serviceName: finalServiceName,
+              staffName: staffName,
+            }
+          );
+          console.log(`[EMAIL] ✅ Completion email sent successfully for booking ${id}`);
+        } catch (emailError) {
+          console.error(`[EMAIL] ❌ Failed to send booking completion email for ${id}:`, emailError);
+          console.error(`[EMAIL] Error stack:`, emailError instanceof Error ? emailError.stack : 'No stack trace');
+          // Don't fail the request if email sending fails
+        }
+      } else {
+        console.log(`[EMAIL] Skipping email - status already Completed`);
       }
 
       return NextResponse.json({ 

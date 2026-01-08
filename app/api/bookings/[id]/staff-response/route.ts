@@ -9,6 +9,7 @@ import {
 } from "@/lib/notifications";
 import { logBookingStaffResponseServer } from "@/lib/auditLogServer";
 import { checkRateLimit, getClientIdentifier, RateLimiters, getRateLimitHeaders } from "@/lib/rateLimiterDistributed";
+import { sendBookingStatusChangeEmail } from "@/lib/emailService";
 
 export const runtime = "nodejs";
 
@@ -352,6 +353,15 @@ export async function POST(req: NextRequest, context: { params: Promise<{ id: st
       }
 
       await bookingRef.update(updateData);
+      
+      // IMPORTANT: Wait a moment to ensure database update is committed
+      // This ensures the status change is reflected before we check for duplicates
+      await new Promise(resolve => setTimeout(resolve, 200));
+      
+      // Verify the status was actually updated in the database
+      const verifySnap = await bookingRef.get();
+      const verifiedStatus = normalizeBookingStatus(verifySnap.data()?.status);
+      console.log(`[EMAIL] Status verification - Original: ${currentStatus}, Calculated: ${newBookingStatus}, Verified in DB: ${verifiedStatus}`);
 
       // Create activity log
       try {
@@ -428,6 +438,85 @@ export async function POST(req: NextRequest, context: { params: Promise<{ id: st
         } catch (e) {
           console.error("Failed to send customer notification:", e);
         }
+      }
+      
+      // Send email when status changes to Confirmed (AFTER database update)
+      // Check if this is a transition TO Confirmed (from AwaitingStaffApproval or PartiallyApproved)
+      // Use verifiedStatus to ensure we're checking the actual database state
+      const isTransitioningToConfirmed = 
+        (newBookingStatus === "Confirmed" || verifiedStatus === "Confirmed") && 
+        (currentStatus === "AwaitingStaffApproval" || currentStatus === "PartiallyApproved") &&
+        currentStatus !== "Confirmed";
+      
+      if (isTransitioningToConfirmed) {
+        // Verify customer email exists before attempting to send
+        if (!bookingData.clientEmail || !bookingData.clientEmail.trim()) {
+          console.error(`[EMAIL] ❌ Cannot send confirmation email - no customer email provided for booking ${id}`);
+          console.error(`[EMAIL] Booking data:`, {
+            bookingId: id,
+            bookingCode: bookingData.bookingCode,
+            client: bookingData.client,
+            clientEmail: bookingData.clientEmail,
+            clientEmailAlt: bookingData.customerEmail,
+          });
+        } else {
+          try {
+            console.log(`[EMAIL] ========================================`);
+            console.log(`[EMAIL] Status transition detected: ${currentStatus} -> ${newBookingStatus} (verified: ${verifiedStatus})`);
+            console.log(`[EMAIL] Booking ID: ${id}`);
+            console.log(`[EMAIL] Booking Code: ${bookingData.bookingCode}`);
+            console.log(`[EMAIL] Customer Name: ${clientName}`);
+            console.log(`[EMAIL] Customer Email: ${bookingData.clientEmail}`);
+            console.log(`[EMAIL] Owner UID: ${ownerUid}`);
+            console.log(`[EMAIL] All services accepted - sending confirmation email`);
+            console.log(`[EMAIL] Services count: ${updatedServices.length}`);
+            console.log(`[EMAIL] ========================================`);
+            
+            await sendBookingStatusChangeEmail(
+              id,
+              "Confirmed",
+              bookingData.clientEmail,
+              clientName,
+              ownerUid,
+              {
+                bookingCode: bookingData.bookingCode,
+                branchName: bookingData.branchName,
+                bookingDate: finalBookingDate,
+                bookingTime: finalBookingTime,
+                duration: bookingData.duration,
+                price: bookingData.price,
+                serviceName: bookingData.serviceName,
+                services: updatedServices.map((s: any) => ({
+                  name: s.name || "Service",
+                  staffName: s.staffName || null,
+                  time: s.time || finalBookingTime || null,
+                  duration: s.duration || bookingData.duration || null,
+                })),
+                staffName: staffName,
+              }
+            );
+            console.log(`[EMAIL] ✅ Confirmation email sent successfully for booking ${id}`);
+          } catch (emailError) {
+            console.error(`[EMAIL] ❌ Failed to send booking confirmation email for ${id}:`, emailError);
+            console.error(`[EMAIL] Error details:`, {
+              message: emailError instanceof Error ? emailError.message : String(emailError),
+              stack: emailError instanceof Error ? emailError.stack : 'No stack trace',
+              bookingId: id,
+              customerEmail: bookingData.clientEmail,
+            });
+            // Don't fail the request if email sending fails
+          }
+        }
+      } else if (newBookingStatus === "Confirmed") {
+        console.log(`[EMAIL] ⚠️ Skipping email - status already Confirmed or invalid transition`);
+        console.log(`[EMAIL] Current status: ${currentStatus}, New status: ${newBookingStatus}, Verified: ${verifiedStatus}`);
+        console.log(`[EMAIL] Transition check:`, {
+          newStatusIsConfirmed: newBookingStatus === "Confirmed",
+          verifiedIsConfirmed: verifiedStatus === "Confirmed",
+          currentIsAwaiting: currentStatus === "AwaitingStaffApproval",
+          currentIsPartial: currentStatus === "PartiallyApproved",
+          currentIsConfirmed: currentStatus === "Confirmed",
+        });
       } else if (shouldAutoCancel) {
         // Booking was auto-cancelled due to no alternative staff
         // Notify admin about cancellation
@@ -592,6 +681,9 @@ export async function POST(req: NextRequest, context: { params: Promise<{ id: st
       };
 
       await bookingRef.update(updateData);
+      
+      // IMPORTANT: Wait a moment to ensure database update is committed
+      await new Promise(resolve => setTimeout(resolve, 100));
 
       // Create activity log
       try {
@@ -636,6 +728,38 @@ export async function POST(req: NextRequest, context: { params: Promise<{ id: st
         console.log("Sent customer confirmation notification");
       } catch (e) {
         console.error("Failed to send customer notification:", e);
+      }
+      
+      // Send email when status changes to Confirmed (AFTER database update)
+      if (currentStatus !== "Confirmed") {
+        try {
+          console.log(`[EMAIL] Status changed to Confirmed for booking ${id} (staff-response single service)`);
+          console.log(`[EMAIL] Previous status: ${currentStatus}, New status: Confirmed`);
+          await sendBookingStatusChangeEmail(
+            id,
+            "Confirmed",
+            bookingData.clientEmail,
+            clientName,
+            ownerUid,
+            {
+              bookingCode: bookingData.bookingCode,
+              branchName: bookingData.branchName,
+              bookingDate: finalBookingDate,
+              bookingTime: finalBookingTime,
+              duration: bookingData.duration,
+              price: bookingData.price,
+              serviceName: finalServiceName,
+              staffName: staffName,
+            }
+          );
+          console.log(`[EMAIL] ✅ Confirmation email sent successfully for booking ${id}`);
+        } catch (emailError) {
+          console.error(`[EMAIL] ❌ Failed to send booking confirmation email for ${id}:`, emailError);
+          console.error(`[EMAIL] Error stack:`, emailError instanceof Error ? emailError.stack : 'No stack trace');
+          // Don't fail the request if email sending fails
+        }
+      } else {
+        console.log(`[EMAIL] Skipping email - status already Confirmed`);
       }
 
       // Create audit log for staff acceptance (single service)
