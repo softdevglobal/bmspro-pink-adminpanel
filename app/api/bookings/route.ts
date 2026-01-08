@@ -624,15 +624,18 @@ export async function POST(req: NextRequest) {
       }
       
       // Send email to customer when booking is created (Request Received)
-      // For "AwaitingStaffApproval" status, send "Pending" email since it's essentially a pending state
+      // IMPORTANT: Always send email for new bookings, regardless of status
+      // For "AwaitingStaffApproval" status (branch admin/owner bookings), send "Pending" email
       // For "Confirmed" status (staff bookings), send "Confirmed" email
       // For "Pending" status, send "Pending" email
       try {
+        const customerEmail = body.clientEmail?.trim() || null;
         console.log(`[BOOKING] Attempting to send email for booking ${ref.id}`, {
-          clientEmail: body.clientEmail,
+          clientEmail: customerEmail,
           client: body.client,
           bookingCode,
           finalStatus,
+          hasEmail: !!customerEmail,
         });
         
         // Determine email status based on booking status
@@ -649,12 +652,14 @@ export async function POST(req: NextRequest) {
         
         // Use sendBookingEmail directly to send with the correct status
         // This ensures emails are sent for all statuses, including "AwaitingStaffApproval"
-        // Only send email if customer email is provided
-        if (body.clientEmail && body.clientEmail.trim()) {
+        // Only send email if customer email is provided and valid
+        if (customerEmail && customerEmail.length > 0) {
+          console.log(`[BOOKING] Sending ${emailStatus} email to ${customerEmail} for booking ${ref.id}`);
+          
           const emailResult = await sendBookingEmail({
             bookingId: ref.id,
             bookingCode: bookingCode || undefined,
-            customerEmail: body.clientEmail.trim(),
+            customerEmail: customerEmail,
             customerName: String(body.client),
             status: emailStatus,
             ownerUid,
@@ -674,18 +679,33 @@ export async function POST(req: NextRequest) {
           });
           
           if (emailResult.success) {
-            console.log(`[BOOKING] Email sending completed for booking ${ref.id} with status ${emailStatus}`);
+            console.log(`[BOOKING] ✅ Email sending completed for booking ${ref.id} with status ${emailStatus}`);
           } else {
-            console.error(`[BOOKING] Email sending failed for booking ${ref.id}:`, emailResult.error);
+            console.error(`[BOOKING] ❌ Email sending failed for booking ${ref.id}:`, emailResult.error);
+            console.error(`[BOOKING] Email error details:`, {
+              bookingId: ref.id,
+              bookingCode,
+              customerEmail,
+              emailStatus,
+              error: emailResult.error,
+            });
           }
         } else {
-          console.log(`[BOOKING] No customer email provided for booking ${ref.id}, skipping email`);
+          console.warn(`[BOOKING] ⚠️ No customer email provided for booking ${ref.id}, skipping email`, {
+            bookingId: ref.id,
+            bookingCode,
+            client: body.client,
+            clientEmail: body.clientEmail,
+          });
         }
       } catch (emailError: any) {
-        console.error(`[BOOKING] ❌ Failed to send booking request received email for ${ref.id}:`, emailError);
+        console.error(`[BOOKING] ❌ Exception while sending booking email for ${ref.id}:`, emailError);
         console.error(`[BOOKING] Error details:`, {
           message: emailError?.message,
           stack: emailError?.stack,
+          bookingId: ref.id,
+          bookingCode,
+          finalStatus,
         });
         // Don't fail the request if email sending fails
       }
