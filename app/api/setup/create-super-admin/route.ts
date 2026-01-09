@@ -9,6 +9,8 @@ export const runtime = "nodejs";
  * This should only be used when the database is empty and you need to create
  * the first super_admin account.
  * 
+ * IMPORTANT: This endpoint should be disabled or restricted after initial setup!
+ * 
  * Usage:
  * POST /api/setup/create-super-admin
  * Body: {
@@ -17,6 +19,11 @@ export const runtime = "nodejs";
  *   displayName: "Super Admin",
  *   secretKey: "YOUR_SECRET_KEY" // Set this in environment variable SETUP_SECRET_KEY
  * }
+ * 
+ * For production:
+ * 1. Set SETUP_SECRET_KEY in your production environment variables
+ * 2. Call this endpoint once to create the super_admin
+ * 3. Consider disabling this endpoint after setup for security
  */
 export async function POST(req: NextRequest) {
   try {
