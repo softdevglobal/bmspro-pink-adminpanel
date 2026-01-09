@@ -322,9 +322,9 @@ export default function BranchesPage() {
         allowedCheckInRadius: allowedCheckInRadius,
       };
       if (editingId) {
-        await (await import("@/lib/branches")).updateBranch(editingId, payload);
+        await (await import("@/lib/branches")).updateBranch(editingId, payload, derivedManager);
       } else {
-        await createBranchForOwner(ownerUid, payload);
+        await createBranchForOwner(ownerUid, payload, derivedManager);
       }
       setIsModalOpen(false);
     } catch (err) {
