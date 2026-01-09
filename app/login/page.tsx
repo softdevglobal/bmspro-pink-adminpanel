@@ -92,13 +92,25 @@ export default function LoginPage() {
       // Check suspension and role BEFORE persisting any tokens/role locally
       const uid = auth.currentUser?.uid;
       if (uid) {
-        const snap = await getDoc(doc(db, "users", uid));
-        const userData = snap.data();
-        const suspended = Boolean(userData?.suspended);
-        const statusText = (userData?.status || "").toString().toLowerCase();
-        const userRole = (userData?.role || "").toString().toLowerCase();
+        // Check super_admins collection first
+        const superAdminSnap = await getDoc(doc(db, "super_admins", uid));
+        let userRole: string;
+        let suspended = false;
+        let statusText = "";
         
-        // Check if account is suspended
+        if (superAdminSnap.exists()) {
+          // User is a super_admin
+          userRole = "super_admin";
+        } else {
+          // Check users collection
+          const snap = await getDoc(doc(db, "users", uid));
+          const userData = snap.data();
+          suspended = Boolean(userData?.suspended);
+          statusText = (userData?.status || "").toString().toLowerCase();
+          userRole = (userData?.role || "").toString().toLowerCase();
+        }
+        
+        // Check if account is suspended (only applies to regular users, not super_admins)
         if (suspended || statusText.includes("suspend")) {
           await (await import("firebase/auth")).signOut(auth);
           setError("Your account is suspended. Please contact support.");

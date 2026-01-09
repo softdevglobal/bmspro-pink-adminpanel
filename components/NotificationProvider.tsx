@@ -238,9 +238,19 @@ export default function NotificationProvider({ children }: NotificationProviderP
           setOwnerUid(user.uid);
 
           // Check if user is super admin or branch admin
-          const userDoc = await getDoc(doc(db, "users", user.uid));
-          const userData = userDoc.data();
-          const role = userData?.role || "";
+          // Check super_admins collection first
+          const superAdminDoc = await getDoc(doc(db, "super_admins", user.uid));
+          let userData: any;
+          let role: string;
+          
+          if (superAdminDoc.exists()) {
+            userData = superAdminDoc.data();
+            role = "super_admin";
+          } else {
+            const userDoc = await getDoc(doc(db, "users", user.uid));
+            userData = userDoc.data();
+            role = userData?.role || "";
+          }
 
           setIsSuperAdmin(role === "super_admin");
 

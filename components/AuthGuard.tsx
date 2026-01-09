@@ -25,10 +25,18 @@ export default function AuthGuard({ children }: AuthGuardProps) {
         }
 
         try {
-          // Get user role from Firestore
-          const userDoc = await getDoc(doc(db, "users", user.uid));
-          const userData = userDoc.data();
-          const userRole = (userData?.role || "").toString().toLowerCase();
+          // Check super_admins collection first
+          const superAdminDoc = await getDoc(doc(db, "super_admins", user.uid));
+          let userRole: string;
+          
+          if (superAdminDoc.exists()) {
+            userRole = "super_admin";
+          } else {
+            // Get user role from users collection
+            const userDoc = await getDoc(doc(db, "users", user.uid));
+            const userData = userDoc.data();
+            userRole = (userData?.role || "").toString().toLowerCase();
+          }
           
           // Check if user has admin role
           const allowedRoles = ["salon_owner", "salon_branch_admin", "super_admin"];

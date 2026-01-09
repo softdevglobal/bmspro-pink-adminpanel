@@ -71,19 +71,31 @@ export async function verifyAdminAuth(
   try {
     const decodedToken = await adminAuth().verifyIdToken(token);
     
-    // Get user data from Firestore to determine role and ownerUid
-    const userDoc = await adminDb().doc(`users/${decodedToken.uid}`).get();
+    // Check super_admins collection first
+    const superAdminDoc = await adminDb().doc(`super_admins/${decodedToken.uid}`).get();
     
-    if (!userDoc.exists) {
-      return {
-        success: false,
-        error: "User not found in database",
-        status: 403,
-      };
+    let userData: any;
+    let userRole: string;
+    
+    if (superAdminDoc.exists) {
+      // User is a super_admin
+      userData = superAdminDoc.data()!;
+      userRole = "super_admin";
+    } else {
+      // Get user data from users collection
+      const userDoc = await adminDb().doc(`users/${decodedToken.uid}`).get();
+      
+      if (!userDoc.exists) {
+        return {
+          success: false,
+          error: "User not found in database",
+          status: 403,
+        };
+      }
+      
+      userData = userDoc.data()!;
+      userRole = (userData.role || userData.systemRole || "").toString().toLowerCase();
     }
-    
-    const userData = userDoc.data()!;
-    const userRole = (userData.role || userData.systemRole || "").toString().toLowerCase();
     
     // Determine ownerUid based on role
     let ownerUid: string;
