@@ -17,6 +17,13 @@ export default function LoginPage() {
   const [emailError, setEmailError] = useState<string | null>(null);
   const [passwordError, setPasswordError] = useState<string | null>(null);
   const [authErrorCode, setAuthErrorCode] = useState<string | null>(null);
+  
+  // Forgot password state
+  const [showForgotPassword, setShowForgotPassword] = useState(false);
+  const [forgotPasswordEmail, setForgotPasswordEmail] = useState("");
+  const [forgotPasswordLoading, setForgotPasswordLoading] = useState(false);
+  const [forgotPasswordError, setForgotPasswordError] = useState<string | null>(null);
+  const [forgotPasswordSuccess, setForgotPasswordSuccess] = useState(false);
 
   function friendlyAuthMessage(code?: string) {
     switch (code) {
@@ -148,6 +155,50 @@ export default function LoginPage() {
       setAuthErrorCode(err?.code || null);
     } finally {
       setLoading(false);
+      }
+    };
+
+  const handleForgotPassword = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setForgotPasswordError(null);
+    setForgotPasswordSuccess(false);
+
+    // Validate email
+    if (!forgotPasswordEmail.trim()) {
+      setForgotPasswordError("Email is required.");
+      return;
+    }
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(forgotPasswordEmail.trim())) {
+      setForgotPasswordError("Enter a valid email address.");
+      return;
+    }
+
+    setForgotPasswordLoading(true);
+    try {
+      const response = await fetch("/api/auth/forgot-password", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          email: forgotPasswordEmail.trim().toLowerCase(),
+        }),
+      });
+
+      const result = await response.json();
+
+      if (!response.ok) {
+        setForgotPasswordError(result.error || "Failed to send password reset email. Please try again.");
+        return;
+      }
+
+      setForgotPasswordSuccess(true);
+      setForgotPasswordEmail("");
+    } catch (error: any) {
+      console.error("Error sending password reset email:", error);
+      setForgotPasswordError("Failed to send password reset email. Please try again.");
+    } finally {
+      setForgotPasswordLoading(false);
     }
   };
 
@@ -232,6 +283,15 @@ export default function LoginPage() {
               </div>
               {passwordError && <p className="mt-1 text-xs text-rose-600">{passwordError}</p>}
             </div>
+            <div className="flex items-center justify-end">
+              <button
+                type="button"
+                onClick={() => setShowForgotPassword(true)}
+                className="text-sm text-pink-600 hover:text-pink-700 font-medium"
+              >
+                Forgot password?
+              </button>
+            </div>
             {error && (
               <div className="rounded-lg border border-rose-200 bg-rose-50 text-rose-800 p-3 flex items-start gap-2">
                 <i className="fas fa-circle-exclamation mt-0.5" />
@@ -266,6 +326,113 @@ export default function LoginPage() {
           </p>
         </div>
       </div>
+
+      {/* Forgot Password Modal */}
+      {showForgotPassword && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md">
+            <div className="p-6">
+              <div className="flex items-center justify-between mb-4">
+                <h2 className="text-xl font-bold text-slate-900">Reset Password</h2>
+                <button
+                  onClick={() => {
+                    setShowForgotPassword(false);
+                    setForgotPasswordEmail("");
+                    setForgotPasswordError(null);
+                    setForgotPasswordSuccess(false);
+                  }}
+                  className="text-slate-400 hover:text-slate-600"
+                >
+                  <i className="fas fa-times" />
+                </button>
+              </div>
+
+              {forgotPasswordSuccess ? (
+                <div className="text-center py-6">
+                  <div className="w-16 h-16 rounded-full bg-green-100 flex items-center justify-center mx-auto mb-4">
+                    <i className="fas fa-check text-2xl text-green-600" />
+                  </div>
+                  <h3 className="text-lg font-semibold text-slate-900 mb-2">Check your email</h3>
+                  <p className="text-sm text-slate-600 mb-6">
+                    We've sent a 6-digit verification code to <strong>{forgotPasswordEmail}</strong>. Please check your inbox and enter the code on the reset password page.
+                  </p>
+                  <div className="flex gap-3">
+                    <button
+                      onClick={() => {
+                        setShowForgotPassword(false);
+                        setForgotPasswordEmail("");
+                        setForgotPasswordSuccess(false);
+                      }}
+                      className="flex-1 px-5 py-2.5 border border-slate-300 text-slate-700 font-semibold rounded-lg hover:bg-slate-50 transition"
+                    >
+                      Close
+                    </button>
+                    <button
+                      onClick={() => {
+                        const email = forgotPasswordEmail;
+                        setShowForgotPassword(false);
+                        setForgotPasswordEmail("");
+                        setForgotPasswordSuccess(false);
+                        router.push(`/reset-password?email=${encodeURIComponent(email)}`);
+                      }}
+                      className="flex-1 px-5 py-2.5 bg-pink-600 text-white font-semibold rounded-lg hover:bg-pink-700 transition"
+                    >
+                      Go to Reset Password Page
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <>
+                  <p className="text-sm text-slate-600 mb-6">
+                    Enter your email address and we'll send you a 6-digit code to reset your password.
+                  </p>
+                  <form onSubmit={handleForgotPassword} className="space-y-4">
+                    <div>
+                      <label className="block text-sm font-medium text-slate-700 mb-2">Email</label>
+                      <input
+                        type="email"
+                        placeholder="you@company.com"
+                        value={forgotPasswordEmail}
+                        onChange={(e) => {
+                          setForgotPasswordEmail(e.target.value);
+                          if (forgotPasswordError) setForgotPasswordError(null);
+                        }}
+                        className={`w-full px-4 py-3 border rounded-lg focus:ring-2 focus:ring-pink-500 focus:border-transparent ${
+                          forgotPasswordError ? "border-rose-400" : "border-slate-300"
+                        }`}
+                        required
+                      />
+                      {forgotPasswordError && (
+                        <p className="mt-1 text-xs text-rose-600">{forgotPasswordError}</p>
+                      )}
+                    </div>
+                    <div className="flex gap-3">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setShowForgotPassword(false);
+                          setForgotPasswordEmail("");
+                          setForgotPasswordError(null);
+                        }}
+                        className="flex-1 px-5 py-2.5 border border-slate-300 text-slate-700 font-semibold rounded-lg hover:bg-slate-50 transition"
+                      >
+                        Cancel
+                      </button>
+                      <button
+                        type="submit"
+                        disabled={forgotPasswordLoading}
+                        className="flex-1 px-5 py-2.5 bg-pink-600 text-white font-semibold rounded-lg hover:bg-pink-700 transition disabled:opacity-70 disabled:cursor-not-allowed"
+                      >
+                        {forgotPasswordLoading ? "Sending..." : "Send Reset Code"}
+                      </button>
+                    </div>
+                  </form>
+                </>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

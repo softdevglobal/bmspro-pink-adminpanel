@@ -790,3 +790,194 @@ export async function sendSalonOwnerWelcomeEmail(
     return { success: false, error: errorMessage };
   }
 }
+
+/**
+ * Generate HTML for password reset email with 6-digit code
+ */
+function generatePasswordResetEmailHTML(
+  userName: string,
+  resetCode: string
+): string {
+  const resetPageUrl = `${process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000"}/reset-password`;
+  
+  return `
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Reset Your Password - BMS PRO PINK</title>
+</head>
+<body style="margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; background-color: #f3f4f6;">
+  <table role="presentation" style="width: 100%; border-collapse: collapse; background-color: #f3f4f6;">
+    <tr>
+      <td style="padding: 40px 20px;">
+        <table role="presentation" style="max-width: 600px; margin: 0 auto; background-color: #ffffff; border-radius: 12px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); overflow: hidden;">
+          
+          <!-- Header -->
+          <tr>
+            <td style="padding: 0; background: linear-gradient(135deg, #ec4899 0%, #8b5cf6 100%);">
+              <div style="padding: 40px; text-align: center;">
+                <div style="font-size: 56px; margin-bottom: 15px; line-height: 1;">🔐</div>
+                <h1 style="margin: 0; color: #ffffff; font-size: 28px; font-weight: 700; letter-spacing: -0.3px;">Reset Your Password</h1>
+                <p style="margin: 15px 0 0; color: rgba(255,255,255,0.9); font-size: 16px;">BMS PRO PINK</p>
+              </div>
+            </td>
+          </tr>
+          
+          <!-- Greeting -->
+          <tr>
+            <td style="padding: 30px 40px 20px;">
+              <p style="margin: 0 0 15px; color: #374151; font-size: 16px; line-height: 1.6;">Hello ${userName},</p>
+              <p style="margin: 0 0 25px; color: #374151; font-size: 16px; line-height: 1.6;">
+                We received a request to reset your password for your BMS PRO PINK account. Use the 6-digit code below to verify your identity and reset your password.
+              </p>
+            </td>
+          </tr>
+          
+          <!-- Verification Code -->
+          <tr>
+            <td style="padding: 0 40px 30px; text-align: center;">
+              <div style="background: linear-gradient(135deg, #fef3c7 0%, #fef9e7 100%); border: 2px solid #f59e0b; border-radius: 16px; padding: 30px; margin-bottom: 20px;">
+                <p style="margin: 0 0 15px; color: #78350f; font-size: 14px; font-weight: 600; text-transform: uppercase; letter-spacing: 1px;">Your Verification Code</p>
+                <div style="font-size: 48px; font-weight: 700; letter-spacing: 8px; color: #92400e; font-family: monospace; margin: 15px 0;">
+                  ${resetCode}
+                </div>
+                <p style="margin: 15px 0 0; color: #92400e; font-size: 13px;">Enter this code on the password reset page</p>
+              </div>
+            </td>
+          </tr>
+          
+          <!-- Reset Button -->
+          <tr>
+            <td style="padding: 0 40px 30px; text-align: center;">
+              <a href="${resetPageUrl}" style="display: inline-block; padding: 14px 32px; background: linear-gradient(135deg, #ec4899 0%, #8b5cf6 100%); color: #ffffff; text-decoration: none; border-radius: 8px; font-weight: 600; font-size: 16px; box-shadow: 0 4px 6px rgba(236, 72, 153, 0.3);">
+                Go to Reset Password Page
+              </a>
+            </td>
+          </tr>
+          
+          <!-- Warning -->
+          <tr>
+            <td style="padding: 0 40px 30px;">
+              <div style="background-color: #fff7ed; border-left: 3px solid #f59e0b; padding: 12px 16px; border-radius: 6px;">
+                <p style='margin: 0; color: #92400e; font-size: 13px; line-height: 1.6;'>
+                  <strong style='color: #78350f;'>⚠️ Important:</strong> This code will expire in 15 minutes. If you didn't request a password reset, please ignore this email or contact support if you have concerns.
+                </p>
+              </div>
+            </td>
+          </tr>
+          
+          <!-- Instructions -->
+          <tr>
+            <td style="padding: 0 40px 30px;">
+              <div style="background-color: #eef2ff; border-radius: 8px; padding: 20px;">
+                <p style="margin: 0 0 12px; color: #312e81; font-size: 14px; font-weight: 600;">How to reset your password:</p>
+                <ol style="margin: 0; padding-left: 20px; color: #374151; font-size: 14px; line-height: 1.8;">
+                  <li style="margin-bottom: 8px;">Click the button above or go to the reset password page</li>
+                  <li style="margin-bottom: 8px;">Enter your email address and the 6-digit code</li>
+                  <li style="margin-bottom: 8px;">Create a new secure password</li>
+                  <li>Sign in with your new password</li>
+                </ol>
+              </div>
+            </td>
+          </tr>
+          
+          <!-- Additional Info -->
+          <tr>
+            <td style="padding: 0 40px 30px;">
+              <div style="background-color: #f9fafb; border-radius: 8px; padding: 20px; text-align: center;">
+                <p style="margin: 0; color: #6b7280; font-size: 14px; line-height: 1.6;">
+                  If you have any questions or need assistance, please don't hesitate to contact our support team.
+                </p>
+              </div>
+            </td>
+          </tr>
+          
+          <!-- Footer -->
+          <tr>
+            <td style="padding: 25px 40px; background-color: #f9fafb; border-top: 1px solid #e5e7eb; text-align: center;">
+              <p style="margin: 0 0 8px; color: #111827; font-size: 14px; font-weight: 600;">BMS PRO PINK</p>
+              <p style="margin: 0; color: #6b7280; font-size: 12px; line-height: 1.5;">
+                This is an automated email from BMS PRO PINK.<br>
+                Please do not reply to this message.
+              </p>
+            </td>
+          </tr>
+          
+        </table>
+      </td>
+    </tr>
+  </table>
+</body>
+</html>
+  `.trim();
+}
+
+/**
+ * Send password reset email to user with 6-digit code
+ */
+export async function sendPasswordResetEmail(
+  email: string,
+  userName: string,
+  resetCode: string
+): Promise<{ success: boolean; error?: string }> {
+  console.log(`[EMAIL] Attempting to send password reset email to: ${email}`);
+  
+  // Validate email
+  if (!email || !email.trim()) {
+    console.error(`[EMAIL] No email provided`);
+    return { success: false, error: "No email provided" };
+  }
+  
+  const emailAddress = email.trim().toLowerCase();
+  const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+  if (!emailRegex.test(emailAddress)) {
+    console.error(`[EMAIL] Invalid email address: ${emailAddress}`);
+    return { success: false, error: "Invalid email address" };
+  }
+  
+  // Verify SendGrid is configured
+  if (!SENDGRID_API_KEY || SENDGRID_API_KEY === "") {
+    console.error(`[EMAIL] SendGrid API key not configured!`);
+    return { success: false, error: "SendGrid API key not configured" };
+  }
+  
+  try {
+    const html = generatePasswordResetEmailHTML(userName, resetCode);
+    const subject = `Reset Your Password - BMS PRO PINK`;
+    
+    const msg = {
+      to: emailAddress,
+      from: ADMIN_FROM_EMAIL,
+      subject: subject,
+      html: html,
+      trackingSettings: {
+        clickTracking: {
+          enable: false, // Disable click tracking so links go directly to destination
+        },
+      },
+    };
+    
+    console.log(`[EMAIL] Sending password reset email via SendGrid:`, {
+      to: emailAddress,
+      from: ADMIN_FROM_EMAIL,
+      subject: subject,
+    });
+    
+    await sgMail.send(msg);
+    
+    console.log(`[EMAIL] ✅ Password reset email sent successfully to ${emailAddress}`);
+    return { success: true };
+  } catch (error: any) {
+    console.error(`[EMAIL] ❌ Error sending password reset email to ${emailAddress}:`, error);
+    console.error(`[EMAIL] Error details:`, {
+      message: error?.message,
+      code: error?.code,
+      response: error?.response?.body,
+      statusCode: error?.response?.statusCode,
+    });
+    const errorMessage = error?.response?.body?.errors?.[0]?.message || error?.message || "Unknown error";
+    return { success: false, error: errorMessage };
+  }
+}
