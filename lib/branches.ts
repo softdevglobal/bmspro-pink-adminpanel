@@ -208,9 +208,20 @@ export async function deleteBranch(branchId: string, ownerUid?: string) {
   const branchData = branchSnap.data();
   const branchName = branchData?.name || "Unknown Branch";
   const branchOwnerUid = ownerUid || branchData?.ownerUid || "";
+  const adminStaffId = branchData?.adminStaffId;
 
-  // Optional: Demote admin before deleting?
-  // For now, simple delete.
+  // Demote branch admin to regular staff before deleting branch
+  if (adminStaffId) {
+    try {
+      const { demoteStaffFromBranchAdmin } = await import("@/lib/salonStaff");
+      await demoteStaffFromBranchAdmin(adminStaffId);
+      console.log(`[BRANCH DELETE] Demoted branch admin ${adminStaffId} to regular staff`);
+    } catch (e) {
+      console.error("Failed to demote branch admin before branch deletion:", e);
+      // Continue with deletion even if demotion fails
+    }
+  }
+
   await deleteDoc(branchRef);
 
   // Audit log for branch deletion
