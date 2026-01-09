@@ -288,6 +288,13 @@ export default function AuditLogsPage() {
     return null; // Don't show booking IDs
   };
 
+  // Remove IDs from details text (e.g., "Admin: Name (ID)" -> "Admin: Name")
+  const cleanDetailsText = (text: string): string => {
+    // Remove IDs in parentheses like (ARkXtOaKnndh5Dx9PNWSuxov4X73)
+    // Pattern: matches text in parentheses that looks like an ID (alphanumeric, 20+ chars)
+    return text.replace(/\s*\([A-Za-z0-9]{20,}\)/g, '');
+  };
+
   // Stats
   const todayLogs = logs.filter((l) => {
     const today = new Date();
@@ -520,7 +527,7 @@ export default function AuditLogsPage() {
                             {/* Details Preview */}
                             {log.details && (
                               <div className="mt-2 text-xs text-slate-500 line-clamp-1">
-                                {log.details}
+                                {cleanDetailsText(log.details)}
                               </div>
                             )}
                           </div>
@@ -718,7 +725,7 @@ export default function AuditLogsPage() {
                       <i className="fas fa-info-circle text-amber-600" />
                       Additional Details
                     </h5>
-                    <div className="text-sm text-slate-700 whitespace-pre-wrap">{previewLog.details}</div>
+                    <div className="text-sm text-slate-700 whitespace-pre-wrap">{cleanDetailsText(previewLog.details)}</div>
                   </div>
                 )}
 
