@@ -322,7 +322,25 @@ export default function LoginPage() {
           </form>
 
           <p className="text-xs text-slate-500 mt-6 text-center">
-            By continuing you agree to our Terms and Privacy Policy.
+            By continuing you agree to our{" "}
+            <a
+              href="https://bmspros.com.au/terms"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-pink-600 hover:text-pink-700 underline"
+            >
+              Terms
+            </a>{" "}
+            and{" "}
+            <a
+              href="https://bmspros.com.au/privacy"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-pink-600 hover:text-pink-700 underline"
+            >
+              Privacy Policy
+            </a>
+            .
           </p>
         </div>
       </div>
