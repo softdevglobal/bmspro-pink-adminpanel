@@ -4,7 +4,7 @@ import Sidebar from "@/components/Sidebar";
 import { useRouter } from "next/navigation";
 import { onAuthStateChanged } from "firebase/auth";
 import { auth, db } from "@/lib/firebase";
-import { doc, setDoc, serverTimestamp } from "firebase/firestore";
+import { doc, getDoc, setDoc, serverTimestamp } from "firebase/firestore";
 import { subscribeBranchesForOwner, syncBranchStaffFromSchedule, removeStaffFromAllBranches } from "@/lib/branches";
 import {
   createSalonStaffForOwner as createStaff,
@@ -369,6 +369,39 @@ export default function SettingsPage() {
           const oldSchedule = editingStaff?.weeklySchedule || null;
           await syncBranchStaffFromSchedule(newAuthUid, finalSchedule, oldSchedule, ownerUid);
           
+          // Send welcome email if auth credentials were just created for this staff member
+          if (password && newAuthUid) {
+            try {
+              // Get salon name
+              let salonName: string | undefined;
+              try {
+                const ownerDoc = await getDoc(doc(db, "users", ownerUid));
+                if (ownerDoc.exists()) {
+                  const ownerData = ownerDoc.data();
+                  salonName = ownerData?.salonName || ownerData?.name || ownerData?.businessName || ownerData?.displayName;
+                }
+              } catch (e) {
+                console.error("Failed to fetch salon name:", e);
+              }
+              
+              await fetch("/api/staff/welcome-email", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                  email: email.trim().toLowerCase(),
+                  password: password,
+                  staffName: name,
+                  role: systemRole,
+                  salonName: salonName,
+                  branchName: branchRow?.name || "",
+                }),
+              });
+            } catch (emailError) {
+              console.error("Failed to send welcome email:", emailError);
+              // Don't block staff update if email fails
+            }
+          }
+          
           // 2. Delete the old legacy record (users/{editingStaffId})
           // We use try-catch because it might not exist if it was in the old 'salon_staff' collection
           try {
@@ -535,6 +568,39 @@ export default function SettingsPage() {
           // SYNC: If new staff is branch admin, update branch
           if (systemRole === "salon_branch_admin" && branchId) {
              await updateBranch(branchId, { adminStaffId: newRef });
+          }
+          
+          // Send welcome email to new staff member
+          if (!editingStaffId && password) {
+            try {
+              // Get salon name
+              let salonName: string | undefined;
+              try {
+                const ownerDoc = await getDoc(doc(db, "users", ownerUid));
+                if (ownerDoc.exists()) {
+                  const ownerData = ownerDoc.data();
+                  salonName = ownerData?.salonName || ownerData?.name || ownerData?.businessName || ownerData?.displayName;
+                }
+              } catch (e) {
+                console.error("Failed to fetch salon name:", e);
+              }
+              
+              await fetch("/api/staff/welcome-email", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                  email: email.trim().toLowerCase(),
+                  password: password,
+                  staffName: name,
+                  role: systemRole,
+                  salonName: salonName,
+                  branchName: branchRow?.name || undefined,
+                }),
+              });
+            } catch (emailError) {
+              console.error("Failed to send welcome email:", emailError);
+              // Don't block staff creation if email fails
+            }
           }
         } else {
           // Fallback if auth failed (should catch above)

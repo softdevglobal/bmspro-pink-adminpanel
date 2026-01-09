@@ -7,7 +7,7 @@ import { auth, db, storage } from "@/lib/firebase";
 import { doc, getDoc, updateDoc, serverTimestamp } from "firebase/firestore";
 import { ref, uploadBytes, getDownloadURL } from "firebase/storage";
 import { TIMEZONES } from "@/lib/timezone";
-import { logPasswordChanged } from "@/lib/auditLog";
+import { logPasswordChanged, logProfilePictureChanged } from "@/lib/auditLog";
 
 type UserData = {
   uid: string;
@@ -212,6 +212,25 @@ export default function OwnerSettingsPage() {
 
       setLogoUrl(downloadUrl);
       setUserData({ ...userData, logoUrl: downloadUrl });
+      
+      // Log audit trail
+      try {
+        await logProfilePictureChanged(
+          userData.uid, // ownerUid (salon owner owns their own profile)
+          userData.uid, // userId
+          userData.name || userData.email || "Salon Owner", // userName
+          {
+            uid: userData.uid,
+            name: userData.name || userData.email || "Salon Owner",
+            role: userData.role || "salon_owner",
+          },
+          "logo" // pictureType
+        );
+      } catch (auditError) {
+        console.error("Failed to log profile picture change:", auditError);
+        // Don't block the upload if audit logging fails
+      }
+      
       showToast("Logo uploaded successfully!");
     } catch (error) {
       console.error("Error uploading logo:", error);
@@ -241,6 +260,25 @@ export default function OwnerSettingsPage() {
       });
       setLogoUrl("");
       setUserData({ ...userData, logoUrl: "" });
+      
+      // Log audit trail
+      try {
+        await logProfilePictureChanged(
+          userData.uid, // ownerUid (salon owner owns their own profile)
+          userData.uid, // userId
+          userData.name || userData.email || "Salon Owner", // userName
+          {
+            uid: userData.uid,
+            name: userData.name || userData.email || "Salon Owner",
+            role: userData.role || "salon_owner",
+          },
+          "logo" // pictureType
+        );
+      } catch (auditError) {
+        console.error("Failed to log profile picture removal:", auditError);
+        // Don't block the removal if audit logging fails
+      }
+      
       showToast("Logo removed successfully!");
     } catch (error) {
       console.error("Error removing logo:", error);

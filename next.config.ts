@@ -1,4 +1,5 @@
 import type { NextConfig } from "next";
+import path from "path";
 
 const nextConfig: NextConfig = {
   /* config options here */
@@ -8,6 +9,37 @@ const nextConfig: NextConfig = {
       bodySizeLimit: '1mb', // Limit Server Action payload size
     },
   },
+  // Use webpack explicitly (Turbopack doesn't support webpack configs)
+  webpack: (config, { isServer, webpack }) => {
+    // Exclude server-only modules from client bundles
+    if (!isServer) {
+      // Use NormalModuleReplacementPlugin to replace emailService with client stub
+      const emailServiceStubPath = path.resolve(__dirname, 'lib/emailService.client.ts');
+      const emailServiceRealPath = path.resolve(__dirname, 'lib/emailService.ts');
+      
+      config.plugins.push(
+        new webpack.NormalModuleReplacementPlugin(
+          /^@\/lib\/emailService$/,
+          (resource: any) => {
+            // Replace the real emailService with the client stub
+            resource.request = emailServiceStubPath;
+          }
+        )
+      );
+      
+      // Also set alias as backup
+      if (!config.resolve) {
+        config.resolve = {};
+      }
+      if (!config.resolve.alias) {
+        config.resolve.alias = {};
+      }
+      config.resolve.alias['@/lib/emailService'] = emailServiceStubPath;
+    }
+    return config;
+  },
+  // Add empty turbopack config to allow webpack usage
+  turbopack: {},
   // Security headers are now handled in middleware.ts with full CSP support
   // This section provides fallback headers for static assets
   async headers() {

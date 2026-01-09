@@ -4,7 +4,7 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
-    "build": "next build",
+    "build": "next build --webpack",
     "start": "next start",
     "lint": "eslint"
   },
@@ -16,7 +16,8 @@
     "firebase-admin": "^12.5.0",
     "next": "^16.0.9",
     "react": "19.2.2",
-    "react-dom": "19.2.2"
+    "react-dom": "19.2.2",
+    "server-only": "^0.0.1"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4",

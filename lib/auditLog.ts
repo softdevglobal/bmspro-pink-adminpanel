@@ -482,6 +482,27 @@ export async function logUserProfileUpdated(
   });
 }
 
+export async function logProfilePictureChanged(
+  ownerUid: string,
+  userId: string,
+  userName: string,
+  performer: { uid: string; name: string; role: string },
+  pictureType: "logo" | "avatar"
+) {
+  return createAuditLog({
+    ownerUid,
+    action: `Profile ${pictureType} changed: ${userName}`,
+    actionType: "update",
+    entityType: "user_profile",
+    entityId: userId,
+    entityName: userName,
+    performedBy: performer.uid,
+    performedByName: performer.name,
+    performedByRole: performer.role,
+    details: `User changed their profile ${pictureType}`,
+  });
+}
+
 // ==================== SETTINGS AUDIT HELPERS ====================
 
 export async function logSettingsUpdated(

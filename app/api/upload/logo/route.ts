@@ -3,6 +3,7 @@ import { getAdminApp } from "@/lib/firebaseAdmin";
 import { getStorage } from "firebase-admin/storage";
 import { getFirestore } from "firebase-admin/firestore";
 import { verifyAdminAuth, ADMIN_ROLES } from "@/lib/authHelpers";
+import { createAuditLogServer } from "@/lib/auditLogServer";
 
 export const runtime = "nodejs";
 
@@ -89,6 +90,25 @@ export async function POST(req: NextRequest) {
         logoUrl: downloadUrl,
         updatedAt: new Date(),
       });
+
+      // Log audit trail
+      try {
+        await createAuditLogServer({
+          ownerUid: userData.uid, // salon owner owns their own profile
+          action: `Profile logo changed: ${userData.name || userData.email || "Salon Owner"}`,
+          actionType: "update",
+          entityType: "user_profile",
+          entityId: userData.uid,
+          entityName: userData.name || userData.email || "Salon Owner",
+          performedBy: userData.uid,
+          performedByName: userData.name || userData.email || "Salon Owner",
+          performedByRole: userData.role || "salon_owner",
+          details: "User changed their profile logo",
+        });
+      } catch (auditError) {
+        console.error("[API] Failed to log profile picture change:", auditError);
+        // Don't block the upload if audit logging fails
+      }
 
       return NextResponse.json({
         success: true,
