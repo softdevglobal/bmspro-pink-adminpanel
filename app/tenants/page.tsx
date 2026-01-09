@@ -1146,7 +1146,7 @@ export default function TenantsPage() {
                         Business Structure *
                       </label>
                       <select
-                        className="w-full px-4 py-3 border border-slate-300 rounded-lg focus:ring-2 focus:ring-pink-500 focus:border-transparent"
+                        className="w-full px-4 py-3 pr-10 border border-slate-300 rounded-lg focus:ring-2 focus:ring-pink-500 focus:border-transparent"
                         value={formStructure}
                         onChange={(e) => setFormStructure(e.target.value)}
                       >
@@ -1197,7 +1197,7 @@ export default function TenantsPage() {
                           State *
                         </label>
                         <select
-                          className="w-full px-4 py-3 border border-slate-300 rounded-lg focus:ring-2 focus:ring-pink-500 focus:border-transparent"
+                          className="w-full px-4 py-3 pr-10 border border-slate-300 rounded-lg focus:ring-2 focus:ring-pink-500 focus:border-transparent"
                           value={formState}
                           onChange={(e) => setFormState(e.target.value)}
                         >
