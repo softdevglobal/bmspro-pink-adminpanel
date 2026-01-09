@@ -77,9 +77,9 @@ export default function DashboardPage() {
             return;
           }
           
-          const userDoc = await getDoc(doc(db, "users", user.uid));
-          userData = userDoc.data();
-          role = userData?.role || "";
+            const userDoc = await getDoc(doc(db, "users", user.uid));
+            userData = userDoc.data();
+            role = userData?.role || "";
           
           // For branch admin, store their branch info
           if (role === "salon_branch_admin") {
@@ -853,22 +853,18 @@ export default function DashboardPage() {
     };
   }, []);
 
-  // Show loading screen while checking authentication
-  if (authLoading) {
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-slate-50">
-        <div className="text-center">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-pink-600 mx-auto mb-4"></div>
-          <p className="text-slate-600">Loading dashboard...</p>
-        </div>
-      </div>
-    );
-  }
-
   return (
     <div id="app" className="flex h-screen overflow-hidden bg-white">
       <Sidebar />
       <div className="flex-1 flex flex-col overflow-hidden">
+        {authLoading ? (
+          <div className="flex-1 flex items-center justify-center bg-slate-50">
+            <div className="text-center">
+              <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-pink-600 mx-auto mb-4"></div>
+              <p className="text-slate-600">Loading dashboard...</p>
+            </div>
+          </div>
+        ) : (
         <main className="flex-1 overflow-auto p-4 sm:p-6 lg:p-8">
           <div className="md:hidden mb-4">
             <button
@@ -2225,17 +2221,17 @@ export default function DashboardPage() {
           </div>
           )}
         </main>
-      </div>
+        )}
 
-      {/* Load Chart.js from CDN and build charts */}
-      <Script
-        src="https://cdn.jsdelivr.net/npm/chart.js"
-        strategy="afterInteractive"
-        onLoad={buildCharts}
-      />
+        {/* Load Chart.js from CDN and build charts */}
+        <Script
+          src="https://cdn.jsdelivr.net/npm/chart.js"
+          strategy="afterInteractive"
+          onLoad={buildCharts}
+        />
 
-      {/* Notification Panel - Fixed position */}
-      {notificationPanelOpen && (
+        {/* Notification Panel - Fixed position */}
+        {notificationPanelOpen && (
         <>
           {/* Backdrop - no blur */}
           <div 
@@ -2411,10 +2407,10 @@ export default function DashboardPage() {
         </>
       )}
 
-      {/* Toast Notifications are now rendered by NotificationProvider */}
+        {/* Toast Notifications are now rendered by NotificationProvider */}
 
-      {/* Animation for notification bell and panel */}
-      <style>{`
+        {/* Animation for notification bell and panel */}
+        <style>{`
         @keyframes wiggle {
           0%, 100% { transform: rotate(0deg); }
           15% { transform: rotate(12deg); }
@@ -2459,10 +2455,10 @@ export default function DashboardPage() {
         .animate-slideIn {
           animation: slideIn 0.4s cubic-bezier(0.16, 1, 0.3, 1);
         }
-      `}</style>
+        `}</style>
 
-      {/* Delete All Notifications Confirmation Modal */}
-      {showDeleteAllModal && (
+        {/* Delete All Notifications Confirmation Modal */}
+        {showDeleteAllModal && (
         <div 
           className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm"
           onClick={() => setShowDeleteAllModal(false)}
@@ -2513,8 +2509,8 @@ export default function DashboardPage() {
             </div>
           </div>
         </div>
-      )}
-      
+        )}
+      </div>
     </div>
   );
 }
