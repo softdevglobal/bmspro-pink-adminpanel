@@ -1146,7 +1146,7 @@ export default function TenantsPage() {
                         Business Structure *
                       </label>
                       <select
-                        className="w-full px-4 py-3 pr-10 border border-slate-300 rounded-lg focus:ring-2 focus:ring-pink-500 focus:border-transparent"
+                        className="w-full px-4 py-3 pr-12 border border-slate-300 rounded-lg focus:ring-2 focus:ring-pink-500 focus:border-transparent"
                         value={formStructure}
                         onChange={(e) => setFormStructure(e.target.value)}
                       >
@@ -1197,7 +1197,7 @@ export default function TenantsPage() {
                           State *
                         </label>
                         <select
-                          className="w-full px-4 py-3 pr-10 border border-slate-300 rounded-lg focus:ring-2 focus:ring-pink-500 focus:border-transparent"
+                          className="w-full px-4 py-3 pr-20 border border-slate-300 rounded-lg focus:ring-2 focus:ring-pink-500 focus:border-transparent"
                           value={formState}
                           onChange={(e) => setFormState(e.target.value)}
                         >
@@ -1233,7 +1233,7 @@ export default function TenantsPage() {
                       <div className="relative">
                         <i className="fas fa-globe absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" />
                         <select
-                          className="w-full pl-10 pr-4 py-3 border border-slate-300 rounded-lg focus:ring-2 focus:ring-pink-500 focus:border-transparent appearance-none"
+                          className="w-full pl-10 pr-16 py-3 border border-slate-300 rounded-lg focus:ring-2 focus:ring-pink-500 focus:border-transparent appearance-none"
                           value={formTimezone}
                           onChange={(e) => setFormTimezone(e.target.value)}
                         >
@@ -1243,7 +1243,7 @@ export default function TenantsPage() {
                             </option>
                           ))}
                         </select>
-                        <i className="fas fa-chevron-down absolute right-4 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
+                        <i className="fas fa-chevron-down absolute right-10 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
                       </div>
                       <p className="text-xs text-slate-500 mt-1">
                         This timezone will be used for all bookings and operations

@@ -194,8 +194,9 @@ export async function updateSalonStaff(staffId: string, data: Partial<SalonStaff
 
         // Only import emailService on the server side
         if (typeof window === "undefined") {
-          const { sendBranchAdminAssignmentEmail } = await import("@/lib/emailService");
-          await sendBranchAdminAssignmentEmail(staffEmail, staffName, branchName, salonName);
+          // Import server wrapper - webpack will handle client-side replacement
+          const emailService = await import("@/lib/emailService.server");
+          await emailService.sendBranchAdminAssignmentEmail(staffEmail, staffName, branchName, salonName);
         }
       } catch (emailError) {
         console.error("Failed to send branch admin assignment email:", emailError);
@@ -433,8 +434,9 @@ export async function promoteStaffToBranchAdmin(staffId: string, options?: Promo
         }
       }
       
-      const { sendBranchAdminAssignmentEmail } = await import("@/lib/emailService");
-      const emailResult = await sendBranchAdminAssignmentEmail(staffEmail, staffName, finalBranchName, salonName);
+      // Import server wrapper - webpack will handle client-side replacement
+      const emailService = await import("@/lib/emailService.server");
+      const emailResult = await emailService.sendBranchAdminAssignmentEmail(staffEmail, staffName, finalBranchName, salonName);
       if (emailResult.success) {
         console.log(`[PROMOTE STAFF] ✅ Branch admin assignment email sent successfully to ${staffEmail}`);
       } else {

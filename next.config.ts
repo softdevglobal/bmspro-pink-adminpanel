@@ -24,6 +24,13 @@ const nextConfig: NextConfig = {
             // Replace the real emailService with the client stub
             resource.request = emailServiceStubPath;
           }
+        ),
+        new webpack.NormalModuleReplacementPlugin(
+          /^@\/lib\/emailService\.server$/,
+          (resource: any) => {
+            // Replace the server wrapper with the client stub
+            resource.request = emailServiceStubPath;
+          }
         )
       );
       
@@ -35,6 +42,7 @@ const nextConfig: NextConfig = {
         config.resolve.alias = {};
       }
       config.resolve.alias['@/lib/emailService'] = emailServiceStubPath;
+      config.resolve.alias['@/lib/emailService.server'] = emailServiceStubPath;
     }
     return config;
   },
