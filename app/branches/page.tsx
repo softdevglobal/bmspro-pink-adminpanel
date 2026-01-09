@@ -528,6 +528,10 @@ export default function BranchesPage() {
                             placeholder="123 Street Name, City"
                           />
                         </div>
+                        <p className="text-xs text-slate-500 mt-1">
+                          <i className="fas fa-info-circle mr-1" />
+                          This will automatically fill from the Staff Check-in Location below
+                        </p>
                       </div>
 
                       <div>
