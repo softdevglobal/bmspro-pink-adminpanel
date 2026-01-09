@@ -6,6 +6,7 @@ import type { BookingStatus } from "./bookingTypes";
 // Initialize SendGrid
 const SENDGRID_API_KEY = process.env.SENDGRID_API_KEY;
 const FROM_EMAIL = process.env.FROM_EMAIL || "booking@bmspros.com.au";
+const ADMIN_FROM_EMAIL = "noreply@bmspros.com.au"; // For admin/system emails
 
 if (SENDGRID_API_KEY) {
   sgMail.setApiKey(SENDGRID_API_KEY);
@@ -587,5 +588,199 @@ export async function sendBookingStatusChangeEmail(
   
   if (!result.success) {
     console.error(`[EMAIL] Failed to send booking status change email:`, result.error);
+  }
+}
+
+/**
+ * Generate HTML for salon owner welcome email with login credentials
+ */
+function generateWelcomeEmailHTML(
+  salonOwnerEmail: string,
+  password: string,
+  businessName: string
+): string {
+  return `
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Welcome to BMS PRO PINK</title>
+</head>
+<body style="margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; background-color: #f3f4f6;">
+  <table role="presentation" style="width: 100%; border-collapse: collapse; background-color: #f3f4f6;">
+    <tr>
+      <td style="padding: 40px 20px;">
+        <table role="presentation" style="max-width: 600px; margin: 0 auto; background-color: #ffffff; border-radius: 12px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); overflow: hidden;">
+          
+          <!-- Header -->
+          <tr>
+            <td style="padding: 0; background: linear-gradient(135deg, #ec4899 0%, #8b5cf6 100%);">
+              <div style="padding: 40px; text-align: center;">
+                <div style="font-size: 56px; margin-bottom: 15px; line-height: 1;">🎉</div>
+                <h1 style="margin: 0; color: #ffffff; font-size: 28px; font-weight: 700; letter-spacing: -0.3px;">Welcome to BMS PRO PINK</h1>
+                <p style="margin: 15px 0 0; color: rgba(255,255,255,0.9); font-size: 16px;">Your salon account has been created</p>
+              </div>
+            </td>
+          </tr>
+          
+          <!-- Greeting -->
+          <tr>
+            <td style="padding: 30px 40px 20px;">
+              <p style="margin: 0 0 15px; color: #374151; font-size: 16px; line-height: 1.6;">Hello,</p>
+              <p style="margin: 0 0 25px; color: #374151; font-size: 16px; line-height: 1.6;">
+                Your salon <strong>${businessName}</strong> has been successfully onboarded to BMS PRO PINK. You can now access your salon management dashboard using the login credentials below.
+              </p>
+            </td>
+          </tr>
+          
+          <!-- Login Credentials Card -->
+          <tr>
+            <td style="padding: 0 40px 30px;">
+              <div style="background-color: #fef3c7; border: 2px solid #f59e0b; border-radius: 10px; padding: 25px; margin-bottom: 20px;">
+                <h3 style="margin: 0 0 20px; color: #78350f; font-size: 18px; font-weight: 600; display: flex; align-items: center;">
+                  <span style="display: inline-block; width: 4px; height: 20px; background-color: #f59e0b; border-radius: 2px; margin-right: 10px;"></span>
+                  Your Login Credentials
+                </h3>
+                
+                <table style="width: 100%; border-collapse: collapse;">
+                  <tr>
+                    <td style='padding: 12px 0; color: #78350f; font-size: 14px; font-weight: 600;'>Email Address:</td>
+                    <td style='padding: 12px 0; color: #111827; font-size: 14px; font-weight: 500; text-align: right;'>${salonOwnerEmail}</td>
+                  </tr>
+                  <tr>
+                    <td style='padding: 12px 0; color: #78350f; font-size: 14px; font-weight: 600;'>Temporary Password:</td>
+                    <td style='padding: 12px 0; color: #111827; font-size: 14px; font-weight: 600; text-align: right; font-family: monospace; letter-spacing: 1px;'>${password}</td>
+                  </tr>
+                </table>
+                
+                <div style="background-color: #fff7ed; border-left: 3px solid #f59e0b; padding: 12px 16px; border-radius: 6px; margin-top: 20px;">
+                  <p style='margin: 0; color: #92400e; font-size: 13px; line-height: 1.6;'>
+                    <strong style='color: #78350f;'>⚠️ Important:</strong> This is a temporary password. For security reasons, please change your password immediately after your first login.
+                  </p>
+                </div>
+              </div>
+            </td>
+          </tr>
+          
+          <!-- Next Steps -->
+          <tr>
+            <td style="padding: 0 40px 30px;">
+              <div style="background-color: #eef2ff; border: 2px solid #6366f1; border-radius: 10px; padding: 25px;">
+                <h3 style="margin: 0 0 15px; color: #312e81; font-size: 18px; font-weight: 600; display: flex; align-items: center;">
+                  <span style="display: inline-block; width: 4px; height: 20px; background-color: #6366f1; border-radius: 2px; margin-right: 10px;"></span>
+                  Next Steps
+                </h3>
+                <ol style="margin: 0; padding-left: 20px; color: #374151; font-size: 15px; line-height: 1.8;">
+                  <li style="margin-bottom: 10px;">Log in to your dashboard using the credentials above</li>
+                  <li style="margin-bottom: 10px;">Change your temporary password to a secure one</li>
+                  <li style="margin-bottom: 10px;">Complete your salon profile and settings</li>
+                  <li>Start managing your bookings, staff, and services</li>
+                </ol>
+              </div>
+            </td>
+          </tr>
+          
+          <!-- Login Button -->
+          <tr>
+            <td style="padding: 0 40px 30px; text-align: center;">
+              <a href="https://pink.bmspros.com.au/" style="display: inline-block; padding: 14px 32px; background: linear-gradient(135deg, #ec4899 0%, #8b5cf6 100%); color: #ffffff; text-decoration: none; border-radius: 8px; font-weight: 600; font-size: 16px; box-shadow: 0 4px 6px rgba(236, 72, 153, 0.3);">
+                Log in to Dashboard
+              </a>
+            </td>
+          </tr>
+          
+          <!-- Additional Info -->
+          <tr>
+            <td style="padding: 0 40px 30px;">
+              <div style="background-color: #f9fafb; border-radius: 8px; padding: 20px; text-align: center;">
+                <p style="margin: 0; color: #6b7280; font-size: 14px; line-height: 1.6;">
+                  If you have any questions or need assistance, please don't hesitate to contact our support team.
+                </p>
+              </div>
+            </td>
+          </tr>
+          
+          <!-- Footer -->
+          <tr>
+            <td style="padding: 25px 40px; background-color: #f9fafb; border-top: 1px solid #e5e7eb; text-align: center;">
+              <p style="margin: 0 0 8px; color: #111827; font-size: 14px; font-weight: 600;">BMS PRO PINK</p>
+              <p style="margin: 0; color: #6b7280; font-size: 12px; line-height: 1.5;">
+                This is an automated email from BMS PRO PINK.<br>
+                Please do not reply to this message.
+              </p>
+            </td>
+          </tr>
+          
+        </table>
+      </td>
+    </tr>
+  </table>
+</body>
+</html>
+  `.trim();
+}
+
+/**
+ * Send welcome email to salon owner with login credentials
+ */
+export async function sendSalonOwnerWelcomeEmail(
+  salonOwnerEmail: string,
+  password: string,
+  businessName: string
+): Promise<{ success: boolean; error?: string }> {
+  console.log(`[EMAIL] Attempting to send welcome email to salon owner: ${salonOwnerEmail}`);
+  
+  // Validate email
+  if (!salonOwnerEmail || !salonOwnerEmail.trim()) {
+    console.error(`[EMAIL] No salon owner email provided`);
+    return { success: false, error: "No salon owner email provided" };
+  }
+  
+  const email = salonOwnerEmail.trim().toLowerCase();
+  const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+  if (!emailRegex.test(email)) {
+    console.error(`[EMAIL] Invalid email address: ${email}`);
+    return { success: false, error: "Invalid email address" };
+  }
+  
+  // Verify SendGrid is configured
+  if (!SENDGRID_API_KEY || SENDGRID_API_KEY === "") {
+    console.error(`[EMAIL] SendGrid API key not configured!`);
+    return { success: false, error: "SendGrid API key not configured" };
+  }
+  
+  try {
+    const html = generateWelcomeEmailHTML(email, password, businessName);
+    const subject = `Welcome to BMS PRO PINK - Your Account is Ready`;
+    
+    const msg = {
+      to: email,
+      from: ADMIN_FROM_EMAIL,
+      subject: subject,
+      html: html,
+    };
+    
+    console.log(`[EMAIL] Sending welcome email via SendGrid:`, {
+      to: email,
+      from: ADMIN_FROM_EMAIL,
+      subject: subject,
+      businessName: businessName,
+    });
+    
+    await sgMail.send(msg);
+    
+    console.log(`[EMAIL] ✅ Welcome email sent successfully to ${email}`);
+    return { success: true };
+  } catch (error: any) {
+    console.error(`[EMAIL] ❌ Error sending welcome email to ${email}:`, error);
+    console.error(`[EMAIL] Error details:`, {
+      message: error?.message,
+      code: error?.code,
+      response: error?.response?.body,
+      statusCode: error?.response?.statusCode,
+    });
+    const errorMessage = error?.response?.body?.errors?.[0]?.message || error?.message || "Unknown error";
+    return { success: false, error: errorMessage };
   }
 }

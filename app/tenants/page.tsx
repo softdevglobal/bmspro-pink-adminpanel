@@ -121,6 +121,7 @@ export default function TenantsPage() {
   const [formPostcode, setFormPostcode] = useState("");
   const [formPhone, setFormPhone] = useState("");
   const [formEmail, setFormEmail] = useState("");
+  const [emailError, setEmailError] = useState("");
   const [formOwnerPassword, setFormOwnerPassword] = useState("");
   const [showOwnerPassword, setShowOwnerPassword] = useState(false);
   const [formTimezone, setFormTimezone] = useState("Australia/Sydney"); // Default timezone
@@ -184,10 +185,29 @@ export default function TenantsPage() {
 
   const closeOnboardModal = () => {
     setIsModalOpen(false);
+    setEmailError("");
+  };
+
+  const validateEmail = (email: string): boolean => {
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    return emailRegex.test(email);
   };
 
   const goNext = async () => {
     if (currentStep < 3) {
+      // Validate email before moving to next step if we're on step 2
+      if (currentStep === 2) {
+        const trimmedEmail = formEmail.trim();
+        if (!trimmedEmail) {
+          setEmailError("Email is required.");
+          return;
+        }
+        if (!validateEmail(trimmedEmail)) {
+          setEmailError("Please enter a valid email address.");
+          return;
+        }
+        setEmailError("");
+      }
       setCurrentStep((s) => ((s + 1) as 1 | 2 | 3));
       return;
     }
@@ -195,7 +215,9 @@ export default function TenantsPage() {
     try {
       setCreating(true);
       if (!formBusinessName.trim()) throw new Error("Business name is required.");
-      if (!formEmail.trim()) throw new Error("Contact email is required.");
+      const trimmedEmail = formEmail.trim();
+      if (!trimmedEmail) throw new Error("Email is required.");
+      if (!validateEmail(trimmedEmail)) throw new Error("Please enter a valid email address.");
 
       const planLabel =
         selectedPlan === "pro" ? "Pro" : selectedPlan === "starter" ? "Starter" : selectedPlan === "enterprise" ? "Enterprise" : "";
@@ -205,7 +227,7 @@ export default function TenantsPage() {
       // Save as a salon owner record inside users collection (invite style)
       await addDoc(collection(db, "users"), {
         // user identity fields
-        email: formEmail.trim(),
+        email: trimmedEmail,
         displayName: "",
         role: "salon_owner",
         provider: "password",
@@ -235,13 +257,41 @@ export default function TenantsPage() {
         const secondaryName = `provision-${Date.now()}`;
         const secondaryApp = initializeApp(options, secondaryName);
         const secondaryAuth = getAuth(secondaryApp);
-        await createUserWithEmailAndPassword(secondaryAuth, formEmail.trim(), formOwnerPassword.trim());
+        await createUserWithEmailAndPassword(secondaryAuth, trimmedEmail, formOwnerPassword.trim());
         await signOutSecondary(secondaryAuth);
       } catch (e: any) {
         if (e?.code !== "auth/email-already-in-use") {
           console.warn("Owner auth provisioning failed:", e);
           throw e;
         }
+      }
+
+      // Send welcome email to salon owner with login credentials
+      try {
+        const idToken = await auth.currentUser?.getIdToken();
+        const response = await fetch("/api/salon-owner/welcome-email", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            ...(idToken ? { Authorization: `Bearer ${idToken}` } : {}),
+          },
+          body: JSON.stringify({
+            email: trimmedEmail,
+            password: formOwnerPassword.trim(),
+            businessName: formBusinessName.trim(),
+          }),
+        });
+
+        if (!response.ok) {
+          const errorData = await response.json().catch(() => ({}));
+          console.warn("Failed to send welcome email:", errorData.error || "Unknown error");
+          // Don't throw - email failure shouldn't block onboarding
+        } else {
+          console.log("Welcome email sent successfully to", trimmedEmail);
+        }
+      } catch (emailError: any) {
+        console.warn("Error sending welcome email:", emailError);
+        // Don't throw - email failure shouldn't block onboarding
       }
 
       setIsModalOpen(false);
@@ -254,6 +304,7 @@ export default function TenantsPage() {
       setFormPostcode("");
       setFormPhone("");
       setFormEmail("");
+      setEmailError("");
       setFormOwnerPassword("");
       setFormTimezone("Australia/Sydney");
       setSelectedPlan(null);
@@ -1220,15 +1271,23 @@ export default function TenantsPage() {
                     </div>
                     <div>
                       <label className="block text-sm font-semibold text-slate-700 mb-2">
-                        Contact Email *
+                        Email *
                       </label>
                       <input
                         type="email"
                         placeholder="contact@salon.com.au"
                         value={formEmail}
-                        onChange={(e) => setFormEmail(e.target.value)}
-                        className="w-full px-4 py-3 border border-slate-300 rounded-lg focus:ring-2 focus:ring-pink-500 focus:border-transparent"
+                        onChange={(e) => {
+                          setFormEmail(e.target.value);
+                          if (emailError) setEmailError("");
+                        }}
+                        className={`w-full px-4 py-3 border rounded-lg focus:ring-2 focus:ring-pink-500 focus:border-transparent ${
+                          emailError ? "border-rose-500" : "border-slate-300"
+                        }`}
                       />
+                      {emailError && (
+                        <p className="text-sm text-rose-600 mt-1">{emailError}</p>
+                      )}
                     </div>
                     <div>
                       <label className="block text-sm font-semibold text-slate-700 mb-2">

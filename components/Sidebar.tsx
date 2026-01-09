@@ -436,12 +436,6 @@ export default function Sidebar({ mobile = false, onClose }: SidebarProps) {
             <span>Billing & Invoices</span>
           </Link>
         )} */}
-        {mounted && role === "super_admin" && (
-          <Link href="/settings" className={`flex items-center space-x-3 px-4 py-3 rounded-xl text-sm transition ${isSettings ? "bg-pink-500 text-white shadow-lg" : "hover:bg-slate-800 text-slate-400 hover:text-white"}`}>
-            <i className="fas fa-cog w-5" />
-            <span>Platform Settings</span>
-          </Link>
-        )}
         {mounted && role === "salon_owner" && (
           <Link href="/audit-logs" className={`flex items-center space-x-3 px-4 py-3 rounded-xl text-sm transition ${isAuditLogs ? "bg-pink-500 text-white shadow-lg" : "hover:bg-slate-800 text-slate-400 hover:text-white"}`}>
             <i className="fas fa-clipboard-list w-5" />
