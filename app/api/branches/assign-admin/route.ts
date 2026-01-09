@@ -1,7 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getAuth } from "firebase-admin/auth";
-import { getFirestore } from "firebase-admin/firestore";
-import adminDb from "@/lib/firebase-admin";
+import { adminAuth, adminDb } from "@/lib/firebaseAdmin";
 import { sendBranchAdminAssignmentEmail } from "@/lib/emailService";
 import { promoteStaffToBranchAdmin } from "@/lib/salonStaff";
 
@@ -27,8 +25,7 @@ export async function POST(req: NextRequest) {
     }
 
     const token = authHeader.substring(7);
-    const auth = getAuth();
-    const decodedToken = await auth.verifyIdToken(token);
+    const decodedToken = await adminAuth().verifyIdToken(token);
     const callerUid = decodedToken.uid;
 
     const db = adminDb();
