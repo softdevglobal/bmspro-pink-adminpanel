@@ -545,3 +545,22 @@ export async function logUserLogout(
   });
 }
 
+export async function logPasswordChanged(
+  ownerUid: string,
+  userId: string,
+  userName: string,
+  userRole: string
+) {
+  return createAuditLog({
+    ownerUid,
+    action: `Password changed: ${userName}`,
+    actionType: "update",
+    entityType: "auth",
+    entityId: userId,
+    entityName: userName,
+    performedBy: userId,
+    performedByName: userName,
+    performedByRole: userRole,
+    details: "User changed their account password",
+  });
+}

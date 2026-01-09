@@ -2,11 +2,12 @@
 import React, { useEffect, useState, useRef } from "react";
 import Sidebar from "@/components/Sidebar";
 import { useRouter } from "next/navigation";
-import { onAuthStateChanged } from "firebase/auth";
+import { onAuthStateChanged, signInWithEmailAndPassword } from "firebase/auth";
 import { auth, db, storage } from "@/lib/firebase";
 import { doc, getDoc, updateDoc, serverTimestamp } from "firebase/firestore";
 import { ref, uploadBytes, getDownloadURL } from "firebase/storage";
 import { TIMEZONES } from "@/lib/timezone";
+import { logPasswordChanged } from "@/lib/auditLog";
 
 type UserData = {
   uid: string;
@@ -47,6 +48,13 @@ export default function OwnerSettingsPage() {
   const [uploadingLogo, setUploadingLogo] = useState(false);
   const [showRemoveLogoModal, setShowRemoveLogoModal] = useState(false);
   const logoInputRef = useRef<HTMLInputElement>(null);
+  
+  // Password change states
+  const [currentPassword, setCurrentPassword] = useState("");
+  const [newPassword, setNewPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
+  const [showPasswords, setShowPasswords] = useState({ current: false, new: false, confirm: false });
+  const [passwordErrors, setPasswordErrors] = useState<string[]>([]);
 
   // Toast notifications
   const [toasts, setToasts] = useState<{ id: number; message: string; type: 'success' | 'error' }[]>([]);
@@ -242,6 +250,134 @@ export default function OwnerSettingsPage() {
     }
   };
 
+  // Password validation function
+  const validatePassword = (password: string): string[] => {
+    const errors: string[] = [];
+    
+    if (password.length < 8) {
+      errors.push("At least 8 characters");
+    }
+    
+    if (!/[A-Z]/.test(password)) {
+      errors.push("One uppercase letter");
+    }
+    
+    if (!/[a-z]/.test(password)) {
+      errors.push("One lowercase letter");
+    }
+    
+    if (!/[0-9]/.test(password)) {
+      errors.push("One number");
+    }
+    
+    if (!/[!@#$%^&*()_+\-=\[\]{};':"\\|,.<>\/?]/.test(password)) {
+      errors.push("One special character");
+    }
+    
+    return errors;
+  };
+
+  // Validate password on change
+  const handleNewPasswordChange = (value: string) => {
+    setNewPassword(value);
+    if (value.length > 0) {
+      const errors = validatePassword(value);
+      setPasswordErrors(errors);
+    } else {
+      setPasswordErrors([]);
+    }
+  };
+
+  const handleChangePassword = async () => {
+    if (!userData || !auth.currentUser) {
+      showToast("You must be logged in to change your password.", "error");
+      return;
+    }
+
+    // Validation
+    if (!currentPassword || !newPassword || !confirmPassword) {
+      showToast("Please fill in all password fields.", "error");
+      return;
+    }
+
+    // Validate password strength
+    const validationErrors = validatePassword(newPassword);
+    if (validationErrors.length > 0) {
+      showToast(`Password must contain: ${validationErrors.join(", ")}`, "error");
+      return;
+    }
+
+    if (newPassword !== confirmPassword) {
+      showToast("New passwords do not match.", "error");
+      return;
+    }
+
+    if (currentPassword === newPassword) {
+      showToast("New password must be different from your current password.", "error");
+      return;
+    }
+
+    setSaving("password");
+    try {
+      // First, verify the current password by attempting to sign in
+      try {
+        await signInWithEmailAndPassword(auth, userData.email, currentPassword);
+      } catch (error: any) {
+        if (error?.code === "auth/wrong-password" || error?.code === "auth/invalid-credential") {
+          showToast("Current password is incorrect.", "error");
+          setSaving(null);
+          return;
+        }
+        throw error;
+      }
+
+      // If verification succeeds, call API to update password
+      const token = await auth.currentUser?.getIdToken();
+      const response = await fetch("/api/user/change-password", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+        body: JSON.stringify({
+          uid: userData.uid,
+          newPassword: newPassword,
+        }),
+      });
+
+      const result = await response.json();
+
+      if (!response.ok) {
+        showToast(result.error || "Failed to change password. Please try again.", "error");
+        return;
+      }
+
+      // Clear password fields
+      setCurrentPassword("");
+      setNewPassword("");
+      setConfirmPassword("");
+      setPasswordErrors([]);
+      
+      // Create audit log for password change
+      try {
+        const ownerUid = userData.uid; // For salon owners, ownerUid is their own uid
+        const userName = userData.name || userData.email || "Unknown User";
+        const userRole = userData.role || "salon_owner";
+        await logPasswordChanged(ownerUid, userData.uid, userName, userRole);
+      } catch (auditError) {
+        console.error("Failed to create password change audit log:", auditError);
+        // Don't fail the password change if audit log fails
+      }
+      
+      showToast("Password changed successfully!");
+    } catch (error: any) {
+      console.error("Error changing password:", error);
+      showToast(error?.message || "Failed to change password. Please try again.", "error");
+    } finally {
+      setSaving(null);
+    }
+  };
+
   return (
     <div id="app" className="flex h-screen overflow-hidden bg-white">
       <Sidebar />
@@ -387,6 +523,161 @@ export default function OwnerSettingsPage() {
                           <>
                             <i className="fas fa-save" />
                             Save Profile
+                          </>
+                        )}
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Change Password */}
+                  <div className="bg-white border border-slate-200 rounded-2xl p-6">
+                    <div className="flex items-center gap-3 mb-4">
+                      <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-rose-500 to-pink-600 text-white flex items-center justify-center">
+                        <i className="fas fa-lock" />
+                      </div>
+                      <div>
+                        <h2 className="text-lg font-semibold text-slate-900">Change Password</h2>
+                        <p className="text-sm text-slate-500">Update your account password for better security</p>
+                      </div>
+                    </div>
+                    
+                    <div className="space-y-4">
+                      <div>
+                        <label className="block text-sm font-medium text-slate-700 mb-2">
+                          Current Password
+                        </label>
+                        <div className="relative">
+                          <input
+                            type={showPasswords.current ? "text" : "password"}
+                            className="w-full px-4 py-3 border border-slate-300 rounded-lg focus:ring-2 focus:ring-rose-500 focus:border-transparent pr-10"
+                            placeholder="Enter your current password"
+                            value={currentPassword}
+                            onChange={(e) => setCurrentPassword(e.target.value)}
+                            disabled={saving === "password"}
+                          />
+                          <button
+                            type="button"
+                            onClick={() => setShowPasswords({ ...showPasswords, current: !showPasswords.current })}
+                            className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
+                          >
+                            <i className={`fas ${showPasswords.current ? "fa-eye-slash" : "fa-eye"}`} />
+                          </button>
+                        </div>
+                      </div>
+                      
+                      <div>
+                        <label className="block text-sm font-medium text-slate-700 mb-2">
+                          New Password
+                        </label>
+                        <div className="relative">
+                          <input
+                            type={showPasswords.new ? "text" : "password"}
+                            className={`w-full px-4 py-3 border rounded-lg focus:ring-2 focus:ring-rose-500 focus:border-transparent pr-10 ${
+                              newPassword && passwordErrors.length > 0
+                                ? "border-red-300 bg-red-50"
+                                : newPassword && passwordErrors.length === 0
+                                ? "border-green-300 bg-green-50"
+                                : "border-slate-300"
+                            }`}
+                            placeholder="Enter your new password"
+                            value={newPassword}
+                            onChange={(e) => handleNewPasswordChange(e.target.value)}
+                            disabled={saving === "password"}
+                          />
+                          <button
+                            type="button"
+                            onClick={() => setShowPasswords({ ...showPasswords, new: !showPasswords.new })}
+                            className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
+                          >
+                            <i className={`fas ${showPasswords.new ? "fa-eye-slash" : "fa-eye"}`} />
+                          </button>
+                        </div>
+                        {newPassword && (
+                          <div className="mt-2">
+                            <p className="text-xs font-medium text-slate-600 mb-1">Password must contain:</p>
+                            <ul className="text-xs space-y-1">
+                              <li className={`flex items-center gap-2 ${newPassword.length >= 8 ? "text-green-600" : "text-slate-500"}`}>
+                                <i className={`fas ${newPassword.length >= 8 ? "fa-check-circle" : "fa-circle"} text-xs`} />
+                                At least 8 characters
+                              </li>
+                              <li className={`flex items-center gap-2 ${/[A-Z]/.test(newPassword) ? "text-green-600" : "text-slate-500"}`}>
+                                <i className={`fas ${/[A-Z]/.test(newPassword) ? "fa-check-circle" : "fa-circle"} text-xs`} />
+                                One uppercase letter
+                              </li>
+                              <li className={`flex items-center gap-2 ${/[a-z]/.test(newPassword) ? "text-green-600" : "text-slate-500"}`}>
+                                <i className={`fas ${/[a-z]/.test(newPassword) ? "fa-check-circle" : "fa-circle"} text-xs`} />
+                                One lowercase letter
+                              </li>
+                              <li className={`flex items-center gap-2 ${/[0-9]/.test(newPassword) ? "text-green-600" : "text-slate-500"}`}>
+                                <i className={`fas ${/[0-9]/.test(newPassword) ? "fa-check-circle" : "fa-circle"} text-xs`} />
+                                One number
+                              </li>
+                              <li className={`flex items-center gap-2 ${/[!@#$%^&*()_+\-=\[\]{};':"\\|,.<>\/?]/.test(newPassword) ? "text-green-600" : "text-slate-500"}`}>
+                                <i className={`fas ${/[!@#$%^&*()_+\-=\[\]{};':"\\|,.<>\/?]/.test(newPassword) ? "fa-check-circle" : "fa-circle"} text-xs`} />
+                                One special character (!@#$%^&*...)
+                              </li>
+                            </ul>
+                          </div>
+                        )}
+                      </div>
+                      
+                      <div>
+                        <label className="block text-sm font-medium text-slate-700 mb-2">
+                          Confirm New Password
+                        </label>
+                        <div className="relative">
+                          <input
+                            type={showPasswords.confirm ? "text" : "password"}
+                            className={`w-full px-4 py-3 border rounded-lg focus:ring-2 focus:ring-rose-500 focus:border-transparent pr-10 ${
+                              confirmPassword && newPassword && confirmPassword !== newPassword
+                                ? "border-red-300 bg-red-50"
+                                : confirmPassword && confirmPassword === newPassword && newPassword.length > 0
+                                ? "border-green-300 bg-green-50"
+                                : "border-slate-300"
+                            }`}
+                            placeholder="Confirm your new password"
+                            value={confirmPassword}
+                            onChange={(e) => setConfirmPassword(e.target.value)}
+                            disabled={saving === "password"}
+                          />
+                          <button
+                            type="button"
+                            onClick={() => setShowPasswords({ ...showPasswords, confirm: !showPasswords.confirm })}
+                            className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
+                          >
+                            <i className={`fas ${showPasswords.confirm ? "fa-eye-slash" : "fa-eye"}`} />
+                          </button>
+                        </div>
+                        {confirmPassword && newPassword && confirmPassword !== newPassword && (
+                          <p className="mt-1 text-xs text-red-600 flex items-center gap-1">
+                            <i className="fas fa-exclamation-circle" />
+                            Passwords do not match
+                          </p>
+                        )}
+                        {confirmPassword && confirmPassword === newPassword && newPassword.length > 0 && passwordErrors.length === 0 && (
+                          <p className="mt-1 text-xs text-green-600 flex items-center gap-1">
+                            <i className="fas fa-check-circle" />
+                            Passwords match
+                          </p>
+                        )}
+                      </div>
+                    </div>
+                    
+                    <div className="mt-4 flex justify-end">
+                      <button 
+                        onClick={handleChangePassword}
+                        disabled={saving === "password"}
+                        className="px-5 py-2.5 bg-rose-600 text-white rounded-lg font-semibold hover:bg-rose-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+                      >
+                        {saving === "password" ? (
+                          <>
+                            <i className="fas fa-spinner fa-spin" />
+                            Changing Password...
+                          </>
+                        ) : (
+                          <>
+                            <i className="fas fa-key" />
+                            Change Password
                           </>
                         )}
                       </button>
