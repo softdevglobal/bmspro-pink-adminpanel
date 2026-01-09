@@ -32,6 +32,7 @@ export default function SettingsPage() {
   const [deleting, setDeleting] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
   const [passwordError, setPasswordError] = useState<string | null>(null);
+  const [emailError, setEmailError] = useState<string | null>(null);
   const [suspendTarget, setSuspendTarget] = useState<Staff | null>(null);
   const [suspending, setSuspending] = useState(false);
   const [weeklySchedule, setWeeklySchedule] = useState<WeeklySchedule>({});
@@ -239,6 +240,17 @@ export default function SettingsPage() {
     const timezone = systemRole === "salon_branch_admin" && branchRow?.timezone 
       ? branchRow.timezone 
       : (String(formData.get("timezone") || selectedTimezone || "Australia/Sydney"));
+
+    // Validate email format
+    if (email) {
+      const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+      if (!emailRegex.test(email)) {
+        setEmailError("Please enter a valid email address");
+        showToast("Please enter a valid email address");
+        return;
+      }
+    }
+    setEmailError(null);
 
     if (!name || !role || !email || !mobile || !ownerUid) return;
     
@@ -1284,6 +1296,8 @@ export default function SettingsPage() {
                   setSelectedSystemRole("salon_staff");
                   setSelectedBranchId("");
                   setSelectedTimezone("Australia/Sydney");
+                  setEmailError(null);
+                  setPasswordError(null);
                 }} 
                 className="text-white/60 hover:text-white transition w-8 h-8 rounded-lg hover:bg-white/10 flex items-center justify-center"
               >
@@ -1300,15 +1314,52 @@ export default function SettingsPage() {
                 </h4>
                 <div className="space-y-2.5 sm:space-y-3">
                   <div>
-                    <label className="block text-xs font-bold text-slate-600 mb-1">Email</label>
+                    <label className="block text-xs font-bold text-slate-600 mb-1">
+                      Email {!editingStaffId && <span className="text-rose-500">*</span>}
+                    </label>
                     <input
                       type="email"
                       name="email"
                       required={!editingStaffId}
-                      className="w-full border border-slate-300 rounded-lg p-2 sm:p-2.5 text-xs sm:text-sm focus:ring-2 focus:ring-pink-500 focus:outline-none"
+                      className={`w-full border rounded-lg p-2 sm:p-2.5 text-xs sm:text-sm focus:ring-2 focus:outline-none ${
+                        emailError 
+                          ? "border-red-500 focus:ring-red-500" 
+                          : "border-slate-300 focus:ring-pink-500"
+                      }`}
                       placeholder="name@salon.com"
                       defaultValue={editingStaff?.email || ""}
+                      onChange={(e) => {
+                        const value = e.target.value.trim();
+                        if (value) {
+                          const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+                          if (!emailRegex.test(value)) {
+                            setEmailError("Please enter a valid email address");
+                          } else {
+                            setEmailError(null);
+                          }
+                        } else {
+                          setEmailError(null);
+                        }
+                      }}
+                      onBlur={(e) => {
+                        const value = e.target.value.trim();
+                        if (value) {
+                          const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+                          if (!emailRegex.test(value)) {
+                            setEmailError("Please enter a valid email address");
+                          } else {
+                            setEmailError(null);
+                          }
+                        } else if (!editingStaffId) {
+                          setEmailError("Email is required");
+                        } else {
+                          setEmailError(null);
+                        }
+                      }}
                     />
+                    {emailError && (
+                      <p className="text-[10px] text-red-600 mt-1">{emailError}</p>
+                    )}
                   </div>
                   <div>
                     <label className="block text-xs font-bold text-slate-600 mb-1">
