@@ -759,6 +759,11 @@ export async function sendSalonOwnerWelcomeEmail(
       from: ADMIN_FROM_EMAIL,
       subject: subject,
       html: html,
+      trackingSettings: {
+        clickTracking: {
+          enable: false, // Disable click tracking so links go directly to destination
+        },
+      },
     };
     
     console.log(`[EMAIL] Sending welcome email via SendGrid:`, {
@@ -766,6 +771,7 @@ export async function sendSalonOwnerWelcomeEmail(
       from: ADMIN_FROM_EMAIL,
       subject: subject,
       businessName: businessName,
+      clickTracking: false,
     });
     
     await sgMail.send(msg);
