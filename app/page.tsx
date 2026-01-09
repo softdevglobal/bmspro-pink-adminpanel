@@ -16,13 +16,22 @@ export default function Home() {
       }
       
       try {
-        const snap = await getDoc(doc(db, "users", user.uid));
-        const role = snap.data()?.role || "";
+        // Check super_admins collection first
+        const superAdminSnap = await getDoc(doc(db, "super_admins", user.uid));
+        let role: string;
         
-        if (role === "salon_branch_admin") {
-          router.replace("/branches");
+        if (superAdminSnap.exists()) {
+          router.replace("/admin-dashboard");
         } else {
-          router.replace("/dashboard");
+          // Check users collection
+          const snap = await getDoc(doc(db, "users", user.uid));
+          const role = snap.data()?.role || "";
+          
+          if (role === "salon_branch_admin") {
+            router.replace("/branches");
+          } else {
+            router.replace("/dashboard");
+          }
         }
       } catch {
         router.replace("/dashboard");

@@ -337,14 +337,30 @@ export default function TenantsPage() {
         router.replace("/login");
         return;
       }
-      const userRef = doc(db, "users", user.uid);
-      const snap = await getDoc(userRef);
-      const role = (snap.data()?.role || "").toString();
+      
+      // Check super_admins collection first
+      const superAdminDoc = await getDoc(doc(db, "super_admins", user.uid));
+      let role: string;
+      
+      if (superAdminDoc.exists()) {
+        role = "super_admin";
+        // Super admin is allowed on tenants page, so no redirect needed
+        return;
+      } else {
+        // Get user role from users collection
+        const userRef = doc(db, "users", user.uid);
+        const snap = await getDoc(userRef);
+        role = (snap.data()?.role || "").toString();
+      }
+      
       if (role === "salon_branch_admin") {
         router.replace("/branches");
         return;
       }
-      if (role !== "super_admin") router.replace("/dashboard");
+      if (role !== "super_admin") {
+        router.replace("/dashboard");
+        return;
+      }
     });
     return () => unsub();
   }, [router]);

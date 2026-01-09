@@ -135,11 +135,27 @@ export default function LoginPage() {
       try {
         const uid2 = auth.currentUser?.uid;
         if (uid2) {
-          const snap = await getDoc(doc(db, "users", uid2));
-          const data = snap.data();
-          const role = (data?.role || "").toString();
-          const name = (data?.displayName || data?.name || "").toString();
-          const ownerUid = data?.ownerUid || uid2; // For staff, get their owner; for owners, use their own uid
+          // Check super_admins collection first
+          const superAdminSnap = await getDoc(doc(db, "super_admins", uid2));
+          let data: any;
+          let role: string;
+          let name: string;
+          let ownerUid: string;
+          
+          if (superAdminSnap.exists()) {
+            // User is a super_admin
+            data = superAdminSnap.data();
+            role = "super_admin";
+            name = (data?.displayName || "").toString();
+            ownerUid = uid2; // Super admin is their own owner
+          } else {
+            // Check users collection
+            const snap = await getDoc(doc(db, "users", uid2));
+            data = snap.data();
+            role = (data?.role || "").toString();
+            name = (data?.displayName || data?.name || "").toString();
+            ownerUid = data?.ownerUid || uid2; // For staff, get their owner; for owners, use their own uid
+          }
           
           if (typeof window !== "undefined") {
             localStorage.setItem("role", role);
@@ -156,7 +172,10 @@ export default function LoginPage() {
       } catch {}
       // Avoid immediate redirect if we are already on a page that might redirect back
       // Instead, verify role logic one last time
-      if (localStorage.getItem("role") === "salon_branch_admin") {
+      const userRole = localStorage.getItem("role");
+      if (userRole === "super_admin") {
+        router.replace("/admin-dashboard");
+      } else if (userRole === "salon_branch_admin") {
         router.replace("/branches");
       } else {
         router.replace("/dashboard");

@@ -17,7 +17,7 @@ export default function Sidebar({ mobile = false, onClose }: SidebarProps) {
   const pathname = usePathname();
   const router = useRouter();
   const scrollContainerRef = useRef<HTMLDivElement>(null);
-  const isDashboard = pathname === "/dashboard" || pathname === "/";
+  const isDashboard = pathname === "/dashboard" || pathname === "/admin-dashboard" || pathname === "/";
   const isBookings = pathname?.startsWith("/bookings");
   const isBookingsDashboard = pathname === "/bookings/dashboard";
   const isBookingsAll = pathname === "/bookings/all";
@@ -59,11 +59,26 @@ export default function Sidebar({ mobile = false, onClose }: SidebarProps) {
         return;
       }
       try {
-        const snap = await getDoc(doc(db, "users", user.uid));
-        const userData = snap.data();
-        const r = (userData?.role || "").toString();
-        const displayName = userData?.displayName || userData?.name || user.displayName || "";
-        const email = userData?.email || user.email || "";
+        // Check super_admins collection first
+        const superAdminSnap = await getDoc(doc(db, "super_admins", user.uid));
+        let r: string;
+        let displayName: string;
+        let email: string;
+        
+        if (superAdminSnap.exists()) {
+          // User is a super_admin
+          const superAdminData = superAdminSnap.data();
+          r = "super_admin";
+          displayName = superAdminData?.displayName || user.displayName || "";
+          email = superAdminData?.email || user.email || "";
+        } else {
+          // Check users collection
+          const snap = await getDoc(doc(db, "users", user.uid));
+          const userData = snap.data();
+          r = (userData?.role || "").toString();
+          displayName = userData?.displayName || userData?.name || user.displayName || "";
+          email = userData?.email || user.email || "";
+        }
         
         setRole(r || null);
         setUserName(displayName);
@@ -249,7 +264,7 @@ export default function Sidebar({ mobile = false, onClose }: SidebarProps) {
       <div ref={scrollContainerRef} className="flex-1 p-4 space-y-1 overflow-y-auto sidebar-scroll bg-slate-900" style={{ overflowAnchor: 'none' }}>
         {mounted && (role === "salon_owner" || role === "salon_branch_admin" || role === "super_admin") && (
           <Link
-            href="/dashboard"
+            href={role === "super_admin" ? "/admin-dashboard" : "/dashboard"}
             className={`flex items-center space-x-3 px-4 py-3 rounded-xl font-medium text-sm transition ${
               isDashboard
                 ? "bg-pink-500 text-white shadow-lg"
@@ -258,6 +273,13 @@ export default function Sidebar({ mobile = false, onClose }: SidebarProps) {
           >
             <i className="fas fa-chart-line w-5" />
             <span>Dashboard</span>
+          </Link>
+        )}
+        {/* Super Admin - Only Dashboard and Tenants */}
+        {mounted && role === "super_admin" && (
+          <Link href="/tenants" className={`flex items-center space-x-3 px-4 py-3 rounded-xl text-sm transition ${isTenants ? "bg-pink-500 text-white shadow-lg" : "hover:bg-slate-800 text-slate-400 hover:text-white"}`}>
+            <i className="fas fa-store w-5" />
+            <span>Tenant Management</span>
           </Link>
         )}
         {mounted && (role === "salon_owner" || role === "salon_branch_admin") && (
@@ -368,12 +390,6 @@ export default function Sidebar({ mobile = false, onClose }: SidebarProps) {
           <span>Branch Management</span>
         </Link>
       )}
-        {mounted && role === "super_admin" && (
-          <Link href="/tenants" className={`flex items-center space-x-3 px-4 py-3 rounded-xl text-sm transition ${isTenants ? "bg-pink-500 text-white shadow-lg" : "hover:bg-slate-800 text-slate-400 hover:text-white"}`}>
-            <i className="fas fa-store w-5" />
-            <span>Tenant Management</span>
-          </Link>
-        )}
         {mounted && role === "salon_owner" && (
           <>
             <div

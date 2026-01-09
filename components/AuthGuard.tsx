@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, usePathname } from "next/navigation";
 import { onAuthStateChanged } from "firebase/auth";
 import { auth, db } from "@/lib/firebase";
 import { doc, getDoc } from "firebase/firestore";
@@ -10,8 +10,12 @@ interface AuthGuardProps {
   children: React.ReactNode;
 }
 
+// Pages that super_admin is allowed to access
+const SUPER_ADMIN_ALLOWED_PAGES = ["/admin-dashboard", "/tenants", "/login", "/"];
+
 export default function AuthGuard({ children }: AuthGuardProps) {
   const router = useRouter();
+  const pathname = usePathname();
   const [loading, setLoading] = useState(true);
   const [authorized, setAuthorized] = useState(false);
 
@@ -31,6 +35,19 @@ export default function AuthGuard({ children }: AuthGuardProps) {
           
           if (superAdminDoc.exists()) {
             userRole = "super_admin";
+            
+            // Super admin route restriction: only allow admin-dashboard and tenants
+            const isAllowedPage = pathname && SUPER_ADMIN_ALLOWED_PAGES.some(page => {
+              if (page === "/") return pathname === "/" || pathname === "/admin-dashboard";
+              return pathname === page || pathname.startsWith(page + "/");
+            });
+            
+            if (!isAllowedPage) {
+              // Redirect super_admin to admin-dashboard if trying to access unauthorized page
+              router.replace("/admin-dashboard");
+              setLoading(false);
+              return;
+            }
           } else {
             // Get user role from users collection
             const userDoc = await getDoc(doc(db, "users", user.uid));
@@ -63,7 +80,7 @@ export default function AuthGuard({ children }: AuthGuardProps) {
     };
 
     checkAuth();
-  }, [router]);
+  }, [router, pathname]);
 
   if (loading) {
     return (

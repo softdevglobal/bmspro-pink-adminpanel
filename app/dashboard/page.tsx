@@ -28,6 +28,7 @@ export default function DashboardPage() {
   const [branchAdminBranchName, setBranchAdminBranchName] = useState<string>("");
   const [salonName, setSalonName] = useState<string>("");
   const [logoUrl, setLogoUrl] = useState<string>("");
+  const [authLoading, setAuthLoading] = useState<boolean>(true);
   
   // Today's Schedule state
   const [todayBookings, setTodayBookings] = useState<any[]>([]);
@@ -71,13 +72,14 @@ export default function DashboardPage() {
           let role: string;
           
           if (superAdminDoc.exists()) {
-            userData = superAdminDoc.data();
-            role = "super_admin";
-          } else {
-            const userDoc = await getDoc(doc(db, "users", user.uid));
-            userData = userDoc.data();
-            role = userData?.role || "";
+            // Super admin should go to admin dashboard
+            router.replace("/admin-dashboard");
+            return;
           }
+          
+          const userDoc = await getDoc(doc(db, "users", user.uid));
+          userData = userDoc.data();
+          role = userData?.role || "";
           
           // For branch admin, store their branch info
           if (role === "salon_branch_admin") {
@@ -90,9 +92,10 @@ export default function DashboardPage() {
             }
           }
           
-          setIsSuperAdmin(role === "super_admin");
+          setIsSuperAdmin(false);
           setSalonName(userData?.name || userData?.displayName || userData?.branchName || "");
           setLogoUrl(userData?.logoUrl || "");
+          setAuthLoading(false);
         } catch {
           router.replace("/login");
         }
@@ -103,7 +106,7 @@ export default function DashboardPage() {
 
   // Fetch real data from Firestore
   useEffect(() => {
-    if (!ownerUid) return;
+    if (!ownerUid || isSuperAdmin || authLoading) return; // Skip salon-specific data for super_admin
 
     let unsubBookings: (() => void) | undefined;
     let unsubStaff: (() => void) | undefined;
@@ -306,11 +309,171 @@ export default function DashboardPage() {
       unsubStaff?.();
       unsubServices?.();
     };
-  }, [ownerUid, isBranchAdmin, branchAdminBranchId, branchAdminBranchName]);
+  }, [ownerUid, isSuperAdmin, isBranchAdmin, branchAdminBranchId, branchAdminBranchName, authLoading]);
+
+  // Fetch super_admin specific data (aggregate across all tenants)
+  useEffect(() => {
+    if (!isSuperAdmin || authLoading) return;
+
+    let unsubTenants: (() => void) | undefined;
+    let unsubAllBookings: (() => void) | undefined;
+
+    (async () => {
+      const { db } = await import("@/lib/firebase");
+      const { collection, query, where, onSnapshot } = await import("firebase/firestore");
+
+      // Fetch all tenants (salon owners)
+      const tenantsQuery = query(collection(db, "users"), where("role", "==", "salon_owner"));
+      unsubTenants = onSnapshot(
+        tenantsQuery,
+        async (snapshot) => {
+          const tenants = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+          
+          // Count active tenants
+          const activeTenants = tenants.filter((t: any) => {
+            const status = (t.status || "").toLowerCase();
+            return status.includes("active") && !status.includes("suspend");
+          }).length;
+          
+          // Set active staff count to active tenants count for super_admin
+          setActiveStaff(activeTenants);
+          
+          // Set active services to total tenants count
+          setActiveServices(tenants.length);
+        },
+        (error) => {
+          if (error.code === "permission-denied") {
+            console.warn("Permission denied for tenants query.");
+            setActiveStaff(0);
+            setActiveServices(0);
+          } else {
+            console.error("Error in tenants snapshot:", error);
+          }
+        }
+      );
+
+      // Fetch all bookings across all tenants for aggregate revenue
+      const allBookingsQuery = query(collection(db, "bookings"));
+      unsubAllBookings = onSnapshot(
+        allBookingsQuery,
+        (snapshot) => {
+          const allBookings = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+          
+          // Total bookings across all tenants
+          setTotalBookings(allBookings.length);
+
+          // Calculate monthly revenue (current month) across all tenants
+          const now = new Date();
+          const currentMonth = now.getMonth();
+          const currentYear = now.getFullYear();
+          
+          const currentMonthRevenue = allBookings
+            .filter((b: any) => {
+              if (!b.date) return false;
+              const bookingDate = new Date(b.date);
+              return bookingDate.getMonth() === currentMonth && bookingDate.getFullYear() === currentYear;
+            })
+            .reduce((sum: number, b: any) => sum + (Number(b.price) || 0), 0);
+          
+          setMonthlyRevenue(currentMonthRevenue);
+
+          // Calculate previous month revenue for growth comparison
+          const prevMonth = currentMonth === 0 ? 11 : currentMonth - 1;
+          const prevYear = currentMonth === 0 ? currentYear - 1 : currentYear;
+          const prevMonthRevenue = allBookings
+            .filter((b: any) => {
+              if (!b.date) return false;
+              const bookingDate = new Date(b.date);
+              return bookingDate.getMonth() === prevMonth && bookingDate.getFullYear() === prevYear;
+            })
+            .reduce((sum: number, b: any) => sum + (Number(b.price) || 0), 0);
+
+          // Calculate growth percentage
+          if (prevMonthRevenue > 0) {
+            const growth = ((currentMonthRevenue - prevMonthRevenue) / prevMonthRevenue) * 100;
+            setRevenueGrowth(Math.round(growth));
+          } else if (currentMonthRevenue > 0) {
+            setRevenueGrowth(100);
+          } else {
+            setRevenueGrowth(0);
+          }
+
+          // Calculate weekly bookings (last 7 days)
+          const sevenDaysAgo = new Date();
+          sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
+          const weeklyCount = allBookings.filter((b: any) => {
+            if (!b.date) return false;
+            const bookingDate = new Date(b.date);
+            return bookingDate >= sevenDaysAgo;
+          }).length;
+          setWeeklyBookings(weeklyCount);
+
+          // Calculate revenue trend for last 6 months
+          const last6Months: { month: string; revenue: number }[] = [];
+          for (let i = 5; i >= 0; i--) {
+            const date = new Date(currentYear, currentMonth - i, 1);
+            const monthStr = date.toLocaleDateString('en-US', { month: 'short' });
+            const month = date.getMonth();
+            const year = date.getFullYear();
+            
+            const monthRevenue = allBookings
+              .filter((b: any) => {
+                if (!b.date) return false;
+                const bookingDate = new Date(b.date);
+                return bookingDate.getMonth() === month && bookingDate.getFullYear() === year;
+              })
+              .reduce((sum: number, b: any) => sum + (Number(b.price) || 0), 0);
+            
+            last6Months.push({ month: monthStr, revenue: monthRevenue });
+          }
+          
+          setRevenueLabels(last6Months.map(m => m.month));
+          setRevenueData(last6Months.map(m => m.revenue));
+
+          // Calculate booking status breakdown
+          const statusCount = {
+            confirmed: 0,
+            pending: 0,
+            completed: 0,
+            canceled: 0
+          };
+          
+          allBookings.forEach((b: any) => {
+            const status = (b.status || '').toLowerCase();
+            if (status === 'confirmed') statusCount.confirmed++;
+            else if (status === 'pending') statusCount.pending++;
+            else if (status === 'completed') statusCount.completed++;
+            else if (status === 'canceled' || status === 'cancelled') statusCount.canceled++;
+          });
+          
+          setStatusData(statusCount);
+        },
+        (error) => {
+          if (error.code === "permission-denied") {
+            console.warn("Permission denied for all bookings query.");
+            setTotalBookings(0);
+            setMonthlyRevenue(0);
+            setRevenueGrowth(0);
+            setWeeklyBookings(0);
+            setRevenueData([]);
+            setRevenueLabels([]);
+            setStatusData({ confirmed: 0, pending: 0, completed: 0, canceled: 0 });
+          } else {
+            console.error("Error in all bookings snapshot:", error);
+          }
+        }
+      );
+    })();
+
+    return () => {
+      unsubTenants?.();
+      unsubAllBookings?.();
+    };
+  }, [isSuperAdmin, authLoading]);
 
   // Fetch today's schedule
   useEffect(() => {
-    if (!ownerUid || isSuperAdmin) return;
+    if (!ownerUid || isSuperAdmin || authLoading) return;
 
     let unsubTodayBookings: (() => void) | undefined;
 
@@ -397,7 +560,7 @@ export default function DashboardPage() {
     return () => {
       unsubTodayBookings?.();
     };
-  }, [ownerUid, isSuperAdmin]);
+  }, [ownerUid, isSuperAdmin, authLoading]);
 
   // Notifications are now managed by NotificationProvider context
   // No need for duplicate listener here
@@ -405,7 +568,7 @@ export default function DashboardPage() {
   // Fetch recent activity (tenants for super admin, booking activities for salon owners)
   // Skip for branch admins since we hide that section for them
   useEffect(() => {
-    if (!ownerUid || isBranchAdmin) return;
+    if (!ownerUid || isBranchAdmin || authLoading) return;
 
     let unsubTenants: (() => void) | undefined;
     let unsubActivities: (() => void) | undefined;
@@ -495,7 +658,7 @@ export default function DashboardPage() {
       unsubTenants?.();
       unsubActivities?.();
     };
-  }, [ownerUid, isSuperAdmin, isBranchAdmin]);
+  }, [ownerUid, isSuperAdmin, isBranchAdmin, authLoading]);
 
   // Track if charts have been initially built
   const chartsInitializedRef = useRef(false);
@@ -689,6 +852,19 @@ export default function DashboardPage() {
       } catch {}
     };
   }, []);
+
+  // Show loading screen while checking authentication
+  if (authLoading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-slate-50">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-pink-600 mx-auto mb-4"></div>
+          <p className="text-slate-600">Loading dashboard...</p>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div id="app" className="flex h-screen overflow-hidden bg-white">
       <Sidebar />
@@ -732,10 +908,10 @@ export default function DashboardPage() {
                   )}
                   <div>
                     <h1 className="text-2xl font-bold">
-                      {isBranchAdmin ? branchAdminBranchName : (salonName || "Dashboard")}
+                      {isSuperAdmin ? "BMS Pro Admin" : (isBranchAdmin ? branchAdminBranchName : (salonName || "Dashboard"))}
                     </h1>
                     <p className="text-sm text-white/80 mt-1">
-                      {isBranchAdmin ? "Branch Dashboard" : (salonName ? "Business Overview" : "Real-time system overview")}
+                      {isSuperAdmin ? "Super Admin Dashboard" : (isBranchAdmin ? "Branch Dashboard" : (salonName ? "Business Overview" : "Real-time system overview"))}
                     </p>
                   </div>
                 </div>
@@ -766,7 +942,7 @@ export default function DashboardPage() {
             <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm min-w-0">
               <div className="flex items-center justify-between mb-3">
                 <span className="text-sm font-medium text-slate-600">
-                  Monthly Revenue
+                  {isSuperAdmin ? "Platform Revenue" : "Monthly Revenue"}
                 </span>
                 <div className="w-10 h-10 bg-pink-50 rounded-xl flex items-center justify-center">
                   <i className="fas fa-dollar-sign text-pink-500" />
@@ -792,7 +968,7 @@ export default function DashboardPage() {
             <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm min-w-0">
               <div className="flex items-center justify-between mb-3">
                 <span className="text-sm font-medium text-slate-600">
-                  Total Bookings
+                  {isSuperAdmin ? "Total Bookings" : "Total Bookings"}
                 </span>
                 <div className="w-10 h-10 bg-blue-50 rounded-xl flex items-center justify-center">
                   <i className="fas fa-calendar-check text-blue-500" />
@@ -812,35 +988,35 @@ export default function DashboardPage() {
             <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm min-w-0">
               <div className="flex items-center justify-between mb-3">
                 <span className="text-sm font-medium text-slate-600">
-                  Active Staff
+                  {isSuperAdmin ? "Active Tenants" : "Active Staff"}
                 </span>
                 <div className="w-10 h-10 bg-amber-50 rounded-xl flex items-center justify-center">
-                  <i className="fas fa-users text-amber-500" />
+                  <i className={`fas ${isSuperAdmin ? 'fa-store' : 'fa-users'} text-amber-500`} />
                 </div>
               </div>
               <div className="mb-2">
                 <h3 className="text-3xl font-bold text-slate-900">{activeStaff}</h3>
               </div>
-              <div className="text-xs text-slate-500">Available for booking</div>
+              <div className="text-xs text-slate-500">{isSuperAdmin ? "Active salon owners" : "Available for booking"}</div>
             </div>
             <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm min-w-0">
               <div className="flex items-center justify-between mb-3">
                 <span className="text-sm font-medium text-slate-600">
-                  Active Services
+                  {isSuperAdmin ? "Total Tenants" : "Active Services"}
                 </span>
                 <div className="w-10 h-10 bg-purple-50 rounded-xl flex items-center justify-center">
-                  <i className="fas fa-tags text-purple-500" />
+                  <i className={`fas ${isSuperAdmin ? 'fa-building' : 'fa-tags'} text-purple-500`} />
                 </div>
               </div>
               <div className="mb-2">
                 <h3 className="text-3xl font-bold text-slate-900">{activeServices}</h3>
               </div>
-              <div className="text-xs text-slate-500">In catalog</div>
+              <div className="text-xs text-slate-500">{isSuperAdmin ? "All registered tenants" : "In catalog"}</div>
             </div>
           </div>
           
           {/* Today's Schedule Section */}
-          {!isSuperAdmin && (
+          {!authLoading && !isSuperAdmin && (
             <div className="bg-white rounded-2xl border border-slate-200 shadow-sm mb-8">
               <div className="p-6 border-b border-slate-200">
                 <div className="flex items-center justify-between">
@@ -1706,10 +1882,10 @@ export default function DashboardPage() {
               <div className="flex items-center justify-between mb-6">
                 <div>
                   <h3 className="font-semibold text-lg text-slate-900">
-                    Revenue Trend
+                    {isSuperAdmin ? "Platform Revenue Trend" : "Revenue Trend"}
                   </h3>
                   <p className="text-sm text-slate-500 mt-1">
-                    Last 6 months
+                    {isSuperAdmin ? "Last 6 months (all tenants)" : "Last 6 months"}
                   </p>
                 </div>
               </div>
@@ -1720,10 +1896,10 @@ export default function DashboardPage() {
             <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm min-w-0">
               <div className="mb-6">
                 <h3 className="font-semibold text-lg text-slate-900">
-                  Booking Status
+                  {isSuperAdmin ? "Platform Booking Status" : "Booking Status"}
                 </h3>
                 <p className="text-sm text-slate-500 mt-1">
-                  Distribution by status
+                  {isSuperAdmin ? "All tenants distribution" : "Distribution by status"}
                 </p>
               </div>
               <div className="space-y-4">
