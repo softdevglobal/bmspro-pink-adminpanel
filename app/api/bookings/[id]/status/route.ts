@@ -93,6 +93,7 @@ export async function PATCH(req: NextRequest, context: { params: Promise<{ id: s
       services?: any[];
       rejectionReason?: string; // For staff rejecting a booking
       isReassignment?: boolean; // Flag for admin reassigning after rejection
+      previousStatus?: string; // Previous status from client (for mobile app that updates Firestore first)
     };
     
     // Handle the "Confirmed" status from old admin panel - map to new workflow
@@ -134,6 +135,12 @@ export async function PATCH(req: NextRequest, context: { params: Promise<{ id: s
     }
 
     const currentStatus = normalizeBookingStatus(data.status || "Pending");
+    
+    // Use previousStatus from request body if provided (for mobile app that updates Firestore first)
+    // Otherwise use currentStatus from Firestore
+    const effectivePreviousStatus = body.previousStatus 
+      ? normalizeBookingStatus(body.previousStatus) 
+      : currentStatus;
     
     // Handle the transition from Pending -> "Confirmed" in admin panel
     // In new workflow, this actually means Pending -> AwaitingStaffApproval
@@ -412,7 +419,8 @@ export async function PATCH(req: NextRequest, context: { params: Promise<{ id: s
       }
       
       // Send email when status changes to Confirmed (regardless of transition path)
-      if (actualNextStatus === "Confirmed" && currentStatus !== "Confirmed") {
+      // Use effectivePreviousStatus to handle cases where mobile app updates Firestore first
+      if (actualNextStatus === "Confirmed" && effectivePreviousStatus !== "Confirmed") {
         try {
           console.log(`[EMAIL] Sending confirmation email for booking ${id}`);
           await sendBookingStatusChangeEmail(
@@ -496,7 +504,8 @@ export async function PATCH(req: NextRequest, context: { params: Promise<{ id: s
       }
       
       // Send email when status changes to Canceled (regardless of transition path)
-      if (actualNextStatus === "Canceled" && currentStatus !== "Canceled") {
+      // Use effectivePreviousStatus to handle cases where mobile app updates Firestore first
+      if (actualNextStatus === "Canceled" && effectivePreviousStatus !== "Canceled") {
         try {
           console.log(`[EMAIL] Sending cancellation email for booking ${id}`);
           await sendBookingStatusChangeEmail(
@@ -576,7 +585,8 @@ export async function PATCH(req: NextRequest, context: { params: Promise<{ id: s
       }
       
       // Send email when status changes to Completed (regardless of transition path)
-      if (actualNextStatus === "Completed" && currentStatus !== "Completed") {
+      // Use effectivePreviousStatus to handle cases where mobile app updates Firestore first
+      if (actualNextStatus === "Completed" && effectivePreviousStatus !== "Completed") {
         try {
           console.log(`[EMAIL] Sending completion email for booking ${id}`);
           await sendBookingStatusChangeEmail(
