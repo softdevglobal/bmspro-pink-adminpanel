@@ -505,12 +505,20 @@ export async function PATCH(req: NextRequest, context: { params: Promise<{ id: s
       
       // Send email when status changes to Canceled (regardless of transition path)
       // Use effectivePreviousStatus to handle cases where mobile app updates Firestore first
-      if (actualNextStatus === "Canceled" && effectivePreviousStatus !== "Canceled") {
+      // Check if requestedStatus is Canceled OR if current status in Firestore is Canceled but previousStatus was different
+      const isRequestingCancel = requestedStatus === "Canceled";
+      const isAlreadyCanceled = currentStatus === "Canceled";
+      const wasNotCanceledBefore = effectivePreviousStatus !== "Canceled";
+      const shouldSendCancellationEmail = isRequestingCancel && wasNotCanceledBefore;
+      
+      if (shouldSendCancellationEmail) {
         try {
           console.log(`[EMAIL] Sending cancellation email for booking ${id}`);
+          console.log(`[EMAIL] Debug: isRequestingCancel=${isRequestingCancel}, isAlreadyCanceled=${isAlreadyCanceled}, wasNotCanceledBefore=${wasNotCanceledBefore}`);
+          console.log(`[EMAIL] Debug: actualNextStatus=${actualNextStatus}, requestedStatus=${requestedStatus}, effectivePreviousStatus=${effectivePreviousStatus}, currentStatus=${currentStatus}, body.previousStatus=${body.previousStatus}`);
           await sendBookingStatusChangeEmail(
             id,
-            actualNextStatus,
+            "Canceled", // Always use "Canceled" for email
             data.clientEmail,
             clientName,
             ownerUid,
@@ -536,10 +544,12 @@ export async function PATCH(req: NextRequest, context: { params: Promise<{ id: s
           console.error(`[EMAIL] ❌ Failed to send booking cancellation email for ${id}:`, emailError);
           // Don't fail the request if email sending fails
         }
+      } else {
+        console.log(`[EMAIL] Skipping cancellation email for booking ${id}: actualNextStatus=${actualNextStatus}, requestedStatus=${requestedStatus}, effectivePreviousStatus=${effectivePreviousStatus}, currentStatus=${currentStatus}`);
       }
       
       // CASE 5: Booking completed -> Send completion notification to CUSTOMER
-      else if (actualNextStatus === "Completed") {
+      if (actualNextStatus === "Completed") {
         const notificationContent = getNotificationContent(
           actualNextStatus, 
           data.bookingCode,
