@@ -169,11 +169,22 @@ export async function PATCH(req: NextRequest, context: { params: Promise<{ id: s
     const statusIsSame = currentStatus === actualNextStatus;
     const isOnlyUpdatingServices = hasServicesUpdate && statusIsSame;
 
+    // Check if this is a mobile app call where Firestore was already updated
+    // Mobile app updates Firestore first, then calls API to send email
+    // In this case, previousStatus will be provided and different from currentStatus
+    const isMobileAppEmailTrigger = body.previousStatus && 
+      normalizeBookingStatus(body.previousStatus) !== currentStatus &&
+      statusIsSame;
+
     // If we're only updating services and status is the same, allow it
+    // Or if this is a mobile app email trigger (status already updated in Firestore)
     // Otherwise, check if the transition is valid
     if (isOnlyUpdatingServices) {
       // Allow same-status update when only services are being updated
       console.log(`Allowing same-status update: ${currentStatus} -> ${actualNextStatus} (services only)`);
+    } else if (isMobileAppEmailTrigger) {
+      // Allow same-status update when mobile app already updated Firestore and is just triggering email
+      console.log(`Allowing same-status update: ${currentStatus} -> ${actualNextStatus} (mobile app email trigger, previousStatus was ${body.previousStatus})`);
     } else if (!canTransitionStatus(currentStatus, actualNextStatus)) {
       return NextResponse.json({ error: `Invalid transition ${currentStatus} -> ${actualNextStatus}` }, { status: 400 });
     }
