@@ -492,8 +492,13 @@ export async function PATCH(req: NextRequest, context: { params: Promise<{ id: s
           ownerUid: ownerUid,
         });
         
-        // Send email to customer when booking is cancelled
+        console.log("Sent customer cancellation notification");
+      }
+      
+      // Send email when status changes to Canceled (regardless of transition path)
+      if (actualNextStatus === "Canceled" && currentStatus !== "Canceled") {
         try {
+          console.log(`[EMAIL] Sending cancellation email for booking ${id}`);
           await sendBookingStatusChangeEmail(
             id,
             actualNextStatus,
@@ -517,12 +522,11 @@ export async function PATCH(req: NextRequest, context: { params: Promise<{ id: s
               staffName: finalStaffName,
             }
           );
+          console.log(`[EMAIL] ✅ Cancellation email sent successfully for booking ${id}`);
         } catch (emailError) {
-          console.error("Failed to send booking cancellation email:", emailError);
+          console.error(`[EMAIL] ❌ Failed to send booking cancellation email for ${id}:`, emailError);
           // Don't fail the request if email sending fails
         }
-        
-        console.log("Sent customer cancellation notification");
       }
       
       // CASE 5: Booking completed -> Send completion notification to CUSTOMER
