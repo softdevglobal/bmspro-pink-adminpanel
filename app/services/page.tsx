@@ -225,6 +225,12 @@ export default function ServicesPage() {
     const selectedBrs = Object.keys(selectedBranches).filter((id) => selectedBranches[id]);
     if (!ownerUid) return;
     
+    // Validate that at least one branch is selected
+    if (selectedBrs.length === 0) {
+      showToast("Please select at least one branch for this service");
+      return;
+    }
+    
     setSaving(true);
     try {
       // Upload image if a new file is selected

@@ -2003,8 +2003,8 @@ function BookingsPageContent() {
                       {servicesList
                         .filter((srv: any) => {
                           // Filter services by selected branch
-                          // Show service if it has the selected branch in its branches array
-                          if (!srv.branches || srv.branches.length === 0) return true; // Show if no branch restriction
+                          // Service must have at least one branch assigned, and selected branch must be in the list
+                          if (!srv.branches || srv.branches.length === 0) return false; // Not available if no branches assigned
                           return srv.branches.includes(bkBranchId);
                         })
                         .map((srv: any) => {
@@ -2042,7 +2042,7 @@ function BookingsPageContent() {
                           </button>
                         );
                       })}
-                      {servicesList.filter((srv: any) => !srv.branches || srv.branches.length === 0 || srv.branches.includes(bkBranchId)).length === 0 && (
+                      {servicesList.filter((srv: any) => srv.branches && srv.branches.length > 0 && srv.branches.includes(bkBranchId)).length === 0 && (
                         <div className="col-span-full bg-slate-50 border-2 border-dashed border-slate-300 rounded-lg p-8 text-center">
                           <i className="fas fa-concierge-bell text-4xl text-slate-300 mb-2 block" />
                           <p className="text-slate-500 font-medium text-sm">No services available at this branch</p>
