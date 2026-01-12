@@ -138,6 +138,9 @@ export default function DashboardPage() {
         const currentMonthRevenue = bookings
           .filter((b: any) => {
             if (!b.date) return false;
+            // Only count completed bookings for revenue
+            const status = (b.status || '').toString().toLowerCase();
+            if (status !== 'completed') return false;
             const bookingDate = new Date(b.date);
             return bookingDate.getMonth() === currentMonth && bookingDate.getFullYear() === currentYear;
           })
@@ -151,6 +154,9 @@ export default function DashboardPage() {
         const prevMonthRevenue = bookings
           .filter((b: any) => {
             if (!b.date) return false;
+            // Only count completed bookings for revenue
+            const status = (b.status || '').toString().toLowerCase();
+            if (status !== 'completed') return false;
             const bookingDate = new Date(b.date);
             return bookingDate.getMonth() === prevMonth && bookingDate.getFullYear() === prevYear;
           })
@@ -187,6 +193,9 @@ export default function DashboardPage() {
           const monthRevenue = bookings
             .filter((b: any) => {
               if (!b.date) return false;
+              // Only count completed bookings for revenue
+              const status = (b.status || '').toString().toLowerCase();
+              if (status !== 'completed') return false;
               const bookingDate = new Date(b.date);
               return bookingDate.getMonth() === month && bookingDate.getFullYear() === year;
             })
@@ -370,6 +379,9 @@ export default function DashboardPage() {
           const currentMonthRevenue = allBookings
             .filter((b: any) => {
               if (!b.date) return false;
+              // Only count completed bookings for revenue
+              const status = (b.status || '').toString().toLowerCase();
+              if (status !== 'completed') return false;
               const bookingDate = new Date(b.date);
               return bookingDate.getMonth() === currentMonth && bookingDate.getFullYear() === currentYear;
             })
@@ -383,6 +395,9 @@ export default function DashboardPage() {
           const prevMonthRevenue = allBookings
             .filter((b: any) => {
               if (!b.date) return false;
+              // Only count completed bookings for revenue
+              const status = (b.status || '').toString().toLowerCase();
+              if (status !== 'completed') return false;
               const bookingDate = new Date(b.date);
               return bookingDate.getMonth() === prevMonth && bookingDate.getFullYear() === prevYear;
             })
@@ -419,6 +434,9 @@ export default function DashboardPage() {
             const monthRevenue = allBookings
               .filter((b: any) => {
                 if (!b.date) return false;
+                // Only count completed bookings for revenue
+                const status = (b.status || '').toString().toLowerCase();
+                if (status !== 'completed') return false;
                 const bookingDate = new Date(b.date);
                 return bookingDate.getMonth() === month && bookingDate.getFullYear() === year;
               })
@@ -1461,10 +1479,16 @@ export default function DashboardPage() {
                     };
 
                     const getTotalRevenue = (bookings: typeof filtered) => {
-                      return bookings.reduce((sum, b) => {
-                        const price = b.price || b.services?.reduce((s: number, svc: any) => s + (Number(svc.price) || 0), 0) || 0;
-                        return sum + price;
-                      }, 0);
+                      return bookings
+                        .filter((b: any) => {
+                          // Only count completed bookings for revenue
+                          const status = (b.status || '').toString().toLowerCase();
+                          return status === 'completed';
+                        })
+                        .reduce((sum, b) => {
+                          const price = b.price || b.services?.reduce((s: number, svc: any) => s + (Number(svc.price) || 0), 0) || 0;
+                          return sum + price;
+                        }, 0);
                     };
 
                     const getTotalDuration = (bookings: typeof filtered) => {
@@ -1665,10 +1689,16 @@ export default function DashboardPage() {
                     };
 
                     const getTotalRevenue = (bookings: typeof filtered) => {
-                      return bookings.reduce((sum, b) => {
-                        const price = b.price || b.services?.reduce((s: number, svc: any) => s + (Number(svc.price) || 0), 0) || 0;
-                        return sum + price;
-                      }, 0);
+                      return bookings
+                        .filter((b: any) => {
+                          // Only count completed bookings for revenue
+                          const status = (b.status || '').toString().toLowerCase();
+                          return status === 'completed';
+                        })
+                        .reduce((sum, b) => {
+                          const price = b.price || b.services?.reduce((s: number, svc: any) => s + (Number(svc.price) || 0), 0) || 0;
+                          return sum + price;
+                        }, 0);
                     };
 
                     const getUniqueStaffCount = (bookings: typeof filtered) => {

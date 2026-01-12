@@ -105,12 +105,14 @@ function AnalyticsTab({
     });
   }, [branchBookings, dateRange.start, dateRange.end]);
 
-  // Calculate total revenue from filtered bookings
+  // Calculate total revenue from filtered bookings (only completed bookings)
   const totalRevenue = useMemo(() => {
-    return filteredBookings.reduce((sum, b) => {
-      const price = Number(b.price || b.totalPrice || 0);
-      return sum + price;
-    }, 0);
+    return filteredBookings
+      .filter(b => b.status === "Completed")
+      .reduce((sum, b) => {
+        const price = Number(b.price || b.totalPrice || 0);
+        return sum + price;
+      }, 0);
   }, [filteredBookings]);
 
   // Calculate completed bookings revenue
@@ -495,8 +497,10 @@ function ScheduleTab({
     return cells;
   };
 
-  // Calculate daily stats
-  const dayRevenue = sortedBookings.reduce((sum, b) => sum + Number(b.price || b.totalPrice || 0), 0);
+  // Calculate daily stats (only completed bookings for revenue)
+  const dayRevenue = sortedBookings
+    .filter(b => b.status === "Completed")
+    .reduce((sum, b) => sum + Number(b.price || b.totalPrice || 0), 0);
   const completedCount = sortedBookings.filter(b => b.status === "Completed").length;
   const pendingCount = sortedBookings.filter(b => b.status === "Pending").length;
   const confirmedCount = sortedBookings.filter(b => b.status === "Confirmed").length;

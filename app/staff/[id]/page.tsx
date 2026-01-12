@@ -121,8 +121,10 @@ function StaffScheduleTab({
     return cells;
   };
 
-  // Calculate daily stats
-  const dayRevenue = sortedBookings.reduce((sum, b) => sum + Number(b.price || 0), 0);
+  // Calculate daily stats (only completed bookings for revenue)
+  const dayRevenue = sortedBookings
+    .filter(b => b.status === "Completed")
+    .reduce((sum, b) => sum + Number(b.price || 0), 0);
   const completedCount = sortedBookings.filter(b => b.status === "Completed").length;
   const isToday = selectedDate.toDateString() === new Date().toDateString();
 

@@ -119,6 +119,9 @@ export default function AdminDashboardPage() {
           const currentMonthRevenue = allBookings
             .filter((b: any) => {
               if (!b.date) return false;
+              // Only count completed bookings for revenue
+              const status = (b.status || '').toString().toLowerCase();
+              if (status !== 'completed') return false;
               const bookingDate = new Date(b.date);
               return bookingDate.getMonth() === currentMonth && bookingDate.getFullYear() === currentYear;
             })
@@ -132,6 +135,9 @@ export default function AdminDashboardPage() {
           const prevMonthRevenue = allBookings
             .filter((b: any) => {
               if (!b.date) return false;
+              // Only count completed bookings for revenue
+              const status = (b.status || '').toString().toLowerCase();
+              if (status !== 'completed') return false;
               const bookingDate = new Date(b.date);
               return bookingDate.getMonth() === prevMonth && bookingDate.getFullYear() === prevYear;
             })
@@ -168,6 +174,9 @@ export default function AdminDashboardPage() {
             const monthRevenue = allBookings
               .filter((b: any) => {
                 if (!b.date) return false;
+                // Only count completed bookings for revenue
+                const status = (b.status || '').toString().toLowerCase();
+                if (status !== 'completed') return false;
                 const bookingDate = new Date(b.date);
                 return bookingDate.getMonth() === month && bookingDate.getFullYear() === year;
               })
