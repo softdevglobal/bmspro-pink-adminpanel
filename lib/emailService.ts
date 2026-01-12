@@ -1207,7 +1207,7 @@ function generatePasswordResetEmailHTML(
   userName: string,
   resetCode: string
 ): string {
-  const resetPageUrl = `${process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000"}/reset-password`;
+  const resetPageUrl = `${process.env.NEXT_PUBLIC_APP_URL || "https://pink.bmspros.com.au"}/reset-password`;
   
   return `
 <!DOCTYPE html>
