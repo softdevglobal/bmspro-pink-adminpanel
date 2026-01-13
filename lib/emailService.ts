@@ -194,7 +194,8 @@ function generateEmailHTML(
   ` : "";
   
   // Staff assignment message for unassigned staff
-  const staffAssignmentMessage = hasUnassignedStaff ? `
+  // Exclude from cancellation emails
+  const staffAssignmentMessage = (hasUnassignedStaff && status !== "Canceled") ? `
     <tr>
       <td colspan="2" style='padding: 12px 0;'>
         <div style='background-color: #fef3c7; border-left: 3px solid #f59e0b; padding: 12px 16px; border-radius: 6px; margin-top: 8px;'>
