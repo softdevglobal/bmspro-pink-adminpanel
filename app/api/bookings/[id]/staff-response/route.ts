@@ -10,8 +10,43 @@ import {
 import { logBookingStaffResponseServer } from "@/lib/auditLogServer";
 import { checkRateLimit, getClientIdentifier, RateLimiters, getRateLimitHeaders } from "@/lib/rateLimiterDistributed";
 import { sendBookingStatusChangeEmail } from "@/lib/emailService";
+import type { Firestore } from "firebase-admin/firestore";
 
 export const runtime = "nodejs";
+
+/**
+ * Get all branch admin UIDs for a branch
+ * Branch admins are stored in the users collection with role='salon_branch_admin' and matching branchId
+ */
+async function getBranchAdminUids(db: Firestore, branchId: string, ownerUid: string): Promise<string[]> {
+  try {
+    // Query users collection for branch admins
+    // Branch admins have: role='salon_branch_admin', ownerUid matches, and branchId matches
+    const branchAdminQuery = await db.collection("users")
+      .where("ownerUid", "==", ownerUid)
+      .where("role", "==", "salon_branch_admin")
+      .where("branchId", "==", branchId)
+      .get();
+    
+    const branchAdminUids = branchAdminQuery.docs.map(doc => doc.id);
+    
+    // Also check legacy adminStaffId in branch document (for backward compatibility)
+    if (branchAdminUids.length === 0) {
+      const branchDoc = await db.collection("branches").doc(branchId).get();
+      if (branchDoc.exists) {
+        const branchData = branchDoc.data();
+        if (branchData?.adminStaffId) {
+          return [branchData.adminStaffId];
+        }
+      }
+    }
+    
+    return branchAdminUids;
+  } catch (error) {
+    console.error("Error getting branch admins:", error);
+    return [];
+  }
+}
 
 // CORS headers for mobile app
 const corsHeaders = {
@@ -606,6 +641,54 @@ export async function POST(req: NextRequest, context: { params: Promise<{ id: st
           console.error("Failed to send admin notification:", e);
         }
         
+        // Also notify branch admins of the rejection
+        if (bookingData.branchId) {
+          try {
+            const branchAdminUids = await getBranchAdminUids(db, bookingData.branchId, ownerUid);
+            const rejectedServices = updatedServices.filter((s: any) => s.approvalStatus === "rejected");
+            const serviceList = rejectedServices.length > 0
+              ? rejectedServices.map(s => s.name || "Service").join(", ")
+              : servicesToUpdate.map(s => s.name).join(", ");
+            
+            for (const branchAdminUid of branchAdminUids) {
+              // Skip if branch admin is the owner (already notified)
+              if (branchAdminUid === ownerUid) continue;
+              
+              // Create rejection notification for branch admin (same as owner notification but with branchAdminUid)
+              await db.collection("notifications").add({
+                bookingId: id,
+                bookingCode: bookingData.bookingCode,
+                type: "staff_rejected",
+                title: "Booking Rejected by Staff",
+                message: `${staffName} has rejected the booking for ${clientName} (${serviceList} on ${finalBookingDate} at ${finalBookingTime}). Reason: "${body.rejectionReason || "No reason provided"}". Please reassign to another staff member.`,
+                status: "StaffRejected",
+                ownerUid: ownerUid,
+                branchAdminUid: branchAdminUid, // Target the branch admin - CRITICAL for mobile app queries
+                targetAdminUid: branchAdminUid, // Also set for mobile app queries
+                branchId: bookingData.branchId, // Include branchId for branch admin filtering
+                rejectedByStaffUid: staffUid,
+                rejectedByStaffName: staffName,
+                rejectionReason: body.rejectionReason || "No reason provided",
+                clientName: clientName,
+                serviceName: serviceList,
+                services: rejectedServices.map((s: any) => ({
+                  name: s.name || "Service",
+                  staffName: s.staffName,
+                  staffId: s.staffId,
+                })),
+                branchName: bookingData.branchName,
+                bookingDate: finalBookingDate,
+                bookingTime: finalBookingTime,
+                read: false,
+                createdAt: FieldValue.serverTimestamp(),
+              });
+              console.log(`Sent branch admin rejection notification to ${branchAdminUid}`);
+            }
+          } catch (e) {
+            console.error("Failed to send branch admin notifications:", e);
+          }
+        }
+        
         // Also notify customer that their booking is being rescheduled
         // (Customer-friendly notification without exposing staff rejection details)
         try {
@@ -932,6 +1015,45 @@ export async function POST(req: NextRequest, context: { params: Promise<{ id: st
           console.log("Sent admin rejection notification");
         } catch (e) {
           console.error("Failed to send admin notification:", e);
+        }
+        
+        // Also notify branch admins of the rejection
+        if (bookingData.branchId) {
+          try {
+            const branchAdminUids = await getBranchAdminUids(db, bookingData.branchId, ownerUid);
+            
+            for (const branchAdminUid of branchAdminUids) {
+              // Skip if branch admin is the owner (already notified)
+              if (branchAdminUid === ownerUid) continue;
+              
+              // Create rejection notification for branch admin (same as owner notification but with branchAdminUid)
+              await db.collection("notifications").add({
+                bookingId: id,
+                bookingCode: bookingData.bookingCode,
+                type: "staff_rejected",
+                title: "Booking Rejected by Staff",
+                message: `${staffName} has rejected the booking for ${clientName} (${finalServiceName} on ${finalBookingDate} at ${finalBookingTime}). Reason: "${body.rejectionReason || "No reason provided"}". Please reassign to another staff member.`,
+                status: "StaffRejected",
+                ownerUid: ownerUid,
+                branchAdminUid: branchAdminUid, // Target the branch admin - CRITICAL for mobile app queries
+                targetAdminUid: branchAdminUid, // Also set for mobile app queries
+                branchId: bookingData.branchId, // Include branchId for branch admin filtering
+                rejectedByStaffUid: staffUid,
+                rejectedByStaffName: staffName,
+                rejectionReason: body.rejectionReason || "No reason provided",
+                clientName: clientName,
+                serviceName: finalServiceName,
+                branchName: bookingData.branchName,
+                bookingDate: finalBookingDate,
+                bookingTime: finalBookingTime,
+                read: false,
+                createdAt: FieldValue.serverTimestamp(),
+              });
+              console.log(`Sent branch admin rejection notification to ${branchAdminUid}`);
+            }
+          } catch (e) {
+            console.error("Failed to send branch admin notifications:", e);
+          }
         }
         
         // Also notify customer that their booking is being rescheduled
