@@ -94,6 +94,7 @@ const TENANTS: TenantRow[] = [
 
 type TenantDoc = {
   name: string;
+  email?: string;
   abn?: string;
   state?: string;
   plan?: string;
@@ -101,6 +102,11 @@ type TenantDoc = {
   status?: string;
   locationText?: string;
   timezone?: string; // IANA timezone (e.g., 'Australia/Sydney')
+  contactPhone?: string;
+  businessStructure?: string;
+  gstRegistered?: boolean;
+  createdAt?: any;
+  updatedAt?: any;
 };
 
 export default function TenantsPage() {
@@ -631,7 +637,7 @@ export default function TenantsPage() {
                               <i className="fas fa-eye text-sm" />
                             </button>
                             <button
-                              className="p-2 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-lg transition"
+                              className="p-2 text-slate-400 hover:text-pink-600 hover:bg-pink-50 rounded-lg transition"
                               onClick={() => {
                                 setEditTenantId(id);
                                 setEditName(data.name || "");
@@ -641,7 +647,7 @@ export default function TenantsPage() {
                                 setEditPrice(data.price || "");
                                 setEditStatus(data.status || "");
                                 setEditLocation(data.locationText || "");
-                                setEditPhone((data as any).contactPhone || "");
+                                setEditPhone(data.contactPhone || "");
                                 setEditTimezone(data.timezone || "Australia/Sydney");
                                 setEditOpen(true);
                               }}
@@ -745,42 +751,160 @@ export default function TenantsPage() {
 
             <div className="flex-1 overflow-auto bg-slate-50">
               <div className="p-6 space-y-6">
-                <div className="text-xs font-semibold text-slate-500">Overview</div>
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                  <div className="bg-white border border-slate-200 rounded-xl p-4 shadow-sm">
-                    <div className="text-xs text-slate-500">ABN</div>
-                    <div className="mt-1 font-medium text-slate-900">{previewTenant.data.abn || "—"}</div>
-                  </div>
-                  <div className="bg-white border border-slate-200 rounded-xl p-4 shadow-sm">
-                    <div className="text-xs text-slate-500">State</div>
-                    <div className="mt-1 font-medium text-slate-900">{previewTenant.data.state || "—"}</div>
-                  </div>
-                  <div className="bg-white border border-slate-200 rounded-xl p-4 shadow-sm">
-                    <div className="text-xs text-slate-500">Plan</div>
-                    <div className="mt-1 font-medium text-slate-900">{previewTenant.data.plan || "—"}</div>
-                  </div>
-                  <div className="bg-white border border-slate-200 rounded-xl p-4 shadow-sm">
-                    <div className="text-xs text-slate-500">Price</div>
-                    <div className="mt-1 font-medium text-slate-900">{previewTenant.data.price || "—"}</div>
-                  </div>
-                  <div className="bg-white border border-slate-200 rounded-xl p-4 shadow-sm sm:col-span-2">
-                    <div className="text-xs text-slate-500">Time Zone</div>
-                    <div className="mt-1 font-medium text-slate-900 flex items-center gap-2">
-                      <i className="fas fa-globe text-slate-400" />
-                      {previewTenant.data.timezone || "Australia/Sydney"}
+                {/* Email Section - Creative Read-Only Display */}
+                <div className="bg-gradient-to-r from-slate-800 to-slate-900 rounded-xl p-4 shadow-lg">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-3">
+                      <div className="w-10 h-10 rounded-lg bg-white/10 flex items-center justify-center">
+                        <i className="fas fa-envelope text-white" />
+                      </div>
+                      <div>
+                        <div className="text-xs text-slate-400 flex items-center gap-1">
+                          Account Email
+                          <i className="fas fa-lock text-[10px] text-amber-400" title="Cannot be changed" />
+                        </div>
+                        <div className="text-white font-medium">{previewTenant.data.email || "—"}</div>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <span className="px-2 py-1 rounded-full bg-emerald-500/20 text-emerald-400 text-[10px] font-semibold flex items-center gap-1">
+                        <i className="fas fa-check-circle" />
+                        Verified
+                      </span>
                     </div>
                   </div>
-                  <div className="bg-white border border-slate-200 rounded-xl p-4 shadow-sm sm:col-span-2">
-                    <div className="text-xs text-slate-500">Contact Phone</div>
-                    <div className="mt-1 font-medium text-slate-900">{(previewTenant.data as any).contactPhone || "—"}</div>
+                </div>
+
+                {/* Business Details */}
+                <div>
+                  <div className="text-xs font-semibold text-slate-500 mb-3 flex items-center gap-2">
+                    <i className="fas fa-building text-pink-500" />
+                    Business Details
+                  </div>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div className="bg-white border border-slate-200 rounded-xl p-4 shadow-sm hover:shadow-md transition-shadow">
+                      <div className="flex items-center gap-2 text-xs text-slate-500 mb-1">
+                        <i className="fas fa-hashtag text-pink-400" />
+                        ABN
+                      </div>
+                      <div className="font-semibold text-slate-900 font-mono">{previewTenant.data.abn || "Pending"}</div>
+                    </div>
+                    <div className="bg-white border border-slate-200 rounded-xl p-4 shadow-sm hover:shadow-md transition-shadow">
+                      <div className="flex items-center gap-2 text-xs text-slate-500 mb-1">
+                        <i className="fas fa-briefcase text-indigo-400" />
+                        Business Structure
+                      </div>
+                      <div className="font-semibold text-slate-900">{previewTenant.data.businessStructure || "—"}</div>
+                    </div>
+                    <div className="bg-white border border-slate-200 rounded-xl p-4 shadow-sm hover:shadow-md transition-shadow">
+                      <div className="flex items-center gap-2 text-xs text-slate-500 mb-1">
+                        <i className="fas fa-receipt text-emerald-400" />
+                        GST Registered
+                      </div>
+                      <div className="font-semibold text-slate-900 flex items-center gap-2">
+                        {previewTenant.data.gstRegistered ? (
+                          <span className="text-emerald-600 flex items-center gap-1">
+                            <i className="fas fa-check-circle" /> Yes
+                          </span>
+                        ) : (
+                          <span className="text-slate-500">No</span>
+                        )}
+                      </div>
+                    </div>
+                    <div className="bg-white border border-slate-200 rounded-xl p-4 shadow-sm hover:shadow-md transition-shadow">
+                      <div className="flex items-center gap-2 text-xs text-slate-500 mb-1">
+                        <i className="fas fa-map-marker-alt text-rose-400" />
+                        State
+                      </div>
+                      <div className="font-semibold text-slate-900">{previewTenant.data.state || "—"}</div>
+                    </div>
                   </div>
                 </div>
+
+                {/* Subscription Details */}
+                <div>
+                  <div className="text-xs font-semibold text-slate-500 mb-3 flex items-center gap-2">
+                    <i className="fas fa-crown text-amber-500" />
+                    Subscription
+                  </div>
+                  <div className="bg-gradient-to-br from-pink-50 to-fuchsia-50 border border-pink-200 rounded-xl p-4 shadow-sm">
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <div className="text-sm text-pink-600 font-medium">Current Plan</div>
+                        <div className="text-2xl font-bold text-slate-900">{previewTenant.data.plan || "—"}</div>
+                      </div>
+                      <div className="text-right">
+                        <div className="text-sm text-slate-500">Monthly</div>
+                        <div className="text-xl font-bold text-pink-600">{previewTenant.data.price || "—"}</div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Contact & Location */}
+                <div>
+                  <div className="text-xs font-semibold text-slate-500 mb-3 flex items-center gap-2">
+                    <i className="fas fa-address-card text-blue-500" />
+                    Contact & Location
+                  </div>
+                  <div className="grid grid-cols-1 gap-3">
+                    <div className="bg-white border border-slate-200 rounded-xl p-4 shadow-sm hover:shadow-md transition-shadow">
+                      <div className="flex items-center gap-2 text-xs text-slate-500 mb-1">
+                        <i className="fas fa-phone text-green-400" />
+                        Contact Phone
+                      </div>
+                      <div className="font-semibold text-slate-900">{previewTenant.data.contactPhone || "—"}</div>
+                    </div>
+                    <div className="bg-white border border-slate-200 rounded-xl p-4 shadow-sm hover:shadow-md transition-shadow">
+                      <div className="flex items-center gap-2 text-xs text-slate-500 mb-1">
+                        <i className="fas fa-location-dot text-rose-400" />
+                        Location
+                      </div>
+                      <div className="font-semibold text-slate-900">{previewTenant.data.locationText || "—"}</div>
+                    </div>
+                    <div className="bg-white border border-slate-200 rounded-xl p-4 shadow-sm hover:shadow-md transition-shadow">
+                      <div className="flex items-center gap-2 text-xs text-slate-500 mb-1">
+                        <i className="fas fa-globe text-blue-400" />
+                        Time Zone
+                      </div>
+                      <div className="font-semibold text-slate-900">{previewTenant.data.timezone || "Australia/Sydney"}</div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Timestamps */}
+                {(previewTenant.data.createdAt || previewTenant.data.updatedAt) && (
+                  <div>
+                    <div className="text-xs font-semibold text-slate-500 mb-3 flex items-center gap-2">
+                      <i className="fas fa-clock text-slate-400" />
+                      Activity
+                    </div>
+                    <div className="grid grid-cols-2 gap-3">
+                      {previewTenant.data.createdAt && (
+                        <div className="bg-white border border-slate-200 rounded-xl p-3 shadow-sm">
+                          <div className="text-[10px] text-slate-400 uppercase tracking-wide">Created</div>
+                          <div className="text-xs font-medium text-slate-700 mt-1">
+                            {previewTenant.data.createdAt?.toDate?.()?.toLocaleDateString?.() || "—"}
+                          </div>
+                        </div>
+                      )}
+                      {previewTenant.data.updatedAt && (
+                        <div className="bg-white border border-slate-200 rounded-xl p-3 shadow-sm">
+                          <div className="text-[10px] text-slate-400 uppercase tracking-wide">Last Updated</div>
+                          <div className="text-xs font-medium text-slate-700 mt-1">
+                            {previewTenant.data.updatedAt?.toDate?.()?.toLocaleDateString?.() || "—"}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
 
                 <div className="bg-white border border-slate-200 rounded-xl p-4 shadow-sm">
                   <div className="text-xs font-semibold text-slate-500 mb-3">Quick actions</div>
                   <div className="flex items-center gap-3">
                     <button
-                      className="px-4 py-2 rounded-lg bg-pink-600 hover:bg-pink-700 text-white text-sm font-semibold shadow-sm"
+                      className="px-4 py-2 rounded-lg bg-gradient-to-r from-pink-600 to-fuchsia-600 hover:from-pink-700 hover:to-fuchsia-700 text-white text-sm font-semibold shadow-lg shadow-pink-500/25 transition-all"
                       onClick={() => {
                         setEditTenantId(previewTenant.id);
                         const d = previewTenant.data;
@@ -791,13 +915,13 @@ export default function TenantsPage() {
                         setEditPrice(d.price || "");
                         setEditStatus(d.status || "");
                         setEditLocation(d.locationText || "");
-                        setEditPhone((d as any).contactPhone || "");
+                        setEditPhone(d.contactPhone || "");
                         setEditTimezone(d.timezone || "Australia/Sydney");
                         setEditOpen(true);
                       }}
                     >
                       <i className="fas fa-edit mr-2" />
-                      Edit
+                      Edit Details
                     </button>
                     <button
                       className={`px-4 py-2 rounded-lg text-white text-sm font-semibold shadow-sm ${
@@ -845,25 +969,68 @@ export default function TenantsPage() {
         <div className="fixed inset-0 z-50">
           <div className="absolute inset-0 bg-black/50" onClick={() => setEditOpen(false)} />
           <div className="relative flex items-start md:items-center justify-center min-h-screen p-4 overflow-y-auto">
-            <div className="bg-white rounded-2xl shadow-2xl w-full max-w-xl max-h-[90vh] flex flex-col">
-              <div className="px-6 py-4 border-b border-slate-200 flex items-center justify-between">
-                <h3 className="text-lg font-semibold text-slate-900">Edit Tenant</h3>
-                <button className="text-slate-500 hover:text-slate-700" onClick={() => setEditOpen(false)}>
+            <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[90vh] flex flex-col">
+              <div className="px-6 py-4 border-b border-slate-200 flex items-center justify-between bg-gradient-to-r from-pink-500 to-fuchsia-600 rounded-t-2xl">
+                <div>
+                  <h3 className="text-lg font-semibold text-white">Edit Tenant Details</h3>
+                  <p className="text-xs text-white/70">Update business information</p>
+                </div>
+                <button className="text-white/80 hover:text-white bg-white/10 hover:bg-white/20 rounded-lg w-8 h-8 flex items-center justify-center transition" onClick={() => setEditOpen(false)}>
                   <i className="fas fa-times" />
                 </button>
               </div>
-              <div className="p-6 space-y-4 overflow-auto">
-                <div>
-                  <label className="block text-sm font-medium text-slate-700 mb-1">Business Name</label>
-                  <input className="w-full px-4 py-3 border border-slate-300 rounded-lg focus:ring-2 focus:ring-pink-500 focus:border-transparent" value={editName} onChange={(e) => setEditName(e.target.value)} />
+              <div className="p-6 space-y-5 overflow-auto">
+                {/* Email - Read Only with Creative Display */}
+                <div className="bg-gradient-to-r from-slate-100 to-slate-50 border-2 border-dashed border-slate-300 rounded-xl p-4">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-3">
+                      <div className="w-10 h-10 rounded-lg bg-slate-200 flex items-center justify-center">
+                        <i className="fas fa-envelope text-slate-500" />
+                      </div>
+                      <div>
+                        <div className="text-xs text-slate-500 flex items-center gap-1.5">
+                          Account Email
+                          <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-amber-100 text-amber-700 text-[10px] font-semibold">
+                            <i className="fas fa-lock text-[8px]" />
+                            Read Only
+                          </span>
+                        </div>
+                        <div className="font-medium text-slate-900">{tenants.find(t => t.id === editTenantId)?.data.email || "—"}</div>
+                      </div>
+                    </div>
+                    <div className="text-xs text-slate-400 flex items-center gap-1">
+                      <i className="fas fa-shield-alt" />
+                      Protected
+                    </div>
+                  </div>
+                  <p className="text-[10px] text-slate-400 mt-2 pl-13">
+                    Email cannot be changed as it&apos;s linked to the authentication account
+                  </p>
                 </div>
+
+                {/* Business Name */}
+                <div>
+                  <label className="block text-sm font-semibold text-slate-700 mb-1.5 flex items-center gap-2">
+                    <i className="fas fa-store text-pink-500" />
+                    Business Name
+                  </label>
+                  <input className="w-full px-4 py-3 border border-slate-300 rounded-lg focus:ring-2 focus:ring-pink-500 focus:border-transparent" value={editName} onChange={(e) => setEditName(e.target.value)} placeholder="Enter business name" />
+                </div>
+
+                {/* ABN & State Row */}
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div>
-                    <label className="block text-sm font-medium text-slate-700 mb-1">ABN</label>
-                    <input className="w-full px-4 py-3 border border-slate-300 rounded-lg focus:ring-2 focus:ring-pink-500 focus:border-transparent" value={editAbn} onChange={(e) => setEditAbn(e.target.value)} />
+                    <label className="block text-sm font-semibold text-slate-700 mb-1.5 flex items-center gap-2">
+                      <i className="fas fa-hashtag text-indigo-500" />
+                      ABN
+                    </label>
+                    <input className="w-full px-4 py-3 border border-slate-300 rounded-lg focus:ring-2 focus:ring-pink-500 focus:border-transparent font-mono" value={editAbn} onChange={(e) => setEditAbn(e.target.value)} placeholder="XX XXX XXX XXX" />
                   </div>
                   <div>
-                    <label className="block text-sm font-medium text-slate-700 mb-1">State</label>
+                    <label className="block text-sm font-semibold text-slate-700 mb-1.5 flex items-center gap-2">
+                      <i className="fas fa-map-marker-alt text-rose-500" />
+                      State
+                    </label>
                     <div className="relative">
                       <select
                         className="w-full appearance-none pr-10 px-4 py-3 border border-slate-300 rounded-lg focus:ring-2 focus:ring-pink-500 focus:border-transparent"
@@ -886,35 +1053,175 @@ export default function TenantsPage() {
                     </div>
                   </div>
                 </div>
-                {/* Plan and price are managed elsewhere; hidden from edit */}
-                <div>
-                  <label className="block text-sm font-medium text-slate-700 mb-1">Status</label>
-                  <input className="w-full px-4 py-3 border border-slate-300 rounded-lg focus:ring-2 focus:ring-pink-500 focus:border-transparent" value={editStatus} onChange={(e) => setEditStatus(e.target.value)} />
+
+                {/* Business Structure & GST Row */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-sm font-semibold text-slate-700 mb-1.5 flex items-center gap-2">
+                      <i className="fas fa-briefcase text-purple-500" />
+                      Business Structure
+                    </label>
+                    <div className="relative">
+                      <select
+                        className="w-full appearance-none pr-10 px-4 py-3 border border-slate-300 rounded-lg focus:ring-2 focus:ring-pink-500 focus:border-transparent"
+                        value={(tenants.find(t => t.id === editTenantId)?.data as any)?.businessStructure || ""}
+                        onChange={(e) => {
+                          // Update local tenants state for businessStructure
+                          setTenants(prev => prev.map(t => 
+                            t.id === editTenantId 
+                              ? { ...t, data: { ...t.data, businessStructure: e.target.value } }
+                              : t
+                          ));
+                        }}
+                      >
+                        <option value="">Select structure</option>
+                        <option value="Pty Ltd">Pty Ltd</option>
+                        <option value="Sole Trader">Sole Trader</option>
+                        <option value="Partnership">Partnership</option>
+                        <option value="Trust">Trust</option>
+                      </select>
+                      <span className="pointer-events-none absolute inset-y-0 right-3 flex items-center text-slate-500">
+                        <i className="fas fa-chevron-down" />
+                      </span>
+                    </div>
+                  </div>
+                  <div>
+                    <label className="block text-sm font-semibold text-slate-700 mb-1.5 flex items-center gap-2">
+                      <i className="fas fa-receipt text-emerald-500" />
+                      GST Registered
+                    </label>
+                    <div className="flex items-center gap-3 h-[50px] px-4 border border-slate-300 rounded-lg bg-white">
+                      <label className="relative inline-flex items-center cursor-pointer">
+                        <input
+                          type="checkbox"
+                          className="sr-only peer"
+                          checked={(tenants.find(t => t.id === editTenantId)?.data as any)?.gstRegistered || false}
+                          onChange={(e) => {
+                            setTenants(prev => prev.map(t => 
+                              t.id === editTenantId 
+                                ? { ...t, data: { ...t.data, gstRegistered: e.target.checked } }
+                                : t
+                            ));
+                          }}
+                        />
+                        <div className="w-11 h-6 bg-slate-300 peer-focus:ring-2 peer-focus:ring-pink-500 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-emerald-500" />
+                      </label>
+                      <span className="text-sm text-slate-600">
+                        {(tenants.find(t => t.id === editTenantId)?.data as any)?.gstRegistered ? "Yes, registered" : "Not registered"}
+                      </span>
+                    </div>
+                  </div>
                 </div>
-                <div>
-                  <label className="block text-sm font-medium text-slate-700 mb-1">Location</label>
-                  <input className="w-full px-4 py-3 border border-slate-300 rounded-lg focus:ring-2 focus:ring-pink-500 focus:border-transparent" value={editLocation} onChange={(e) => setEditLocation(e.target.value)} />
+
+                {/* Plan & Status Row */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-sm font-semibold text-slate-700 mb-1.5 flex items-center gap-2">
+                      <i className="fas fa-crown text-amber-500" />
+                      Plan
+                    </label>
+                    <div className="relative">
+                      <select
+                        className="w-full appearance-none pr-10 px-4 py-3 border border-slate-300 rounded-lg focus:ring-2 focus:ring-pink-500 focus:border-transparent"
+                        value={editPlan}
+                        onChange={(e) => {
+                          setEditPlan(e.target.value);
+                          // Auto-set price based on plan
+                          const prices: Record<string, string> = {
+                            "Starter": "AU$99/mo",
+                            "Pro": "AU$149/mo",
+                            "Enterprise": "AU$299/mo"
+                          };
+                          setEditPrice(prices[e.target.value] || "");
+                        }}
+                      >
+                        <option value="">Select plan</option>
+                        <option value="Starter">Starter</option>
+                        <option value="Pro">Pro</option>
+                        <option value="Enterprise">Enterprise</option>
+                      </select>
+                      <span className="pointer-events-none absolute inset-y-0 right-3 flex items-center text-slate-500">
+                        <i className="fas fa-chevron-down" />
+                      </span>
+                    </div>
+                  </div>
+                  <div>
+                    <label className="block text-sm font-semibold text-slate-700 mb-1.5 flex items-center gap-2">
+                      <i className="fas fa-circle-check text-blue-500" />
+                      Status
+                    </label>
+                    <div className="relative">
+                      <select
+                        className="w-full appearance-none pr-10 px-4 py-3 border border-slate-300 rounded-lg focus:ring-2 focus:ring-pink-500 focus:border-transparent"
+                        value={editStatus}
+                        onChange={(e) => setEditStatus(e.target.value)}
+                      >
+                        <option value="">Select status</option>
+                        <option value="Active">Active</option>
+                        <option value="Pending ABN">Pending ABN</option>
+                        <option value="Provisioning">Provisioning</option>
+                        <option value="Suspended">Suspended</option>
+                      </select>
+                      <span className="pointer-events-none absolute inset-y-0 right-3 flex items-center text-slate-500">
+                        <i className="fas fa-chevron-down" />
+                      </span>
+                    </div>
+                  </div>
                 </div>
+
+                {/* Location */}
                 <div>
-                  <label className="block text-sm font-medium text-slate-700 mb-1">Contact Phone</label>
-                  <input className="w-full px-4 py-3 border border-slate-300 rounded-lg focus:ring-2 focus:ring-pink-500 focus:border-transparent" value={editPhone} onChange={(e) => setEditPhone(e.target.value)} />
+                  <label className="block text-sm font-semibold text-slate-700 mb-1.5 flex items-center gap-2">
+                    <i className="fas fa-location-dot text-rose-500" />
+                    Location / Address
+                  </label>
+                  <textarea 
+                    className="w-full px-4 py-3 border border-slate-300 rounded-lg focus:ring-2 focus:ring-pink-500 focus:border-transparent resize-none" 
+                    rows={2}
+                    value={editLocation} 
+                    onChange={(e) => setEditLocation(e.target.value)} 
+                    placeholder="Full business address"
+                  />
                 </div>
-                <div>
-                  <label className="block text-sm font-medium text-slate-700 mb-1">Time Zone</label>
-                  <div className="relative">
-                    <i className="fas fa-globe absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" />
-                    <select
-                      className="w-full pl-10 pr-10 py-3 border border-slate-300 rounded-lg focus:ring-2 focus:ring-pink-500 focus:border-transparent appearance-none"
-                      value={editTimezone}
-                      onChange={(e) => setEditTimezone(e.target.value)}
-                    >
-                      {TIMEZONES.map((tz) => (
-                        <option key={tz.value} value={tz.value}>
-                          {tz.label}
-                        </option>
-                      ))}
-                    </select>
-                    <i className="fas fa-chevron-down absolute right-4 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
+
+                {/* Phone & Timezone Row */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-sm font-semibold text-slate-700 mb-1.5 flex items-center gap-2">
+                      <i className="fas fa-phone text-green-500" />
+                      Contact Phone
+                    </label>
+                    <div className="flex">
+                      <span className="inline-flex items-center px-3 py-3 rounded-l-lg border border-r-0 border-slate-300 bg-slate-50 text-slate-500 text-sm">
+                        +61
+                      </span>
+                      <input 
+                        className="flex-1 px-4 py-3 border border-slate-300 rounded-r-lg focus:ring-2 focus:ring-pink-500 focus:border-transparent" 
+                        value={editPhone} 
+                        onChange={(e) => setEditPhone(e.target.value)} 
+                        placeholder="412 345 678"
+                      />
+                    </div>
+                  </div>
+                  <div>
+                    <label className="block text-sm font-semibold text-slate-700 mb-1.5 flex items-center gap-2">
+                      <i className="fas fa-globe text-blue-500" />
+                      Time Zone
+                    </label>
+                    <div className="relative">
+                      <select
+                        className="w-full appearance-none pr-10 px-4 py-3 border border-slate-300 rounded-lg focus:ring-2 focus:ring-pink-500 focus:border-transparent"
+                        value={editTimezone}
+                        onChange={(e) => setEditTimezone(e.target.value)}
+                      >
+                        {TIMEZONES.map((tz) => (
+                          <option key={tz.value} value={tz.value}>
+                            {tz.label}
+                          </option>
+                        ))}
+                      </select>
+                      <i className="fas fa-chevron-down absolute right-4 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
+                    </div>
                   </div>
                 </div>
               </div>
@@ -927,20 +1234,25 @@ export default function TenantsPage() {
                   Cancel
                 </button>
                 <button
-                  className="px-4 py-2 rounded-lg bg-pink-600 hover:bg-pink-700 text-white text-sm font-semibold disabled:opacity-70 inline-flex items-center gap-2"
+                  className="px-5 py-2.5 rounded-lg bg-gradient-to-r from-pink-600 to-fuchsia-600 hover:from-pink-700 hover:to-fuchsia-700 text-white text-sm font-semibold disabled:opacity-70 inline-flex items-center gap-2 shadow-lg shadow-pink-500/25 transition-all"
                   disabled={savingEdit}
                   onClick={async () => {
                     if (!editTenantId) return;
                     try {
                       setSavingEdit(true);
+                      const tenantData = tenants.find(t => t.id === editTenantId)?.data;
                       await updateDoc(doc(db, "users", editTenantId), {
                         name: editName.trim(),
                         abn: editAbn.trim() || null,
                         state: editState || null,
                         timezone: editTimezone || "Australia/Sydney",
+                        plan: editPlan || null,
+                        price: editPrice || null,
                         status: editStatus || null,
                         locationText: editLocation || null,
                         contactPhone: editPhone || null,
+                        businessStructure: (tenantData as any)?.businessStructure || null,
+                        gstRegistered: (tenantData as any)?.gstRegistered || false,
                         updatedAt: serverTimestamp(),
                       });
                     } catch (e: any) {
@@ -957,7 +1269,10 @@ export default function TenantsPage() {
                       Saving...
                     </>
                   ) : (
-                    "Save changes"
+                    <>
+                      <i className="fas fa-check" />
+                      Save Changes
+                    </>
                   )}
                 </button>
               </div>
@@ -1161,17 +1476,20 @@ export default function TenantsPage() {
                       <label className="block text-sm font-semibold text-slate-700 mb-2">
                         Business Structure *
                       </label>
-                      <select
-                        className="w-full px-4 py-3 pr-12 border border-slate-300 rounded-lg focus:ring-2 focus:ring-pink-500 focus:border-transparent"
-                        value={formStructure}
-                        onChange={(e) => setFormStructure(e.target.value)}
-                      >
-                        <option value="">Select structure</option>
-                        <option>Pty Ltd</option>
-                        <option>Sole Trader</option>
-                        <option>Partnership</option>
-                        <option>Trust</option>
-                      </select>
+                      <div className="relative">
+                        <select
+                          className="w-full px-4 py-3 pr-12 border border-slate-300 rounded-lg focus:ring-2 focus:ring-pink-500 focus:border-transparent appearance-none"
+                          value={formStructure}
+                          onChange={(e) => setFormStructure(e.target.value)}
+                        >
+                          <option value="">Select structure</option>
+                          <option>Pty Ltd</option>
+                          <option>Sole Trader</option>
+                          <option>Partnership</option>
+                          <option>Trust</option>
+                        </select>
+                        <i className="fas fa-chevron-down absolute right-4 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
+                      </div>
                     </div>
                     <div className="flex items-center justify-between p-4 bg-slate-50 rounded-lg">
                       <div>
@@ -1212,21 +1530,24 @@ export default function TenantsPage() {
                         <label className="block text-sm font-semibold text-slate-700 mb-2">
                           State *
                         </label>
-                        <select
-                          className="w-full px-4 py-3 pr-20 border border-slate-300 rounded-lg focus:ring-2 focus:ring-pink-500 focus:border-transparent"
-                          value={formState}
-                          onChange={(e) => setFormState(e.target.value)}
-                        >
-                          <option value="">Select state</option>
-                          <option>NSW</option>
-                          <option>VIC</option>
-                          <option>QLD</option>
-                          <option>WA</option>
-                          <option>SA</option>
-                          <option>TAS</option>
-                          <option>ACT</option>
-                          <option>NT</option>
-                        </select>
+                        <div className="relative">
+                          <select
+                            className="w-full px-4 py-3 pr-12 border border-slate-300 rounded-lg focus:ring-2 focus:ring-pink-500 focus:border-transparent appearance-none"
+                            value={formState}
+                            onChange={(e) => setFormState(e.target.value)}
+                          >
+                            <option value="">Select state</option>
+                            <option>NSW</option>
+                            <option>VIC</option>
+                            <option>QLD</option>
+                            <option>WA</option>
+                            <option>SA</option>
+                            <option>TAS</option>
+                            <option>ACT</option>
+                            <option>NT</option>
+                          </select>
+                          <i className="fas fa-chevron-down absolute right-4 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
+                        </div>
                       </div>
                       <div>
                         <label className="block text-sm font-semibold text-slate-700 mb-2">
@@ -1249,7 +1570,7 @@ export default function TenantsPage() {
                       <div className="relative">
                         <i className="fas fa-globe absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" />
                         <select
-                          className="w-full pl-10 pr-16 py-3 border border-slate-300 rounded-lg focus:ring-2 focus:ring-pink-500 focus:border-transparent appearance-none"
+                          className="w-full pl-10 pr-12 py-3 border border-slate-300 rounded-lg focus:ring-2 focus:ring-pink-500 focus:border-transparent appearance-none"
                           value={formTimezone}
                           onChange={(e) => setFormTimezone(e.target.value)}
                         >
@@ -1259,7 +1580,7 @@ export default function TenantsPage() {
                             </option>
                           ))}
                         </select>
-                        <i className="fas fa-chevron-down absolute right-10 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
+                        <i className="fas fa-chevron-down absolute right-4 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
                       </div>
                       <p className="text-xs text-slate-500 mt-1">
                         This timezone will be used for all bookings and operations

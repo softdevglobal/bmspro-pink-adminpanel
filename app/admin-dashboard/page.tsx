@@ -22,10 +22,23 @@ export default function AdminDashboardPage() {
   const [recentTenants, setRecentTenants] = useState<any[]>([]);
   const [authLoading, setAuthLoading] = useState<boolean>(true);
   
-  // Use notification context from NotificationProvider
-  const { notifications, unreadCount, markAsRead, markAllAsRead, deleteNotification, deleteAllNotifications } = useNotifications();
-  const [notificationPanelOpen, setNotificationPanelOpen] = useState(false);
-  const [showDeleteAllModal, setShowDeleteAllModal] = useState(false);
+  // Additional metrics
+  const [totalStaff, setTotalStaff] = useState<number>(0);
+  const [totalCustomers, setTotalCustomers] = useState<number>(0);
+  const [totalServices, setTotalServices] = useState<number>(0);
+  const [todayBookings, setTodayBookings] = useState<number>(0);
+  const [avgRevenuePerTenant, setAvgRevenuePerTenant] = useState<number>(0);
+  const [mrr, setMrr] = useState<number>(0);
+  const [planDistribution, setPlanDistribution] = useState<{ starter: number; pro: number; enterprise: number }>({ starter: 0, pro: 0, enterprise: 0 });
+  const [topTenants, setTopTenants] = useState<any[]>([]);
+  const [completionRate, setCompletionRate] = useState<number>(0);
+  const [avgBookingValue, setAvgBookingValue] = useState<number>(0);
+  const [pendingApprovals, setPendingApprovals] = useState<number>(0);
+  const [totalBranches, setTotalBranches] = useState<number>(0);
+  const [chartReady, setChartReady] = useState<boolean>(false);
+  
+  // Use notification context from NotificationProvider (kept for potential future use)
+  useNotifications();
   
   const revCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const statusCanvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -89,6 +102,25 @@ export default function AdminDashboardPage() {
           
           setActiveTenants(active);
           setTotalTenants(tenants.length);
+
+          // Calculate plan distribution
+          const plans = { starter: 0, pro: 0, enterprise: 0 };
+          let totalMRR = 0;
+          tenants.forEach((t: any) => {
+            const plan = (t.plan || "").toLowerCase();
+            if (plan.includes("starter")) {
+              plans.starter++;
+              totalMRR += 99;
+            } else if (plan.includes("pro")) {
+              plans.pro++;
+              totalMRR += 149;
+            } else if (plan.includes("enterprise")) {
+              plans.enterprise++;
+              totalMRR += 299;
+            }
+          });
+          setPlanDistribution(plans);
+          setMrr(totalMRR);
         },
         (error) => {
           if (error.code === "permission-denied") {
@@ -205,6 +237,41 @@ export default function AdminDashboardPage() {
           });
           
           setStatusData(statusCount);
+
+          // Calculate today's bookings
+          const today = new Date().toISOString().split('T')[0];
+          const todayCount = allBookings.filter((b: any) => {
+            const bookingDate = b.date || b.bookingDate || '';
+            return bookingDate.startsWith(today);
+          }).length;
+          setTodayBookings(todayCount);
+
+          // Calculate completion rate
+          const totalCompleted = statusCount.completed;
+          const totalProcessed = statusCount.completed + statusCount.canceled;
+          const rate = totalProcessed > 0 ? (totalCompleted / totalProcessed) * 100 : 0;
+          setCompletionRate(Math.round(rate));
+
+          // Calculate average booking value
+          const completedBookings = allBookings.filter((b: any) => {
+            const status = (b.status || '').toLowerCase();
+            return status === 'completed' && (Number(b.price) || 0) > 0;
+          });
+          const totalValue = completedBookings.reduce((sum: number, b: any) => sum + (Number(b.price) || 0), 0);
+          const avgValue = completedBookings.length > 0 ? totalValue / completedBookings.length : 0;
+          setAvgBookingValue(Math.round(avgValue));
+
+          // Calculate avg revenue per tenant
+          if (totalTenants > 0) {
+            setAvgRevenuePerTenant(Math.round(currentMonthRevenue / totalTenants));
+          }
+
+          // Count pending approvals (awaiting staff approval)
+          const pendingCount = allBookings.filter((b: any) => {
+            const status = (b.status || '').toLowerCase();
+            return status.includes('awaiting') || status === 'pending';
+          }).length;
+          setPendingApprovals(pendingCount);
         },
         (error) => {
           if (error.code === "permission-denied") {
@@ -275,6 +342,125 @@ export default function AdminDashboardPage() {
     };
   }, [authLoading]);
 
+  // Fetch additional platform metrics (staff, services, branches, top tenants)
+  useEffect(() => {
+    if (authLoading) return;
+
+    let unsubStaff: (() => void) | undefined;
+    let unsubServices: (() => void) | undefined;
+    let unsubBranches: (() => void) | undefined;
+    let unsubCustomers: (() => void) | undefined;
+
+    (async () => {
+      const { db } = await import("@/lib/firebase");
+
+      // Fetch all staff members
+      const staffQuery = query(collection(db, "users"), where("role", "==", "salon_staff"));
+      unsubStaff = onSnapshot(
+        staffQuery,
+        (snapshot) => {
+          setTotalStaff(snapshot.docs.length);
+        },
+        (error) => {
+          if (error.code !== "permission-denied") {
+            console.error("Error in staff snapshot:", error);
+          }
+        }
+      );
+
+      // Fetch all services
+      const servicesQuery = query(collection(db, "services"));
+      unsubServices = onSnapshot(
+        servicesQuery,
+        (snapshot) => {
+          setTotalServices(snapshot.docs.length);
+        },
+        (error) => {
+          if (error.code !== "permission-denied") {
+            console.error("Error in services snapshot:", error);
+          }
+        }
+      );
+
+      // Fetch all branches
+      const branchesQuery = query(collection(db, "branches"));
+      unsubBranches = onSnapshot(
+        branchesQuery,
+        (snapshot) => {
+          setTotalBranches(snapshot.docs.length);
+        },
+        (error) => {
+          if (error.code !== "permission-denied") {
+            console.error("Error in branches snapshot:", error);
+          }
+        }
+      );
+
+      // Fetch all customers
+      const customersQuery = query(collection(db, "customers"));
+      unsubCustomers = onSnapshot(
+        customersQuery,
+        (snapshot) => {
+          setTotalCustomers(snapshot.docs.length);
+        },
+        (error) => {
+          if (error.code !== "permission-denied") {
+            console.error("Error in customers snapshot:", error);
+          }
+        }
+      );
+    })();
+
+    return () => {
+      unsubStaff?.();
+      unsubServices?.();
+      unsubBranches?.();
+      unsubCustomers?.();
+    };
+  }, [authLoading]);
+
+  // Fetch top performing tenants by revenue
+  useEffect(() => {
+    if (authLoading) return;
+
+    (async () => {
+      const { db } = await import("@/lib/firebase");
+      
+      // Get all bookings
+      const allBookingsQuery = query(collection(db, "bookings"));
+      const { getDocs } = await import("firebase/firestore");
+      const bookingsSnapshot = await getDocs(allBookingsQuery);
+      const allBookings = bookingsSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+
+      // Get tenants
+      const tenantsQuery = query(collection(db, "users"), where("role", "==", "salon_owner"));
+      const tenantsSnapshot = await getDocs(tenantsQuery);
+      const tenants = tenantsSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+
+      // Calculate revenue per tenant
+      const tenantRevenue = tenants.map((tenant: any) => {
+        const revenue = allBookings
+          .filter((b: any) => b.ownerUid === tenant.id && (b.status || '').toLowerCase() === 'completed')
+          .reduce((sum: number, b: any) => sum + (Number(b.price) || 0), 0);
+        
+        const bookingCount = allBookings.filter((b: any) => b.ownerUid === tenant.id).length;
+        
+        return {
+          ...tenant,
+          revenue,
+          bookingCount
+        };
+      });
+
+      // Sort by revenue and take top 5
+      const top = tenantRevenue
+        .sort((a: any, b: any) => b.revenue - a.revenue)
+        .slice(0, 5);
+
+      setTopTenants(top);
+    })();
+  }, [authLoading]);
+
   // Track if charts have been initially built
   const chartsInitializedRef = useRef(false);
   const dataHashRef = useRef<string>("");
@@ -283,16 +469,37 @@ export default function AdminDashboardPage() {
   const buildCharts = (animate: boolean = true) => {
     // @ts-ignore
     const Chart = (window as any)?.Chart;
-    if (!Chart) return false;
-    if (!revCanvasRef.current || !statusCanvasRef.current) return false;
+    if (!Chart) {
+      console.warn("Chart.js not available");
+      return false;
+    }
+    
+    // Ensure canvas refs are available
+    if (!revCanvasRef.current || !statusCanvasRef.current) {
+      console.warn("Canvas refs not available", { 
+        revenue: !!revCanvasRef.current, 
+        status: !!statusCanvasRef.current 
+      });
+      return false;
+    }
 
     // Destroy existing instances to avoid duplicates
     try {
-      chartsRef.current.revenue?.destroy();
-    } catch {}
+      if (chartsRef.current.revenue) {
+        chartsRef.current.revenue.destroy();
+        chartsRef.current.revenue = undefined;
+      }
+    } catch (e) {
+      console.warn("Error destroying revenue chart:", e);
+    }
     try {
-      chartsRef.current.status?.destroy();
-    } catch {}
+      if (chartsRef.current.status) {
+        chartsRef.current.status.destroy();
+        chartsRef.current.status = undefined;
+      }
+    } catch (e) {
+      console.warn("Error destroying status chart:", e);
+    }
 
     // Revenue line + area with real data
     const ctx = revCanvasRef.current.getContext("2d");
@@ -428,36 +635,141 @@ export default function AdminDashboardPage() {
     return true;
   };
 
-  // Build charts when data is ready
+  // Build charts when data is ready and Chart.js is loaded
   useEffect(() => {
     if (authLoading) return;
+    
     const dataHash = `${revenueData.join(",")}-${statusData.confirmed}-${statusData.pending}-${statusData.completed}-${statusData.canceled}`;
-    if (dataHash === dataHashRef.current) return;
-    dataHashRef.current = dataHash;
+    const dataChanged = dataHash !== dataHashRef.current;
+    
+    const tryBuild = () => {
+      // @ts-ignore
+      const Chart = (window as any)?.Chart;
+      if (!Chart) return false;
+      
+      // Ensure canvas refs are available and in the DOM
+      if (!revCanvasRef.current || !statusCanvasRef.current) {
+        return false;
+      }
+      
+      // Verify canvas elements are actually in the DOM
+      if (!document.contains(revCanvasRef.current) || !document.contains(statusCanvasRef.current)) {
+        return false;
+      }
+      
+      // Always destroy existing charts first to avoid duplicates
+      try {
+        if (chartsRef.current.revenue) {
+          chartsRef.current.revenue.destroy();
+          chartsRef.current.revenue = undefined;
+        }
+        if (chartsRef.current.status) {
+          chartsRef.current.status.destroy();
+          chartsRef.current.status = undefined;
+        }
+      } catch (e) {
+        console.warn("Error destroying charts:", e);
+      }
+      
+      const success = buildCharts(!chartsInitializedRef.current);
+      if (success) {
+        chartsInitializedRef.current = true;
+        dataHashRef.current = dataHash;
+        return true;
+      }
+      return false;
+    };
 
+    // If charts are already built and data hasn't changed, skip
+    if (chartsInitializedRef.current && !dataChanged && chartReady) {
+      return;
+    }
+
+    // Wait for Chart.js to be ready
+    if (!chartReady) {
+      // Check if Chart.js is already loaded (might be cached)
+      // @ts-ignore
+      if ((window as any)?.Chart) {
+        setChartReady(true);
+      }
+      return;
+    }
+
+    // Try to build immediately
+    if (tryBuild()) {
+      return;
+    }
+
+    // If Chart.js isn't loaded yet, poll until it is
+    let attempts = 0;
+    const maxAttempts = 50;
+    const id = setInterval(() => {
+      attempts++;
+      if (tryBuild() || attempts >= maxAttempts) {
+        clearInterval(id);
+      }
+    }, 200);
+
+    return () => {
+      clearInterval(id);
+    };
+  }, [revenueData, revenueLabels, statusData, authLoading, chartReady]);
+
+  // Reset chart state on mount to ensure charts rebuild when navigating back
+  useEffect(() => {
+    // Reset initialization flag when component mounts
+    chartsInitializedRef.current = false;
+    dataHashRef.current = "";
+    
+    // Check if Chart.js is already available (cached from previous navigation)
     // @ts-ignore
     if ((window as any)?.Chart) {
-      if (buildCharts()) {
-        chartsInitializedRef.current = true;
-      }
+      setChartReady(true);
+    } else {
+      // If not available, wait a bit and check again (Script might still be loading)
+      const checkInterval = setInterval(() => {
+        // @ts-ignore
+        if ((window as any)?.Chart) {
+          setChartReady(true);
+          clearInterval(checkInterval);
+        }
+      }, 100);
+      
+      // Clear after 5 seconds if still not loaded
+      setTimeout(() => clearInterval(checkInterval), 5000);
+      
+      return () => clearInterval(checkInterval);
     }
-  }, [revenueData, revenueLabels, statusData, authLoading]);
+  }, []);
 
   // Cleanup on unmount
   useEffect(() => {
     return () => {
       try {
-        chartsRef.current.revenue?.destroy();
+        if (chartsRef.current.revenue) {
+          chartsRef.current.revenue.destroy();
+          chartsRef.current.revenue = undefined;
+        }
       } catch {}
       try {
-        chartsRef.current.status?.destroy();
+        if (chartsRef.current.status) {
+          chartsRef.current.status.destroy();
+          chartsRef.current.status = undefined;
+        }
       } catch {}
+      // Reset flags on unmount
+      chartsInitializedRef.current = false;
+      dataHashRef.current = "";
     };
   }, []);
 
   return (
     <div id="app" className="flex h-screen overflow-hidden bg-white">
-      <Script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js" strategy="lazyOnload" />
+      <Script 
+        src="https://cdn.jsdelivr.net/npm/chart.js" 
+        strategy="afterInteractive"
+        onLoad={() => setChartReady(true)}
+      />
       <Sidebar />
       <div className="flex-1 flex flex-col overflow-hidden">
         {authLoading ? (
@@ -493,63 +805,56 @@ export default function AdminDashboardPage() {
 
           <div className="mb-8">
             <div className="rounded-2xl bg-gradient-to-r from-pink-500 via-fuchsia-600 to-indigo-600 text-white p-6 shadow-lg relative overflow-hidden">
-              <div className="relative z-10 flex items-center justify-between">
-                <div className="flex items-center gap-4">
-                  <div className="w-14 h-14 rounded-xl bg-white/20 flex items-center justify-center backdrop-blur-sm">
-                    <i className="fas fa-chart-line text-2xl" />
-                  </div>
-                  <div>
-                    <h1 className="text-2xl font-bold">BMS Pro Admin</h1>
-                    <p className="text-sm text-white/80 mt-1">Super Admin Dashboard</p>
-                  </div>
+              <div className="relative z-10 flex items-center gap-4">
+                <div className="w-14 h-14 rounded-xl bg-white/20 flex items-center justify-center backdrop-blur-sm">
+                  <i className="fas fa-chart-line text-2xl" />
                 </div>
-
-                {/* Right side - Notification icon */}
-                <div className="flex items-center gap-3">
-                  <button 
-                    onClick={() => setNotificationPanelOpen(!notificationPanelOpen)}
-                    className={`relative w-12 h-12 rounded-xl flex items-center justify-center transition-all backdrop-blur-sm group ${
-                      notificationPanelOpen ? 'bg-white/40' : 'bg-white/20 hover:bg-white/30'
-                    }`}
-                    title="Notifications"
-                  >
-                    <i className={`fas fa-bell text-lg ${unreadCount > 0 ? 'animate-pulse' : ''}`} />
-                    {unreadCount > 0 && (
-                      <span className="absolute -top-1 -right-1 w-5 h-5 bg-red-500 text-white text-xs font-bold rounded-full flex items-center justify-center shadow-lg border-2 border-white/20 animate-bounce">
-                        {unreadCount > 9 ? '9+' : unreadCount}
-                      </span>
-                    )}
-                  </button>
+                <div>
+                  <h1 className="text-2xl font-bold">BMS Pro Admin</h1>
+                  <p className="text-sm text-white/80 mt-1">Super Admin Dashboard</p>
                 </div>
               </div>
               <div className="absolute top-0 right-0 -mr-10 -mt-10 w-64 h-64 rounded-full bg-white opacity-10 blur-2xl" />
             </div>
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
-            <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm min-w-0">
+          {/* Primary Stats Row */}
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-6">
+            <div className="bg-gradient-to-br from-pink-500 to-fuchsia-600 p-6 rounded-2xl shadow-lg text-white min-w-0">
               <div className="flex items-center justify-between mb-3">
-                <span className="text-sm font-medium text-slate-600">Platform Revenue</span>
-                <div className="w-10 h-10 bg-pink-50 rounded-xl flex items-center justify-center">
-                  <i className="fas fa-dollar-sign text-pink-500" />
+                <span className="text-sm font-medium text-white/80">Monthly Revenue</span>
+                <div className="w-10 h-10 bg-white/20 rounded-xl flex items-center justify-center backdrop-blur-sm">
+                  <i className="fas fa-dollar-sign" />
                 </div>
               </div>
               <div className="mb-2">
-                <h3 className="text-3xl font-bold text-slate-900">AU${monthlyRevenue.toLocaleString()}</h3>
+                <h3 className="text-3xl font-bold">AU${monthlyRevenue.toLocaleString()}</h3>
               </div>
               <div className="flex items-center space-x-2">
                 {revenueGrowth !== 0 && (
                   <span className={`px-2 py-1 rounded-lg text-xs font-semibold flex items-center ${
                     revenueGrowth > 0 
-                      ? "bg-emerald-50 text-emerald-700" 
-                      : "bg-rose-50 text-rose-700"
+                      ? "bg-white/20 text-white" 
+                      : "bg-rose-400/30 text-white"
                   }`}>
                     <i className={`fas fa-arrow-${revenueGrowth > 0 ? 'up' : 'down'} text-xs mr-1`} />
                     {revenueGrowth > 0 ? '+' : ''}{revenueGrowth}%
                   </span>
                 )}
-                <span className="text-xs text-slate-500">vs last month</span>
+                <span className="text-xs text-white/70">vs last month</span>
               </div>
+            </div>
+            <div className="bg-gradient-to-br from-emerald-500 to-teal-600 p-6 rounded-2xl shadow-lg text-white min-w-0">
+              <div className="flex items-center justify-between mb-3">
+                <span className="text-sm font-medium text-white/80">Monthly Recurring</span>
+                <div className="w-10 h-10 bg-white/20 rounded-xl flex items-center justify-center backdrop-blur-sm">
+                  <i className="fas fa-rotate" />
+                </div>
+              </div>
+              <div className="mb-2">
+                <h3 className="text-3xl font-bold">AU${mrr.toLocaleString()}</h3>
+              </div>
+              <div className="text-xs text-white/70">MRR from subscriptions</div>
             </div>
             <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm min-w-0">
               <div className="flex items-center justify-between mb-3">
@@ -559,7 +864,7 @@ export default function AdminDashboardPage() {
                 </div>
               </div>
               <div className="mb-2">
-                <h3 className="text-3xl font-bold text-slate-900">{totalBookings}</h3>
+                <h3 className="text-3xl font-bold text-slate-900">{totalBookings.toLocaleString()}</h3>
               </div>
               <div className="flex items-center space-x-2">
                 <span className="px-2 py-1 bg-emerald-50 text-emerald-700 rounded-lg text-xs font-semibold flex items-center">
@@ -571,27 +876,73 @@ export default function AdminDashboardPage() {
             </div>
             <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm min-w-0">
               <div className="flex items-center justify-between mb-3">
-                <span className="text-sm font-medium text-slate-600">Active Tenants</span>
+                <span className="text-sm font-medium text-slate-600">Today&apos;s Bookings</span>
                 <div className="w-10 h-10 bg-amber-50 rounded-xl flex items-center justify-center">
-                  <i className="fas fa-store text-amber-500" />
+                  <i className="fas fa-clock text-amber-500" />
                 </div>
               </div>
               <div className="mb-2">
-                <h3 className="text-3xl font-bold text-slate-900">{activeTenants}</h3>
+                <h3 className="text-3xl font-bold text-slate-900">{todayBookings}</h3>
               </div>
-              <div className="text-xs text-slate-500">Active salon owners</div>
+              <div className="text-xs text-slate-500">Bookings scheduled today</div>
             </div>
-            <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm min-w-0">
-              <div className="flex items-center justify-between mb-3">
-                <span className="text-sm font-medium text-slate-600">Total Tenants</span>
-                <div className="w-10 h-10 bg-purple-50 rounded-xl flex items-center justify-center">
-                  <i className="fas fa-building text-purple-500" />
+          </div>
+
+          {/* Secondary Stats Row */}
+          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4 mb-8">
+            <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm">
+              <div className="flex items-center gap-2 mb-2">
+                <div className="w-8 h-8 bg-purple-50 rounded-lg flex items-center justify-center">
+                  <i className="fas fa-building text-purple-500 text-sm" />
                 </div>
               </div>
-              <div className="mb-2">
-                <h3 className="text-3xl font-bold text-slate-900">{totalTenants}</h3>
+              <div className="text-2xl font-bold text-slate-900">{totalTenants}</div>
+              <div className="text-[11px] text-slate-500">Total Tenants</div>
+            </div>
+            <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm">
+              <div className="flex items-center gap-2 mb-2">
+                <div className="w-8 h-8 bg-emerald-50 rounded-lg flex items-center justify-center">
+                  <i className="fas fa-check-circle text-emerald-500 text-sm" />
+                </div>
               </div>
-              <div className="text-xs text-slate-500">All registered tenants</div>
+              <div className="text-2xl font-bold text-slate-900">{activeTenants}</div>
+              <div className="text-[11px] text-slate-500">Active Tenants</div>
+            </div>
+            <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm">
+              <div className="flex items-center gap-2 mb-2">
+                <div className="w-8 h-8 bg-blue-50 rounded-lg flex items-center justify-center">
+                  <i className="fas fa-users text-blue-500 text-sm" />
+                </div>
+              </div>
+              <div className="text-2xl font-bold text-slate-900">{totalStaff}</div>
+              <div className="text-[11px] text-slate-500">Total Staff</div>
+            </div>
+            <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm">
+              <div className="flex items-center gap-2 mb-2">
+                <div className="w-8 h-8 bg-indigo-50 rounded-lg flex items-center justify-center">
+                  <i className="fas fa-spa text-indigo-500 text-sm" />
+                </div>
+              </div>
+              <div className="text-2xl font-bold text-slate-900">{totalServices}</div>
+              <div className="text-[11px] text-slate-500">Services</div>
+            </div>
+            <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm">
+              <div className="flex items-center gap-2 mb-2">
+                <div className="w-8 h-8 bg-teal-50 rounded-lg flex items-center justify-center">
+                  <i className="fas fa-store text-teal-500 text-sm" />
+                </div>
+              </div>
+              <div className="text-2xl font-bold text-slate-900">{totalBranches}</div>
+              <div className="text-[11px] text-slate-500">Branches</div>
+            </div>
+            <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm">
+              <div className="flex items-center gap-2 mb-2">
+                <div className="w-8 h-8 bg-rose-50 rounded-lg flex items-center justify-center">
+                  <i className="fas fa-chart-pie text-rose-500 text-sm" />
+                </div>
+              </div>
+              <div className="text-2xl font-bold text-slate-900">{completionRate}%</div>
+              <div className="text-[11px] text-slate-500">Completion</div>
             </div>
           </div>
           
@@ -616,6 +967,165 @@ export default function AdminDashboardPage() {
                 <div className="relative h-48 mb-2">
                   <canvas ref={statusCanvasRef} />
                 </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Plan Distribution & Top Tenants */}
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-8">
+            {/* Plan Distribution */}
+            <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
+              <div className="mb-6">
+                <h3 className="font-semibold text-lg text-slate-900">Plan Distribution</h3>
+                <p className="text-sm text-slate-500 mt-1">Active subscriptions by plan</p>
+              </div>
+              <div className="space-y-4">
+                <div>
+                  <div className="flex items-center justify-between mb-2">
+                    <div className="flex items-center gap-2">
+                      <div className="w-3 h-3 rounded-full bg-blue-500"></div>
+                      <span className="text-sm font-medium text-slate-700">Starter</span>
+                    </div>
+                    <span className="text-sm font-semibold text-slate-900">{planDistribution.starter}</span>
+                  </div>
+                  <div className="w-full bg-slate-100 rounded-full h-2">
+                    <div 
+                      className="bg-blue-500 h-2 rounded-full transition-all duration-500" 
+                      style={{ width: `${totalTenants > 0 ? (planDistribution.starter / totalTenants) * 100 : 0}%` }}
+                    ></div>
+                  </div>
+                  <p className="text-[10px] text-slate-400 mt-1">AU$99/mo × {planDistribution.starter} = AU${(planDistribution.starter * 99).toLocaleString()}</p>
+                </div>
+                <div>
+                  <div className="flex items-center justify-between mb-2">
+                    <div className="flex items-center gap-2">
+                      <div className="w-3 h-3 rounded-full bg-pink-500"></div>
+                      <span className="text-sm font-medium text-slate-700">Pro</span>
+                    </div>
+                    <span className="text-sm font-semibold text-slate-900">{planDistribution.pro}</span>
+                  </div>
+                  <div className="w-full bg-slate-100 rounded-full h-2">
+                    <div 
+                      className="bg-pink-500 h-2 rounded-full transition-all duration-500" 
+                      style={{ width: `${totalTenants > 0 ? (planDistribution.pro / totalTenants) * 100 : 0}%` }}
+                    ></div>
+                  </div>
+                  <p className="text-[10px] text-slate-400 mt-1">AU$149/mo × {planDistribution.pro} = AU${(planDistribution.pro * 149).toLocaleString()}</p>
+                </div>
+                <div>
+                  <div className="flex items-center justify-between mb-2">
+                    <div className="flex items-center gap-2">
+                      <div className="w-3 h-3 rounded-full bg-purple-500"></div>
+                      <span className="text-sm font-medium text-slate-700">Enterprise</span>
+                    </div>
+                    <span className="text-sm font-semibold text-slate-900">{planDistribution.enterprise}</span>
+                  </div>
+                  <div className="w-full bg-slate-100 rounded-full h-2">
+                    <div 
+                      className="bg-purple-500 h-2 rounded-full transition-all duration-500" 
+                      style={{ width: `${totalTenants > 0 ? (planDistribution.enterprise / totalTenants) * 100 : 0}%` }}
+                    ></div>
+                  </div>
+                  <p className="text-[10px] text-slate-400 mt-1">AU$299/mo × {planDistribution.enterprise} = AU${(planDistribution.enterprise * 299).toLocaleString()}</p>
+                </div>
+              </div>
+              <div className="mt-6 pt-4 border-t border-slate-100">
+                <div className="flex items-center justify-between">
+                  <span className="text-sm font-medium text-slate-600">Total MRR</span>
+                  <span className="text-lg font-bold text-emerald-600">AU${mrr.toLocaleString()}/mo</span>
+                </div>
+              </div>
+            </div>
+
+            {/* Top Performing Tenants */}
+            <div className="lg:col-span-2 bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
+              <div className="flex items-center justify-between mb-6">
+                <div>
+                  <h3 className="font-semibold text-lg text-slate-900">Top Performing Tenants</h3>
+                  <p className="text-sm text-slate-500 mt-1">By completed booking revenue</p>
+                </div>
+                <button 
+                  onClick={() => router.push("/tenants")}
+                  className="text-sm text-pink-600 hover:text-pink-700 font-medium"
+                >
+                  View All <i className="fas fa-arrow-right ml-1 text-xs" />
+                </button>
+              </div>
+              <div className="space-y-3">
+                {topTenants.length === 0 ? (
+                  <div className="text-center py-8 text-slate-400">
+                    <i className="fas fa-trophy text-3xl mb-2" />
+                    <p className="text-sm">No revenue data yet</p>
+                  </div>
+                ) : (
+                  topTenants.map((tenant: any, idx: number) => {
+                    const initials = (tenant.name || "?")
+                      .split(" ")
+                      .map((s: string) => s[0])
+                      .filter(Boolean)
+                      .slice(0, 2)
+                      .join("")
+                      .toUpperCase();
+                    const colors = [
+                      "from-amber-400 to-amber-600",
+                      "from-slate-400 to-slate-600",
+                      "from-orange-400 to-orange-600",
+                      "from-pink-400 to-pink-600",
+                      "from-blue-400 to-blue-600"
+                    ];
+                    const medals = ["🥇", "🥈", "🥉", "", ""];
+                    
+                    return (
+                      <div key={tenant.id} className="flex items-center gap-4 p-3 rounded-xl hover:bg-slate-50 transition">
+                        <div className="w-6 text-center font-bold text-slate-400">
+                          {medals[idx] || `#${idx + 1}`}
+                        </div>
+                        <div className={`w-10 h-10 bg-gradient-to-br ${colors[idx]} rounded-lg flex items-center justify-center`}>
+                          <span className="text-white font-semibold text-sm">{initials}</span>
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <p className="font-medium text-slate-900 truncate">{tenant.name || "Unknown"}</p>
+                          <p className="text-xs text-slate-500">{tenant.bookingCount} bookings • {tenant.state || "—"}</p>
+                        </div>
+                        <div className="text-right">
+                          <p className="font-bold text-slate-900">AU${tenant.revenue.toLocaleString()}</p>
+                          <p className="text-[10px] text-slate-400">{tenant.plan || "Starter"}</p>
+                        </div>
+                      </div>
+                    );
+                  })
+                )}
+              </div>
+            </div>
+          </div>
+
+          {/* Quick Stats Summary */}
+          <div className="bg-gradient-to-r from-slate-800 to-slate-900 rounded-2xl p-6 mb-8 text-white">
+            <div className="flex items-center gap-3 mb-4">
+              <div className="w-10 h-10 bg-white/10 rounded-xl flex items-center justify-center">
+                <i className="fas fa-chart-bar" />
+              </div>
+              <div>
+                <h3 className="font-semibold">Platform Summary</h3>
+                <p className="text-xs text-white/60">Real-time metrics overview</p>
+              </div>
+            </div>
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+              <div className="bg-white/10 rounded-xl p-4">
+                <div className="text-2xl font-bold">{avgRevenuePerTenant > 0 ? `AU$${avgRevenuePerTenant}` : "—"}</div>
+                <div className="text-xs text-white/60">Avg Revenue/Tenant</div>
+              </div>
+              <div className="bg-white/10 rounded-xl p-4">
+                <div className="text-2xl font-bold">{pendingApprovals}</div>
+                <div className="text-xs text-white/60">Pending Approvals</div>
+              </div>
+              <div className="bg-white/10 rounded-xl p-4">
+                <div className="text-2xl font-bold">{totalTenants > 0 ? Math.round((activeTenants / totalTenants) * 100) : 0}%</div>
+                <div className="text-xs text-white/60">Tenant Activity Rate</div>
+              </div>
+              <div className="bg-white/10 rounded-xl p-4">
+                <div className="text-2xl font-bold">{totalTenants > 0 ? Math.round(totalBookings / totalTenants) : 0}</div>
+                <div className="text-xs text-white/60">Avg Bookings/Tenant</div>
               </div>
             </div>
           </div>
