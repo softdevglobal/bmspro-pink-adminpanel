@@ -3,7 +3,7 @@ import React, { useMemo, useState, useEffect } from "react";
 import Sidebar from "@/components/Sidebar";
 import { useRouter } from "next/navigation";
 import { auth, db } from "@/lib/firebase";
-import { collection, onSnapshot, orderBy, query, addDoc, serverTimestamp, doc, getDoc, where, updateDoc, deleteDoc } from "firebase/firestore";
+import { collection, onSnapshot, orderBy, query, addDoc, serverTimestamp, doc, getDoc, where, updateDoc, deleteDoc, getDocs } from "firebase/firestore";
 import { initializeApp, getApp } from "firebase/app";
 import { getAuth, createUserWithEmailAndPassword, signOut as signOutSecondary, onAuthStateChanged } from "firebase/auth";
 import { TIMEZONES } from "@/lib/timezone";
@@ -151,6 +151,7 @@ export default function TenantsPage() {
   const [suspendTarget, setSuspendTarget] = useState<{ id: string; isSuspended: boolean } | null>(null);
   const [suspending, setSuspending] = useState(false);
   const [savingEdit, setSavingEdit] = useState(false);
+  const [tenantStats, setTenantStats] = useState<Record<string, { staffCount: number; branchCount: number }>>({});
 
   const stepIndicatorClass = (step: 1 | 2 | 3) => {
     const base =
@@ -397,6 +398,46 @@ export default function TenantsPage() {
     return () => unsub();
   }, []);
 
+  // Fetch staff and branch counts for each tenant
+  useEffect(() => {
+    if (tenants.length === 0) return;
+
+    const tenantIds = tenants.map(t => t.id);
+    const stats: Record<string, { staffCount: number; branchCount: number }> = {};
+
+    // Initialize all tenants with 0 counts
+    tenantIds.forEach(id => {
+      stats[id] = { staffCount: 0, branchCount: 0 };
+    });
+
+    // Fetch staff counts
+    const staffPromises = tenantIds.map(async (tenantId) => {
+      try {
+        const staffQuery = query(collection(db, "users"), where("ownerUid", "==", tenantId), where("role", "==", "salon_staff"));
+        const staffSnap = await getDocs(staffQuery);
+        stats[tenantId].staffCount = staffSnap.docs.length;
+      } catch (error) {
+        console.error(`Error fetching staff for tenant ${tenantId}:`, error);
+      }
+    });
+
+    // Fetch branch counts
+    const branchPromises = tenantIds.map(async (tenantId) => {
+      try {
+        const branchQuery = query(collection(db, "branches"), where("ownerUid", "==", tenantId));
+        const branchSnap = await getDocs(branchQuery);
+        stats[tenantId].branchCount = branchSnap.docs.length;
+      } catch (error) {
+        console.error(`Error fetching branches for tenant ${tenantId}:`, error);
+      }
+    });
+
+    // Wait for all queries to complete
+    Promise.all([...staffPromises, ...branchPromises]).then(() => {
+      setTenantStats(stats);
+    });
+  }, [tenants]);
+
   return (
     <div id="app" className="flex h-screen overflow-hidden bg-white">
       <Sidebar />
@@ -534,6 +575,12 @@ export default function TenantsPage() {
                       Plan
                     </th>
                     <th className="px-6 py-4 text-left text-xs font-semibold text-slate-600 uppercase tracking-wider">
+                      Staff
+                    </th>
+                    <th className="px-6 py-4 text-left text-xs font-semibold text-slate-600 uppercase tracking-wider">
+                      Branches
+                    </th>
+                    <th className="px-6 py-4 text-left text-xs font-semibold text-slate-600 uppercase tracking-wider">
                       Status
                     </th>
                     <th className="px-6 py-4 text-right text-xs font-semibold text-slate-600 uppercase tracking-wider">
@@ -544,12 +591,12 @@ export default function TenantsPage() {
                 <tbody className="divide-y divide-slate-200">
                   {loadingTenants && (
                     <tr>
-                      <td className="px-6 py-6 text-slate-500" colSpan={6}>Loading tenants…</td>
+                      <td className="px-6 py-6 text-slate-500" colSpan={8}>Loading tenants…</td>
                     </tr>
                   )}
                   {!loadingTenants && tenants.length === 0 && (
                     <tr>
-                      <td className="px-6 py-6 text-slate-500" colSpan={6}>No tenants yet.</td>
+                      <td className="px-6 py-6 text-slate-500" colSpan={8}>No tenants yet.</td>
                     </tr>
                   )}
                   {tenants.map(({ id, data }) => {
@@ -616,6 +663,22 @@ export default function TenantsPage() {
                               {planLabel}
                             </span>
                             <span className="text-sm text-slate-500">{data.price || ""}</span>
+                          </div>
+                        </td>
+                        <td className="px-6 py-4">
+                          <div className="flex items-center gap-2">
+                            <div className="w-8 h-8 bg-blue-50 rounded-lg flex items-center justify-center">
+                              <i className="fas fa-users text-blue-500 text-xs" />
+                            </div>
+                            <span className="font-semibold text-slate-900">{tenantStats[id]?.staffCount ?? 0}</span>
+                          </div>
+                        </td>
+                        <td className="px-6 py-4">
+                          <div className="flex items-center gap-2">
+                            <div className="w-8 h-8 bg-teal-50 rounded-lg flex items-center justify-center">
+                              <i className="fas fa-store text-teal-500 text-xs" />
+                            </div>
+                            <span className="font-semibold text-slate-900">{tenantStats[id]?.branchCount ?? 0}</span>
                           </div>
                         </td>
                         <td className="px-6 py-4">
@@ -817,6 +880,26 @@ export default function TenantsPage() {
                         State
                       </div>
                       <div className="font-semibold text-slate-900">{previewTenant.data.state || "—"}</div>
+                    </div>
+                    <div className="bg-white border border-slate-200 rounded-xl p-4 shadow-sm hover:shadow-md transition-shadow">
+                      <div className="flex items-center gap-2 text-xs text-slate-500 mb-1">
+                        <i className="fas fa-users text-blue-400" />
+                        Staff Members
+                      </div>
+                      <div className="font-semibold text-slate-900 flex items-center gap-2">
+                        <span className="text-2xl">{tenantStats[previewTenant.id]?.staffCount ?? 0}</span>
+                        <span className="text-sm text-slate-500">active staff</span>
+                      </div>
+                    </div>
+                    <div className="bg-white border border-slate-200 rounded-xl p-4 shadow-sm hover:shadow-md transition-shadow">
+                      <div className="flex items-center gap-2 text-xs text-slate-500 mb-1">
+                        <i className="fas fa-store text-teal-400" />
+                        Branch Locations
+                      </div>
+                      <div className="font-semibold text-slate-900 flex items-center gap-2">
+                        <span className="text-2xl">{tenantStats[previewTenant.id]?.branchCount ?? 0}</span>
+                        <span className="text-sm text-slate-500">branches</span>
+                      </div>
                     </div>
                   </div>
                 </div>

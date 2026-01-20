@@ -35,6 +35,7 @@ export default function Sidebar({ mobile = false, onClose }: SidebarProps) {
   const isOwnerSettings = pathname?.startsWith("/owner-settings");
   const isAuditLogs = pathname?.startsWith("/audit-logs");
   const isSubscription = pathname?.startsWith("/subscription");
+  const isPackages = pathname?.startsWith("/packages");
   const [role, setRole] = useState<string | null>(null);
   const [userName, setUserName] = useState<string>("");
   const [userEmail, setUserEmail] = useState<string>("");
@@ -280,6 +281,12 @@ export default function Sidebar({ mobile = false, onClose }: SidebarProps) {
           <Link href="/tenants" className={`flex items-center space-x-3 px-4 py-3 rounded-xl text-sm transition ${isTenants ? "bg-pink-500 text-white shadow-lg" : "hover:bg-slate-800 text-slate-400 hover:text-white"}`}>
             <i className="fas fa-store w-5" />
             <span>Tenant Management</span>
+          </Link>
+        )}
+        {mounted && role === "super_admin" && (
+          <Link href="/packages" className={`flex items-center space-x-3 px-4 py-3 rounded-xl text-sm transition ${isPackages ? "bg-pink-500 text-white shadow-lg" : "hover:bg-slate-800 text-slate-400 hover:text-white"}`}>
+            <i className="fas fa-box w-5" />
+            <span>Packages</span>
           </Link>
         )}
         {mounted && (role === "salon_owner" || role === "salon_branch_admin") && (
