@@ -37,6 +37,7 @@ export default function Sidebar({ mobile = false, onClose }: SidebarProps) {
   const isSubscription = pathname?.startsWith("/subscription");
   const isPackages = pathname?.startsWith("/packages");
   const isSuperAdminAuditLogs = pathname?.startsWith("/super-admin-audit-logs");
+  const isLoyalty = pathname?.startsWith("/loyalty");
   const [role, setRole] = useState<string | null>(null);
   const [userName, setUserName] = useState<string>("");
   const [userEmail, setUserEmail] = useState<string>("");
@@ -412,6 +413,17 @@ export default function Sidebar({ mobile = false, onClose }: SidebarProps) {
         >
           <i className="fas fa-user-group w-5" />
           <span>Customers</span>
+        </Link>
+      )}
+      {mounted && role === "salon_owner" && (
+        <Link
+          href="/loyalty"
+          className={`flex items-center space-x-3 px-4 py-3 rounded-xl text-sm transition ${
+            isLoyalty ? "bg-pink-500 text-white shadow-lg" : "hover:bg-slate-800 text-slate-400 hover:text-white"
+          }`}
+        >
+          <i className="fas fa-gem w-5" />
+          <span>ACSU Loyalty</span>
         </Link>
       )}
       {mounted && (role === "salon_owner" || role === "salon_branch_admin") && (

@@ -676,9 +676,13 @@ export default function PackagesPage() {
                             </label>
                             <div className="space-y-2">
                               <input
-                                type="number"
-                                value={formData.branches}
-                                onChange={(e) => setFormData({ ...formData, branches: e.target.value })}
+                                type="text"
+                                value={formData.unlimitedBranches ? "unlimited" : formData.branches}
+                                onChange={(e) => {
+                                  if (!formData.unlimitedBranches) {
+                                    setFormData({ ...formData, branches: e.target.value });
+                                  }
+                                }}
                                 disabled={formData.unlimitedBranches}
                                 className="w-full px-4 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-pink-500 focus:border-transparent disabled:bg-slate-100 disabled:cursor-not-allowed"
                                 placeholder="1"
@@ -687,7 +691,13 @@ export default function PackagesPage() {
                                 <input
                                   type="checkbox"
                                   checked={formData.unlimitedBranches}
-                                  onChange={(e) => setFormData({ ...formData, unlimitedBranches: e.target.checked })}
+                                  onChange={(e) => {
+                                    setFormData({ 
+                                      ...formData, 
+                                      unlimitedBranches: e.target.checked,
+                                      branches: e.target.checked ? "1" : formData.branches
+                                    });
+                                  }}
                                   className="w-4 h-4 text-pink-600 rounded focus:ring-pink-500"
                                 />
                                 <span className="text-sm text-slate-700">Unlimited Branches</span>
@@ -700,9 +710,13 @@ export default function PackagesPage() {
                             </label>
                             <div className="space-y-2">
                               <input
-                                type="number"
-                                value={formData.staff}
-                                onChange={(e) => setFormData({ ...formData, staff: e.target.value })}
+                                type="text"
+                                value={formData.unlimitedStaff ? "unlimited" : formData.staff}
+                                onChange={(e) => {
+                                  if (!formData.unlimitedStaff) {
+                                    setFormData({ ...formData, staff: e.target.value });
+                                  }
+                                }}
                                 disabled={formData.unlimitedStaff}
                                 className="w-full px-4 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-pink-500 focus:border-transparent disabled:bg-slate-100 disabled:cursor-not-allowed"
                                 placeholder="1"
@@ -711,7 +725,13 @@ export default function PackagesPage() {
                                 <input
                                   type="checkbox"
                                   checked={formData.unlimitedStaff}
-                                  onChange={(e) => setFormData({ ...formData, unlimitedStaff: e.target.checked })}
+                                  onChange={(e) => {
+                                    setFormData({ 
+                                      ...formData, 
+                                      unlimitedStaff: e.target.checked,
+                                      staff: e.target.checked ? "1" : formData.staff
+                                    });
+                                  }}
                                   className="w-4 h-4 text-pink-600 rounded focus:ring-pink-500"
                                 />
                                 <span className="text-sm text-slate-700">Unlimited Staff</span>
