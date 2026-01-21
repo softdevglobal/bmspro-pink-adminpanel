@@ -57,7 +57,7 @@ export type SalonStaffInput = {
   mobile?: string;
 };
 
-// Creates a staff member directly in the 'users' collection using the authUid as the document key
+// Creates a staff member directly in the 'users' collection using the authUid as the document key 
 export async function createSalonStaffForOwner(ownerUid: string, data: SalonStaffInput) {
   if (!data.authUid) {
     throw new Error("authUid is required to create a staff member in the users table.");
