@@ -6,7 +6,7 @@ import { useRouter } from "next/navigation";
 import { onAuthStateChanged, signOut } from "firebase/auth";
 import { auth, db } from "@/lib/firebase";
 import { doc, getDoc } from "firebase/firestore";
-import { logUserLogout } from "@/lib/auditLog";
+import { logUserLogout, logSuperAdminLogout, createSuperAdminAuditLog } from "@/lib/auditLog";
 
 type SidebarProps = {
   mobile?: boolean;
@@ -36,6 +36,7 @@ export default function Sidebar({ mobile = false, onClose }: SidebarProps) {
   const isAuditLogs = pathname?.startsWith("/audit-logs");
   const isSubscription = pathname?.startsWith("/subscription");
   const isPackages = pathname?.startsWith("/packages");
+  const isSuperAdminAuditLogs = pathname?.startsWith("/super-admin-audit-logs");
   const [role, setRole] = useState<string | null>(null);
   const [userName, setUserName] = useState<string>("");
   const [userEmail, setUserEmail] = useState<string>("");
@@ -214,7 +215,28 @@ export default function Sidebar({ mobile = false, onClose }: SidebarProps) {
           const userDoc = await getDoc(doc(db, "users", currentUser.uid));
           const userData = userDoc.data();
           const ownerUid = userData?.ownerUid || currentUser.uid;
-          await logUserLogout(ownerUid, currentUser.uid, userName || userEmail, role);
+          
+          // Log to salon-specific audit logs (for salon owners/staff)
+          if (role !== "super_admin") {
+            await logUserLogout(ownerUid, currentUser.uid, userName || userEmail, role);
+          }
+          
+          // Log to super admin audit logs (for all logouts - visible to super admins)
+          if (role === "super_admin") {
+            await logSuperAdminLogout(currentUser.uid, userName || userEmail);
+          } else {
+            // Log salon owner/staff logouts to super admin audit logs
+            await createSuperAdminAuditLog({
+              action: `${role === "salon_owner" ? "Salon Owner" : "Staff"} logged out: ${userName || userEmail}`,
+              actionType: "logout",
+              entityType: "tenant",
+              entityId: ownerUid,
+              entityName: userName || userEmail,
+              performedBy: currentUser.uid,
+              performedByName: userName || userEmail,
+              details: `Role: ${role}`,
+            });
+          }
         } catch (e) {
           console.error("Failed to create logout audit log:", e);
         }
@@ -287,6 +309,12 @@ export default function Sidebar({ mobile = false, onClose }: SidebarProps) {
           <Link href="/packages" className={`flex items-center space-x-3 px-4 py-3 rounded-xl text-sm transition ${isPackages ? "bg-pink-500 text-white shadow-lg" : "hover:bg-slate-800 text-slate-400 hover:text-white"}`}>
             <i className="fas fa-box w-5" />
             <span>Packages</span>
+          </Link>
+        )}
+        {mounted && role === "super_admin" && (
+          <Link href="/super-admin-audit-logs" className={`flex items-center space-x-3 px-4 py-3 rounded-xl text-sm transition ${isSuperAdminAuditLogs ? "bg-pink-500 text-white shadow-lg" : "hover:bg-slate-800 text-slate-400 hover:text-white"}`}>
+            <i className="fas fa-shield-halved w-5" />
+            <span>Audit Logs</span>
           </Link>
         )}
         {mounted && (role === "salon_owner" || role === "salon_branch_admin") && (

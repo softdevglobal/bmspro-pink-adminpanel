@@ -41,6 +41,7 @@ export interface AuditLogInput {
 
 /**
  * Creates an audit log entry in Firestore
+ * Also logs important actions to super admin audit logs for visibility
  */
 export async function createAuditLog(input: AuditLogInput): Promise<string | null> {
   try {
@@ -58,6 +59,42 @@ export async function createAuditLog(input: AuditLogInput): Promise<string | nul
     });
 
     const ref = await addDoc(collection(db, "auditLogs"), logData);
+    
+    // Also log important salon activities to super admin audit logs
+    // This allows super admins to see what salon owners are doing
+    const importantEntityTypes = ["service", "branch", "staff", "booking", "settings"];
+    const importantActionTypes = ["create", "update", "delete", "status_change"];
+    
+    if (importantEntityTypes.includes(input.entityType) && importantActionTypes.includes(input.actionType)) {
+      try {
+        const superAdminLogData = {
+          action: `Salon Activity: ${input.action}`,
+          actionType: input.actionType,
+          entityType: "tenant" as const,
+          entityId: input.ownerUid,
+          entityName: input.performedByName || input.ownerUid,
+          performedBy: input.performedBy,
+          performedByName: input.performedByName,
+          details: `${input.entityType}: ${input.entityName || "N/A"}${input.details ? ` - ${input.details}` : ""}`,
+          previousValue: input.previousValue,
+          newValue: input.newValue,
+          timestamp: serverTimestamp(),
+          createdAt: serverTimestamp(),
+        };
+        
+        // Remove undefined values
+        Object.keys(superAdminLogData).forEach(key => {
+          if ((superAdminLogData as any)[key] === undefined) {
+            delete (superAdminLogData as any)[key];
+          }
+        });
+        
+        await addDoc(collection(db, "superAdminAuditLogs"), superAdminLogData);
+      } catch (superAdminError) {
+        console.warn("Failed to create super admin audit log:", superAdminError);
+      }
+    }
+    
     return ref.id;
   } catch (error) {
     console.error("Failed to create audit log:", error);
@@ -583,5 +620,231 @@ export async function logPasswordChanged(
     performedByName: userName,
     performedByRole: userRole,
     details: "User changed their account password",
+  });
+}
+
+// ==================== SUPER ADMIN AUDIT HELPERS ====================
+
+export type SuperAdminAuditEntityType = 
+  | "tenant"
+  | "subscription"
+  | "system"
+  | "super_admin";
+
+export interface SuperAdminAuditLogInput {
+  action: string;
+  actionType: AuditActionType;
+  entityType: SuperAdminAuditEntityType;
+  entityId?: string;
+  entityName?: string;
+  performedBy: string;
+  performedByName?: string;
+  details?: string;
+  previousValue?: string;
+  newValue?: string;
+  metadata?: Record<string, any>;
+}
+
+/**
+ * Creates a super admin audit log entry in Firestore
+ */
+export async function createSuperAdminAuditLog(input: SuperAdminAuditLogInput): Promise<string | null> {
+  try {
+    const logData = {
+      ...input,
+      timestamp: serverTimestamp(),
+      createdAt: serverTimestamp(),
+    };
+
+    // Remove undefined values
+    Object.keys(logData).forEach(key => {
+      if ((logData as any)[key] === undefined) {
+        delete (logData as any)[key];
+      }
+    });
+
+    console.log("[Super Admin Audit] Creating log:", input.action);
+    const ref = await addDoc(collection(db, "superAdminAuditLogs"), logData);
+    console.log("[Super Admin Audit] Log created successfully:", ref.id);
+    return ref.id;
+  } catch (error) {
+    console.error("[Super Admin Audit] Failed to create audit log:", error);
+    return null;
+  }
+}
+
+/**
+ * Log salon owner activity to super admin audit logs
+ * This is called automatically when salon owners make changes
+ */
+export async function logSalonActivityToSuperAdmin(
+  ownerUid: string,
+  ownerName: string,
+  action: string,
+  entityType: string,
+  entityName?: string,
+  details?: string
+): Promise<string | null> {
+  return createSuperAdminAuditLog({
+    action: `Salon Activity: ${action}`,
+    actionType: "update",
+    entityType: "tenant",
+    entityId: ownerUid,
+    entityName: ownerName,
+    performedBy: ownerUid,
+    performedByName: ownerName,
+    details: details || `${entityType}: ${entityName || "N/A"}`,
+  });
+}
+
+// Tenant Onboarding
+export async function logTenantOnboarded(
+  tenantId: string,
+  tenantName: string,
+  tenantEmail: string,
+  plan: string,
+  performer: { uid: string; name: string }
+) {
+  return createSuperAdminAuditLog({
+    action: `New tenant onboarded: ${tenantName}`,
+    actionType: "create",
+    entityType: "tenant",
+    entityId: tenantId,
+    entityName: tenantName,
+    performedBy: performer.uid,
+    performedByName: performer.name,
+    details: `Email: ${tenantEmail}, Plan: ${plan}`,
+    newValue: plan,
+  });
+}
+
+// Tenant Plan Changed
+export async function logTenantPlanChanged(
+  tenantId: string,
+  tenantName: string,
+  previousPlan: string,
+  newPlan: string,
+  performer: { uid: string; name: string }
+) {
+  return createSuperAdminAuditLog({
+    action: `Tenant plan changed: ${tenantName}`,
+    actionType: "update",
+    entityType: "subscription",
+    entityId: tenantId,
+    entityName: tenantName,
+    performedBy: performer.uid,
+    performedByName: performer.name,
+    previousValue: previousPlan,
+    newValue: newPlan,
+    details: `Plan changed from ${previousPlan || "None"} to ${newPlan}`,
+  });
+}
+
+// Tenant Details Updated
+export async function logTenantDetailsUpdated(
+  tenantId: string,
+  tenantName: string,
+  performer: { uid: string; name: string },
+  changes?: string
+) {
+  return createSuperAdminAuditLog({
+    action: `Tenant details updated: ${tenantName}`,
+    actionType: "update",
+    entityType: "tenant",
+    entityId: tenantId,
+    entityName: tenantName,
+    performedBy: performer.uid,
+    performedByName: performer.name,
+    details: changes || "Tenant details were updated",
+  });
+}
+
+// Tenant Suspended
+export async function logTenantSuspended(
+  tenantId: string,
+  tenantName: string,
+  performer: { uid: string; name: string }
+) {
+  return createSuperAdminAuditLog({
+    action: `Tenant suspended: ${tenantName}`,
+    actionType: "status_change",
+    entityType: "tenant",
+    entityId: tenantId,
+    entityName: tenantName,
+    performedBy: performer.uid,
+    performedByName: performer.name,
+    previousValue: "Active",
+    newValue: "Suspended",
+    details: "Tenant account has been suspended",
+  });
+}
+
+// Tenant Unsuspended
+export async function logTenantUnsuspended(
+  tenantId: string,
+  tenantName: string,
+  performer: { uid: string; name: string }
+) {
+  return createSuperAdminAuditLog({
+    action: `Tenant unsuspended: ${tenantName}`,
+    actionType: "status_change",
+    entityType: "tenant",
+    entityId: tenantId,
+    entityName: tenantName,
+    performedBy: performer.uid,
+    performedByName: performer.name,
+    previousValue: "Suspended",
+    newValue: "Active",
+    details: "Tenant account has been reactivated",
+  });
+}
+
+// Tenant Deleted
+export async function logTenantDeleted(
+  tenantId: string,
+  tenantName: string,
+  performer: { uid: string; name: string }
+) {
+  return createSuperAdminAuditLog({
+    action: `Tenant deleted: ${tenantName}`,
+    actionType: "delete",
+    entityType: "tenant",
+    entityId: tenantId,
+    entityName: tenantName,
+    performedBy: performer.uid,
+    performedByName: performer.name,
+    details: "Tenant account has been permanently deleted",
+  });
+}
+
+// Super Admin Login
+export async function logSuperAdminLogin(
+  adminId: string,
+  adminName: string
+) {
+  return createSuperAdminAuditLog({
+    action: `Super Admin logged in: ${adminName}`,
+    actionType: "login",
+    entityType: "super_admin",
+    entityId: adminId,
+    entityName: adminName,
+    performedBy: adminId,
+    performedByName: adminName,
+  });
+}
+
+// Super Admin Logout
+export async function logSuperAdminLogout(
+  adminId: string,
+  adminName: string
+) {
+  return createSuperAdminAuditLog({
+    action: `Super Admin logged out: ${adminName}`,
+    actionType: "logout",
+    entityType: "super_admin",
+    entityId: adminId,
+    entityName: adminName,
+    performedBy: adminId,
+    performedByName: adminName,
   });
 }

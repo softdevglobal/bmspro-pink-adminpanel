@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { onAuthStateChanged } from "firebase/auth";
 import { auth, db } from "@/lib/firebase";
 import { doc, getDoc, collection, query, where, onSnapshot, updateDoc, serverTimestamp } from "firebase/firestore";
+import { logTenantPlanChanged } from "@/lib/auditLog";
 
 type SubscriptionPlan = {
   id: string;
@@ -91,6 +92,7 @@ export default function PackagesPage() {
   const [selectedTenant, setSelectedTenant] = useState<string | null>(null);
   const [updating, setUpdating] = useState(false);
   const [confirmingPlan, setConfirmingPlan] = useState<SubscriptionPlan | null>(null);
+  const [currentAdmin, setCurrentAdmin] = useState<{ uid: string; name: string } | null>(null);
 
   useEffect(() => {
     const unsub = onAuthStateChanged(auth, async (user) => {
@@ -109,6 +111,12 @@ export default function PackagesPage() {
           router.replace("/dashboard");
           return;
         }
+
+        const superAdminData = superAdminDoc.data();
+        setCurrentAdmin({
+          uid: user.uid,
+          name: superAdminData?.displayName || superAdminData?.name || user.email || "Super Admin"
+        });
 
         setLoading(false);
       } catch (error) {
@@ -155,16 +163,33 @@ export default function PackagesPage() {
     
     setUpdating(true);
     try {
+      const tenant = tenants.find(t => t.id === selectedTenant);
+      const previousPlan = tenant?.plan || "None";
+      
       await updateDoc(doc(db, "users", selectedTenant), {
         plan: confirmingPlan.name,
         price: confirmingPlan.priceLabel,
         updatedAt: serverTimestamp(),
       });
       
+      // Log plan change to super admin audit logs
+      if (currentAdmin) {
+        try {
+          await logTenantPlanChanged(
+            selectedTenant,
+            tenant?.name || "Unknown Tenant",
+            previousPlan,
+            confirmingPlan.name,
+            currentAdmin
+          );
+        } catch (auditError) {
+          console.warn("Failed to create audit log:", auditError);
+        }
+      }
+      
       setConfirmingPlan(null);
       setSelectedTenant(null);
       // Show success message
-      const tenant = tenants.find(t => t.id === selectedTenant);
       alert(`✅ Successfully updated ${tenant?.name || "tenant"} to ${confirmingPlan.name} plan`);
     } catch (error: any) {
       console.error("Error updating plan:", error);

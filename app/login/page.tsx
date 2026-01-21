@@ -5,7 +5,7 @@ import { signInWithEmailAndPassword } from "firebase/auth";
 import { auth, db } from "@/lib/firebase";
 import { doc, getDoc } from "firebase/firestore";
 import { ensureUserDocument } from "@/lib/users";
-import { logUserLogin } from "@/lib/auditLog";
+import { logUserLogin, logSuperAdminLogin, createSuperAdminAuditLog } from "@/lib/auditLog";
 
 export default function LoginPage() {
   const router = useRouter();
@@ -164,7 +164,27 @@ export default function LoginPage() {
 
           // Audit log for successful login
           try {
-            await logUserLogin(ownerUid, uid2, name || email, role);
+            // Log to salon-specific audit logs (for salon owners/staff)
+            if (role !== "super_admin") {
+              await logUserLogin(ownerUid, uid2, name || email, role);
+            }
+            
+            // Log to super admin audit logs (for all logins - visible to super admins)
+            if (role === "super_admin") {
+              await logSuperAdminLogin(uid2, name || email);
+            } else {
+              // Log salon owner/staff logins to super admin audit logs
+              await createSuperAdminAuditLog({
+                action: `${role === "salon_owner" ? "Salon Owner" : "Staff"} logged in: ${name || email}`,
+                actionType: "login",
+                entityType: "tenant",
+                entityId: ownerUid,
+                entityName: name || email,
+                performedBy: uid2,
+                performedByName: name || email,
+                details: `Role: ${role}`,
+              });
+            }
           } catch (auditErr) {
             console.error("Failed to create login audit log:", auditErr);
           }

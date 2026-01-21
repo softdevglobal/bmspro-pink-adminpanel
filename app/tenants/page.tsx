@@ -7,6 +7,13 @@ import { collection, onSnapshot, orderBy, query, addDoc, serverTimestamp, doc, g
 import { initializeApp, getApp } from "firebase/app";
 import { getAuth, createUserWithEmailAndPassword, signOut as signOutSecondary, onAuthStateChanged } from "firebase/auth";
 import { TIMEZONES } from "@/lib/timezone";
+import { 
+  logTenantOnboarded, 
+  logTenantDetailsUpdated, 
+  logTenantSuspended, 
+  logTenantUnsuspended, 
+  logTenantDeleted 
+} from "@/lib/auditLog";
 
 type TenantRow = {
   initials: string;
@@ -152,6 +159,7 @@ export default function TenantsPage() {
   const [suspending, setSuspending] = useState(false);
   const [savingEdit, setSavingEdit] = useState(false);
   const [tenantStats, setTenantStats] = useState<Record<string, { staffCount: number; branchCount: number }>>({});
+  const [currentAdmin, setCurrentAdmin] = useState<{ uid: string; name: string } | null>(null);
 
   const stepIndicatorClass = (step: 1 | 2 | 3) => {
     const base =
@@ -232,7 +240,7 @@ export default function TenantsPage() {
         selectedPlan === "pro" ? "AU$149/mo" : selectedPlan === "starter" ? "AU$99/mo" : selectedPlan === "enterprise" ? "AU$299/mo" : "";
 
       // Save as a salon owner record inside users collection (invite style)
-      await addDoc(collection(db, "users"), {
+      const newTenantRef = await addDoc(collection(db, "users"), {
         // user identity fields
         email: trimmedEmail,
         displayName: "",
@@ -301,6 +309,21 @@ export default function TenantsPage() {
         // Don't throw - email failure shouldn't block onboarding
       }
 
+      // Log tenant onboarding to super admin audit logs
+      if (currentAdmin) {
+        try {
+          await logTenantOnboarded(
+            newTenantRef.id,
+            formBusinessName.trim(),
+            trimmedEmail,
+            planLabel || "No Plan",
+            currentAdmin
+          );
+        } catch (auditError) {
+          console.warn("Failed to create audit log:", auditError);
+        }
+      }
+
       setIsModalOpen(false);
       setFormBusinessName("");
       setFormAbn("");
@@ -351,6 +374,11 @@ export default function TenantsPage() {
       
       if (superAdminDoc.exists()) {
         role = "super_admin";
+        const superAdminData = superAdminDoc.data();
+        setCurrentAdmin({
+          uid: user.uid,
+          name: superAdminData?.displayName || superAdminData?.name || user.email || "Super Admin"
+        });
         // Super admin is allowed on tenants page, so no redirect needed
         return;
       } else {
@@ -1319,32 +1347,49 @@ export default function TenantsPage() {
                 <button
                   className="px-5 py-2.5 rounded-lg bg-gradient-to-r from-pink-600 to-fuchsia-600 hover:from-pink-700 hover:to-fuchsia-700 text-white text-sm font-semibold disabled:opacity-70 inline-flex items-center gap-2 shadow-lg shadow-pink-500/25 transition-all"
                   disabled={savingEdit}
-                  onClick={async () => {
-                    if (!editTenantId) return;
-                    try {
-                      setSavingEdit(true);
-                      const tenantData = tenants.find(t => t.id === editTenantId)?.data;
-                      await updateDoc(doc(db, "users", editTenantId), {
-                        name: editName.trim(),
-                        abn: editAbn.trim() || null,
-                        state: editState || null,
-                        timezone: editTimezone || "Australia/Sydney",
-                        plan: editPlan || null,
-                        price: editPrice || null,
-                        status: editStatus || null,
-                        locationText: editLocation || null,
-                        contactPhone: editPhone || null,
-                        businessStructure: (tenantData as any)?.businessStructure || null,
-                        gstRegistered: (tenantData as any)?.gstRegistered || false,
-                        updatedAt: serverTimestamp(),
-                      });
-                    } catch (e: any) {
-                      alert(e?.message || "Failed to update");
-                    } finally {
-                      setSavingEdit(false);
-                      setEditOpen(false);
-                    }
-                  }}
+onClick={async () => {
+                                    if (!editTenantId) return;
+                                    try {
+                                      setSavingEdit(true);
+                                      const tenantData = tenants.find(t => t.id === editTenantId)?.data;
+                                      await updateDoc(doc(db, "users", editTenantId), {
+                                        name: editName.trim(),
+                                        abn: editAbn.trim() || null,
+                                        state: editState || null,
+                                        timezone: editTimezone || "Australia/Sydney",
+                                        plan: editPlan || null,
+                                        price: editPrice || null,
+                                        status: editStatus || null,
+                                        locationText: editLocation || null,
+                                        contactPhone: editPhone || null,
+                                        businessStructure: (tenantData as any)?.businessStructure || null,
+                                        gstRegistered: (tenantData as any)?.gstRegistered || false,
+                                        updatedAt: serverTimestamp(),
+                                      });
+                                      
+                                      // Log tenant details update
+                                      if (currentAdmin) {
+                                        console.log("[Tenants] Logging tenant update, admin:", currentAdmin);
+                                        try {
+                                          await logTenantDetailsUpdated(
+                                            editTenantId,
+                                            editName.trim(),
+                                            currentAdmin,
+                                            "Business details updated"
+                                          );
+                                        } catch (auditError) {
+                                          console.warn("Failed to create audit log:", auditError);
+                                        }
+                                      } else {
+                                        console.warn("[Tenants] No currentAdmin set, skipping audit log");
+                                      }
+                                    } catch (e: any) {
+                                      alert(e?.message || "Failed to update");
+                                    } finally {
+                                      setSavingEdit(false);
+                                      setEditOpen(false);
+                                    }
+                                  }}
                 >
                   {savingEdit ? (
                     <>
@@ -1384,18 +1429,33 @@ export default function TenantsPage() {
                   Cancel
                 </button>
                 <button
-                  onClick={async () => {
-                    try {
-                      await deleteDoc(doc(db, "users", deleteId));
-                      setDeleteId(null);
-                      if (previewTenant?.id === deleteId) {
-                        setPreviewOpen(false);
-                        setPreviewTenant(null);
-                      }
-                    } catch (e: any) {
-                      alert(e?.message || "Failed to delete");
-                    }
-                  }}
+onClick={async () => {
+                                    try {
+                                      const tenantToDelete = tenants.find(t => t.id === deleteId);
+                                      await deleteDoc(doc(db, "users", deleteId));
+                                      
+                                      // Log tenant deletion
+                                      if (currentAdmin && tenantToDelete) {
+                                        try {
+                                          await logTenantDeleted(
+                                            deleteId,
+                                            tenantToDelete.data.name || "Unknown Tenant",
+                                            currentAdmin
+                                          );
+                                        } catch (auditError) {
+                                          console.warn("Failed to create audit log:", auditError);
+                                        }
+                                      }
+                                      
+                                      setDeleteId(null);
+                                      if (previewTenant?.id === deleteId) {
+                                        setPreviewOpen(false);
+                                        setPreviewTenant(null);
+                                      }
+                                    } catch (e: any) {
+                                      alert(e?.message || "Failed to delete");
+                                    }
+                                  }}
                   className="px-4 py-2 rounded-lg bg-rose-600 hover:bg-rose-700 text-white text-sm font-semibold"
                 >
                   Delete
@@ -1457,6 +1517,21 @@ export default function TenantsPage() {
                       const data = await res.json().catch(() => ({}));
                       const newSuspended = Boolean(data?.suspended);
                       const newStatus = (data?.status || (newSuspended ? "Suspended" : "Active")).toString();
+                      
+                      // Log suspend/unsuspend action
+                      if (currentAdmin) {
+                        const tenantName = tenants.find(t => t.id === suspendTarget.id)?.data.name || "Unknown Tenant";
+                        try {
+                          if (newSuspended) {
+                            await logTenantSuspended(suspendTarget.id, tenantName, currentAdmin);
+                          } else {
+                            await logTenantUnsuspended(suspendTarget.id, tenantName, currentAdmin);
+                          }
+                        } catch (auditError) {
+                          console.warn("Failed to create audit log:", auditError);
+                        }
+                      }
+                      
                       // Optimistically update drawer button and list without closing
                       setPreviewTenant((prev) =>
                         prev && prev.id === suspendTarget.id
