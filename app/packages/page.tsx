@@ -3,8 +3,9 @@ import React, { useEffect, useState } from "react";
 import Sidebar from "@/components/Sidebar";
 import { useRouter } from "next/navigation";
 import { onAuthStateChanged } from "firebase/auth";
-import { auth, db } from "@/lib/firebase";
+import { auth, db, storage } from "@/lib/firebase";
 import { doc, getDoc, collection, query, where, onSnapshot, updateDoc, serverTimestamp } from "firebase/firestore";
+import { ref as storageRef, uploadBytes, getDownloadURL } from "firebase/storage";
 import { logTenantPlanChanged } from "@/lib/auditLog";
 
 type SubscriptionPlan = {
@@ -17,7 +18,8 @@ type SubscriptionPlan = {
   features: string[];
   popular?: boolean;
   color: string;
-  icon: string;
+  image?: string;
+  icon?: string; // Keep for backward compatibility
   active?: boolean;
 };
 
@@ -38,6 +40,9 @@ export default function PackagesPage() {
   const [editingPackage, setEditingPackage] = useState<SubscriptionPlan | null>(null);
   const [deletingPackage, setDeletingPackage] = useState<SubscriptionPlan | null>(null);
   const [savingPackage, setSavingPackage] = useState(false);
+  const [uploadingImage, setUploadingImage] = useState(false);
+  const [imageFile, setImageFile] = useState<File | null>(null);
+  const [imagePreview, setImagePreview] = useState<string | null>(null);
   
   // Form state
   const [formData, setFormData] = useState({
@@ -51,7 +56,7 @@ export default function PackagesPage() {
     features: "",
     popular: false,
     color: "blue",
-    icon: "fa-star",
+    image: "",
     active: true,
   });
 
@@ -208,9 +213,11 @@ export default function PackagesPage() {
       features: "",
       popular: false,
       color: "blue",
-      icon: "fa-star",
+      image: "",
       active: true,
     });
+    setImageFile(null);
+    setImagePreview(null);
     setEditingPackage(null);
     setShowPackageForm(true);
   };
@@ -229,11 +236,35 @@ export default function PackagesPage() {
       features: pkg.features.join("\n"),
       popular: pkg.popular || false,
       color: pkg.color,
-      icon: pkg.icon,
+      image: pkg.image || "",
       active: pkg.active !== false,
     });
+    setImageFile(null);
+    setImagePreview(pkg.image || null);
     setEditingPackage(pkg);
     setShowPackageForm(true);
+  };
+
+  const uploadImage = async (): Promise<string | null> => {
+    if (!imageFile || !auth.currentUser) return null;
+    
+    setUploadingImage(true);
+    try {
+      const timestamp = Date.now();
+      const fileName = `packages/${timestamp}_${imageFile.name}`;
+      const imageRef = storageRef(storage, fileName);
+      
+      await uploadBytes(imageRef, imageFile);
+      const downloadURL = await getDownloadURL(imageRef);
+      
+      return downloadURL;
+    } catch (error) {
+      console.error('Error uploading image:', error);
+      alert('Failed to upload image');
+      return null;
+    } finally {
+      setUploadingImage(false);
+    }
   };
 
   const handleSavePackage = async () => {
@@ -250,6 +281,18 @@ export default function PackagesPage() {
         .map(f => f.trim())
         .filter(f => f.length > 0);
 
+      // Upload image if a new file is selected
+      let finalImageUrl = formData.image;
+      if (imageFile) {
+        const uploadedUrl = await uploadImage();
+        if (uploadedUrl) {
+          finalImageUrl = uploadedUrl;
+        } else {
+          setSavingPackage(false);
+          return;
+        }
+      }
+
       const payload = {
         ...(editingPackage ? { id: editingPackage.id } : {}),
         name: formData.name.trim(),
@@ -260,7 +303,7 @@ export default function PackagesPage() {
         features: featuresArray,
         popular: formData.popular,
         color: formData.color,
-        icon: formData.icon,
+        image: finalImageUrl,
         active: formData.active,
       };
 
@@ -292,13 +335,14 @@ export default function PackagesPage() {
         
         setShowPackageForm(false);
         setEditingPackage(null);
-        alert(`✅ Package ${editingPackage ? "updated" : "created"} successfully!`);
+        setImageFile(null);
+        setImagePreview(null);
       } else {
-        alert(`❌ Failed to ${editingPackage ? "update" : "create"} package: ${data.error}`);
+        alert(`Failed to ${editingPackage ? "update" : "create"} package: ${data.error}`);
       }
     } catch (error: any) {
       console.error("Error saving package:", error);
-      alert(`❌ Error: ${error.message}`);
+      alert(`Error: ${error.message}`);
     } finally {
       setSavingPackage(false);
     }
@@ -332,13 +376,12 @@ export default function PackagesPage() {
         }
         
         setDeletingPackage(null);
-        alert("✅ Package deleted successfully!");
       } else {
-        alert(`❌ Failed to delete package: ${data.error}`);
+        alert(`Failed to delete package: ${data.error}`);
       }
     } catch (error: any) {
       console.error("Error deleting package:", error);
-      alert(`❌ Error: ${error.message}`);
+      alert(`Error: ${error.message}`);
     } finally {
       setSavingPackage(false);
     }
@@ -399,28 +442,36 @@ export default function PackagesPage() {
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
                   {activePlans.slice(0, 3).map((plan) => {
                     const planTenants = tenants.filter((t: any) => (t.plan || "").toLowerCase() === plan.name.toLowerCase());
+                    const gradientClass = plan.color === "blue" ? "from-blue-500 to-indigo-600" 
+                      : plan.color === "pink" ? "from-pink-500 to-rose-600" 
+                      : plan.color === "purple" ? "from-purple-500 to-violet-600" 
+                      : plan.color === "green" ? "from-emerald-500 to-teal-600"
+                      : plan.color === "orange" ? "from-orange-500 to-amber-600"
+                      : plan.color === "teal" ? "from-teal-500 to-cyan-600"
+                      : "from-slate-500 to-slate-600";
                     return (
-                      <div key={plan.id} className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
-                        <div className="flex items-center justify-between mb-4">
-                          <div className={`w-12 h-12 rounded-xl flex items-center justify-center ${
-                            plan.color === "blue" ? "bg-blue-50" : plan.color === "pink" ? "bg-pink-50" : plan.color === "purple" ? "bg-purple-50" : "bg-slate-50"
-                          }`}>
-                            <i className={`fas ${plan.icon} ${
-                              plan.color === "blue" ? "text-blue-500" : plan.color === "pink" ? "text-pink-500" : plan.color === "purple" ? "text-purple-500" : "text-slate-500"
-                            }`} />
+                      <div key={plan.id} className="group relative bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden hover:shadow-xl transition-all duration-300">
+                        <div className={`absolute top-0 left-0 right-0 h-1 bg-gradient-to-r ${gradientClass}`} />
+                        <div className="p-6">
+                          <div className="flex items-center justify-between mb-4">
+                            <div className={`w-14 h-14 rounded-xl flex items-center justify-center overflow-hidden shadow-lg ring-4 ring-white bg-gradient-to-br ${gradientClass}`}>
+                              {plan.image ? (
+                                <img src={plan.image} alt={plan.name} className="w-full h-full object-cover" />
+                              ) : (
+                                <i className="fas fa-box text-white text-lg" />
+                              )}
+                            </div>
+                            <span className={`px-3 py-1.5 rounded-full text-xs font-bold bg-gradient-to-r ${gradientClass} text-white shadow-sm`}>
+                              {planTenants.length} {planTenants.length === 1 ? "Tenant" : "Tenants"}
+                            </span>
                           </div>
-                          <span className={`px-3 py-1 rounded-full text-xs font-semibold ${
-                            plan.color === "blue" ? "bg-blue-50 text-blue-700" : plan.color === "pink" ? "bg-pink-50 text-pink-700" : plan.color === "purple" ? "bg-purple-50 text-purple-700" : "bg-slate-50 text-slate-700"
-                          }`}>
-                            {planTenants.length} {planTenants.length === 1 ? "Tenant" : "Tenants"}
-                          </span>
+                          <h3 className="text-xl font-bold text-slate-900 mb-1">{plan.name}</h3>
+                          <p className={`text-2xl font-bold bg-gradient-to-r ${gradientClass} bg-clip-text text-transparent mb-2`}>{plan.priceLabel}</p>
+                          <p className="text-sm text-slate-500">
+                            {plan.branches === -1 ? "Unlimited Branches" : `${plan.branches} ${plan.branches === 1 ? "Branch" : "Branches"}`} • {" "}
+                            {plan.staff === -1 ? "Unlimited Staff" : `${plan.staff} Staff`}
+                          </p>
                         </div>
-                        <h3 className="text-xl font-bold text-slate-900 mb-1">{plan.name}</h3>
-                        <p className="text-2xl font-bold text-slate-900 mb-2">{plan.priceLabel}</p>
-                        <p className="text-sm text-slate-500">
-                          {plan.branches === -1 ? "Unlimited Branches" : `${plan.branches} ${plan.branches === 1 ? "Branch" : "Branches"}`} • {" "}
-                          {plan.staff === -1 ? "Unlimited Staff" : `${plan.staff} ${plan.staff === 1 ? "Staff" : "Staff"}`}
-                        </p>
                       </div>
                     );
                   })}
@@ -431,15 +482,13 @@ export default function PackagesPage() {
               <div className="mb-8">
                 <div className="flex items-center justify-between mb-6">
                   <h2 className="text-xl font-bold text-slate-900">Available Plans</h2>
-                  {activePlans.length === 0 && (
-                    <button
-                      onClick={openCreatePackage}
-                      className="px-4 py-2 bg-pink-600 hover:bg-pink-700 text-white rounded-lg font-semibold transition flex items-center gap-2"
-                    >
-                      <i className="fas fa-plus" />
-                      Create First Package
-                    </button>
-                  )}
+                  <button
+                    onClick={openCreatePackage}
+                    className="px-5 py-2.5 bg-gradient-to-r from-pink-600 to-fuchsia-600 hover:from-pink-700 hover:to-fuchsia-700 text-white rounded-xl font-semibold transition-all shadow-lg shadow-pink-500/25 flex items-center gap-2"
+                  >
+                    <i className="fas fa-plus" />
+                    {activePlans.length === 0 ? "Create First Package" : "New Package"}
+                  </button>
                 </div>
                 {activePlans.length === 0 ? (
                   <div className="bg-white rounded-2xl border-2 border-dashed border-slate-300 p-12 text-center">
@@ -455,62 +504,112 @@ export default function PackagesPage() {
                     </button>
                   </div>
                 ) : (
-                  <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                    {activePlans.map((plan) => (
-                      <div
-                        key={plan.id}
-                        className={`bg-white rounded-2xl p-6 shadow-sm border-2 ${
-                          plan.popular ? "border-pink-500" : "border-slate-200"
-                        } hover:shadow-lg transition-all relative`}
-                      >
-                        <div className="absolute top-4 right-4 flex items-center gap-2">
-                          <button
-                            onClick={() => openEditPackage(plan)}
-                            className="w-8 h-8 rounded-lg bg-slate-100 hover:bg-slate-200 flex items-center justify-center transition"
-                            title="Edit Package"
-                          >
-                            <i className="fas fa-edit text-xs text-slate-600" />
-                          </button>
-                          <button
-                            onClick={() => setDeletingPackage(plan)}
-                            className="w-8 h-8 rounded-lg bg-rose-100 hover:bg-rose-200 flex items-center justify-center transition"
-                            title="Delete Package"
-                          >
-                            <i className="fas fa-trash text-xs text-rose-600" />
-                          </button>
+                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
+                    {activePlans.map((plan) => {
+                      const gradientClass = plan.color === "blue" ? "from-blue-500 via-blue-600 to-indigo-600" 
+                        : plan.color === "pink" ? "from-pink-500 via-rose-500 to-fuchsia-600" 
+                        : plan.color === "purple" ? "from-purple-500 via-violet-500 to-indigo-600" 
+                        : plan.color === "green" ? "from-emerald-500 via-green-500 to-teal-600"
+                        : plan.color === "orange" ? "from-orange-500 via-amber-500 to-yellow-500"
+                        : plan.color === "teal" ? "from-teal-500 via-cyan-500 to-blue-500"
+                        : "from-slate-500 via-slate-600 to-slate-700";
+                      const lightBgClass = plan.color === "blue" ? "bg-blue-50" 
+                        : plan.color === "pink" ? "bg-pink-50" 
+                        : plan.color === "purple" ? "bg-purple-50" 
+                        : plan.color === "green" ? "bg-emerald-50"
+                        : plan.color === "orange" ? "bg-orange-50"
+                        : plan.color === "teal" ? "bg-teal-50"
+                        : "bg-slate-50";
+                      return (
+                        <div
+                          key={plan.id}
+                          className={`group relative bg-white rounded-3xl overflow-hidden shadow-lg hover:shadow-2xl transition-all duration-500 transform hover:-translate-y-2 ${
+                            plan.popular ? "ring-2 ring-pink-500 ring-offset-2" : ""
+                          }`}
+                        >
+                          {/* Gradient Header */}
+                          <div className={`relative h-32 bg-gradient-to-br ${gradientClass} overflow-visible`}>
+                            {/* Decorative circles */}
+                            <div className="absolute -top-10 -right-10 w-40 h-40 bg-white/10 rounded-full" />
+                            <div className="absolute -bottom-10 -left-10 w-32 h-32 bg-white/10 rounded-full" />
+                            <div className="absolute top-4 left-4 w-16 h-16 bg-white/10 rounded-full" />
+                            
+                            {/* Edit/Delete buttons */}
+                            <div className="absolute top-3 right-3 flex items-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity duration-300 z-10">
+                              <button
+                                onClick={() => openEditPackage(plan)}
+                                className="w-8 h-8 rounded-full bg-white/20 backdrop-blur-sm hover:bg-white/40 flex items-center justify-center transition"
+                                title="Edit Package"
+                              >
+                                <i className="fas fa-edit text-xs text-white" />
+                              </button>
+                              <button
+                                onClick={() => setDeletingPackage(plan)}
+                                className="w-8 h-8 rounded-full bg-white/20 backdrop-blur-sm hover:bg-rose-500 flex items-center justify-center transition"
+                                title="Delete Package"
+                              >
+                                <i className="fas fa-trash text-xs text-white" />
+                              </button>
+                            </div>
+                            
+                            {/* Popular badge */}
+                            {plan.popular && (
+                              <div className="absolute top-3 left-3 bg-white/20 backdrop-blur-sm text-white text-xs font-bold px-3 py-1.5 rounded-full flex items-center gap-1.5 z-10">
+                                <i className="fas fa-crown text-yellow-300" />
+                                Most Popular
+                              </div>
+                            )}
+                            
+                            {/* Package Image/Icon - half in colored area, half in white */}
+                            <div className="absolute -bottom-12 left-1/2 -translate-x-1/2 z-20">
+                              <div className={`w-24 h-24 rounded-2xl flex items-center justify-center overflow-hidden shadow-xl ring-4 ring-white ${lightBgClass}`}>
+                                {plan.image ? (
+                                  <img src={plan.image} alt={plan.name} className="w-full h-full object-cover" />
+                                ) : (
+                                  <i className={`fas fa-box text-3xl bg-gradient-to-br ${gradientClass} bg-clip-text text-transparent`} />
+                                )}
+                              </div>
+                            </div>
+                          </div>
+                          
+                          {/* Card Content */}
+                          <div className="pt-16 pb-6 px-6">
+                            <div className="text-center mb-6">
+                              <h3 className="text-2xl font-bold text-slate-900 mb-2">{plan.name}</h3>
+                              <div className={`text-4xl font-extrabold bg-gradient-to-r ${gradientClass} bg-clip-text text-transparent mb-2`}>
+                                {plan.priceLabel}
+                              </div>
+                              <div className="flex items-center justify-center gap-3 text-sm text-slate-500">
+                                <span className="flex items-center gap-1">
+                                  <i className="fas fa-building text-xs" />
+                                  {plan.branches === -1 ? "Unlimited" : plan.branches} {plan.branches === 1 ? "Branch" : "Branches"}
+                                </span>
+                                <span className="w-1 h-1 bg-slate-300 rounded-full" />
+                                <span className="flex items-center gap-1">
+                                  <i className="fas fa-users text-xs" />
+                                  {plan.staff === -1 ? "Unlimited" : plan.staff} Staff
+                                </span>
+                              </div>
+                            </div>
+                            
+                            {/* Divider */}
+                            <div className={`h-px bg-gradient-to-r from-transparent via-slate-200 to-transparent mb-6`} />
+                            
+                            {/* Features */}
+                            <ul className="space-y-3">
+                              {plan.features.map((feature, idx) => (
+                                <li key={idx} className="flex items-start gap-3">
+                                  <div className={`w-5 h-5 rounded-full bg-gradient-to-br ${gradientClass} flex items-center justify-center flex-shrink-0 mt-0.5`}>
+                                    <i className="fas fa-check text-white text-[10px]" />
+                                  </div>
+                                  <span className="text-sm text-slate-600">{feature}</span>
+                                </li>
+                              ))}
+                            </ul>
+                          </div>
                         </div>
-                        {plan.popular && (
-                          <div className="absolute -top-3 left-1/2 -translate-x-1/2 bg-pink-500 text-white text-xs font-bold px-4 py-1 rounded-full">
-                            Most Popular
-                          </div>
-                        )}
-                        <div className="text-center mb-6">
-                          <div className={`w-16 h-16 rounded-2xl flex items-center justify-center mx-auto mb-4 ${
-                            plan.color === "blue" ? "bg-blue-50" : plan.color === "pink" ? "bg-pink-50" : plan.color === "purple" ? "bg-purple-50" : "bg-slate-50"
-                          }`}>
-                            <i className={`fas ${plan.icon} text-2xl ${
-                              plan.color === "blue" ? "text-blue-500" : plan.color === "pink" ? "text-pink-500" : plan.color === "purple" ? "text-purple-500" : "text-slate-500"
-                            }`} />
-                          </div>
-                          <h3 className="text-2xl font-bold text-slate-900 mb-2">{plan.name}</h3>
-                          <div className="text-4xl font-bold text-slate-900 mb-1">
-                            {plan.priceLabel}
-                          </div>
-                          <p className="text-sm text-slate-500">
-                            {plan.branches === -1 ? "Unlimited Branches" : `${plan.branches} ${plan.branches === 1 ? "Branch" : "Branches"}`} • {" "}
-                            {plan.staff === -1 ? "Unlimited Staff" : `${plan.staff} ${plan.staff === 1 ? "Staff" : "Staff"}`}
-                          </p>
-                        </div>
-                        <ul className="space-y-3 mb-6">
-                          {plan.features.map((feature, idx) => (
-                            <li key={idx} className="flex items-start gap-2">
-                              <i className="fas fa-check text-emerald-500 mt-1 flex-shrink-0" />
-                              <span className="text-sm text-slate-700">{feature}</span>
-                            </li>
-                          ))}
-                        </ul>
-                      </div>
-                    ))}
+                      );
+                    })}
                   </div>
                 )}
               </div>
@@ -649,8 +748,22 @@ export default function PackagesPage() {
                               type="number"
                               step="0.01"
                               value={formData.price}
-                              onChange={(e) => setFormData({ ...formData, price: e.target.value })}
-                              className="w-full px-4 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-pink-500 focus:border-transparent"
+                              onChange={(e) => {
+                                const priceValue = e.target.value;
+                                // Auto-fill price label with formatted price
+                                let priceLabel = "";
+                                if (priceValue && !isNaN(parseFloat(priceValue))) {
+                                  const numPrice = parseFloat(priceValue);
+                                  // Format as AU$XX/mo, removing unnecessary decimals
+                                  if (numPrice % 1 === 0) {
+                                    priceLabel = `AU$${numPrice}/mo`;
+                                  } else {
+                                    priceLabel = `AU$${numPrice.toFixed(2)}/mo`;
+                                  }
+                                }
+                                setFormData({ ...formData, price: priceValue, priceLabel });
+                              }}
+                              className="w-full px-4 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-pink-500 focus:border-transparent [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
                               placeholder="99.00"
                             />
                           </div>
@@ -677,10 +790,14 @@ export default function PackagesPage() {
                             <div className="space-y-2">
                               <input
                                 type="text"
+                                inputMode="numeric"
+                                pattern="[0-9]*"
                                 value={formData.unlimitedBranches ? "unlimited" : formData.branches}
                                 onChange={(e) => {
                                   if (!formData.unlimitedBranches) {
-                                    setFormData({ ...formData, branches: e.target.value });
+                                    // Only allow numbers
+                                    const value = e.target.value.replace(/[^0-9]/g, '');
+                                    setFormData({ ...formData, branches: value });
                                   }
                                 }}
                                 disabled={formData.unlimitedBranches}
@@ -711,10 +828,14 @@ export default function PackagesPage() {
                             <div className="space-y-2">
                               <input
                                 type="text"
+                                inputMode="numeric"
+                                pattern="[0-9]*"
                                 value={formData.unlimitedStaff ? "unlimited" : formData.staff}
                                 onChange={(e) => {
                                   if (!formData.unlimitedStaff) {
-                                    setFormData({ ...formData, staff: e.target.value });
+                                    // Only allow numbers
+                                    const value = e.target.value.replace(/[^0-9]/g, '');
+                                    setFormData({ ...formData, staff: value });
                                   }
                                 }}
                                 disabled={formData.unlimitedStaff}
@@ -753,13 +874,13 @@ export default function PackagesPage() {
                           />
                         </div>
 
-                        <div className="grid grid-cols-2 gap-4">
-                          <div>
-                            <label className="block text-sm font-semibold text-slate-700 mb-2">Color</label>
+                        <div>
+                          <label className="block text-sm font-semibold text-slate-700 mb-2">Color</label>
+                          <div className="relative">
                             <select
                               value={formData.color}
                               onChange={(e) => setFormData({ ...formData, color: e.target.value })}
-                              className="w-full px-4 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-pink-500 focus:border-transparent"
+                              className="w-full pl-4 pr-12 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-pink-500 focus:border-transparent appearance-none bg-white cursor-pointer"
                             >
                               <option value="blue">Blue</option>
                               <option value="pink">Pink</option>
@@ -768,16 +889,66 @@ export default function PackagesPage() {
                               <option value="orange">Orange</option>
                               <option value="teal">Teal</option>
                             </select>
+                            <div className="absolute inset-y-0 right-0 flex items-center pr-4 pointer-events-none">
+                              <i className="fas fa-chevron-down text-slate-400 text-sm" />
+                            </div>
                           </div>
-                          <div>
-                            <label className="block text-sm font-semibold text-slate-700 mb-2">Icon (Font Awesome)</label>
-                            <input
-                              type="text"
-                              value={formData.icon}
-                              onChange={(e) => setFormData({ ...formData, icon: e.target.value })}
-                              className="w-full px-4 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-pink-500 focus:border-transparent"
-                              placeholder="fa-star, fa-crown, fa-building"
-                            />
+                        </div>
+
+                        <div>
+                          <label className="block text-sm font-semibold text-slate-700 mb-2">Package Image</label>
+                          <div className="space-y-3">
+                            {imagePreview && (
+                              <div className="relative w-32 h-32 border-2 border-slate-200 rounded-lg overflow-hidden">
+                                <img
+                                  src={imagePreview}
+                                  alt="Package preview"
+                                  className="w-full h-full object-cover"
+                                />
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setImagePreview(null);
+                                    setImageFile(null);
+                                    setFormData({ ...formData, image: "" });
+                                  }}
+                                  className="absolute top-1 right-1 w-6 h-6 bg-rose-500 text-white rounded-full flex items-center justify-center hover:bg-rose-600 transition text-xs"
+                                >
+                                  <i className="fas fa-times" />
+                                </button>
+                              </div>
+                            )}
+                            <div>
+                              <input
+                                type="file"
+                                accept="image/*"
+                                onChange={(e) => {
+                                  const file = e.target.files?.[0];
+                                  if (file) {
+                                    // Validate file type
+                                    const validTypes = ['image/png', 'image/jpeg', 'image/jpg', 'image/webp', 'image/gif'];
+                                    if (!validTypes.includes(file.type)) {
+                                      alert("Please upload a valid image file (PNG, JPG, WebP, or GIF)");
+                                      return;
+                                    }
+                                    // Validate file size (max 5MB)
+                                    if (file.size > 5 * 1024 * 1024) {
+                                      alert("File size must be less than 5MB");
+                                      return;
+                                    }
+                                    setImageFile(file);
+                                    const reader = new FileReader();
+                                    reader.onloadend = () => {
+                                      setImagePreview(reader.result as string);
+                                    };
+                                    reader.readAsDataURL(file);
+                                  }
+                                }}
+                                className="w-full px-4 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-pink-500 focus:border-transparent file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-semibold file:bg-pink-50 file:text-pink-700 hover:file:bg-pink-100"
+                                disabled={uploadingImage || savingPackage}
+                              />
+                              <p className="text-xs text-slate-500 mt-1">Upload an image for this package (max 5MB)</p>
+                            </div>
                           </div>
                         </div>
 
@@ -813,13 +984,13 @@ export default function PackagesPage() {
                         </button>
                         <button
                           onClick={handleSavePackage}
-                          disabled={savingPackage}
+                          disabled={savingPackage || uploadingImage}
                           className="px-5 py-2.5 rounded-xl bg-gradient-to-r from-pink-600 to-fuchsia-600 hover:from-pink-700 hover:to-fuchsia-700 text-white text-sm font-semibold transition-all shadow-lg shadow-pink-500/25 disabled:opacity-50 flex items-center gap-2"
                         >
-                          {savingPackage ? (
+                          {(savingPackage || uploadingImage) ? (
                             <>
                               <i className="fas fa-circle-notch fa-spin" />
-                              Saving...
+                              {uploadingImage ? "Uploading..." : "Saving..."}
                             </>
                           ) : (
                             <>
@@ -933,12 +1104,20 @@ export default function PackagesPage() {
                           const currentPlan = activePlans.find(p => p.name.toLowerCase() === (tenant?.plan || "").toLowerCase());
                           return currentPlan ? (
                             <div className="flex items-center gap-2">
-                              <div className={`w-8 h-8 rounded-lg flex items-center justify-center ${
+                              <div className={`w-8 h-8 rounded-lg flex items-center justify-center overflow-hidden ${
                                 currentPlan.color === "blue" ? "bg-blue-100" : currentPlan.color === "pink" ? "bg-pink-100" : currentPlan.color === "purple" ? "bg-purple-100" : "bg-slate-100"
                               }`}>
-                                <i className={`fas ${currentPlan.icon} text-xs ${
-                                  currentPlan.color === "blue" ? "text-blue-600" : currentPlan.color === "pink" ? "text-pink-600" : currentPlan.color === "purple" ? "text-purple-600" : "text-slate-600"
-                                }`} />
+                                {currentPlan.image ? (
+                                  <img src={currentPlan.image} alt={currentPlan.name} className="w-full h-full object-cover" />
+                                ) : currentPlan.icon ? (
+                                  <i className={`fas ${currentPlan.icon} text-xs ${
+                                    currentPlan.color === "blue" ? "text-blue-600" : currentPlan.color === "pink" ? "text-pink-600" : currentPlan.color === "purple" ? "text-purple-600" : "text-slate-600"
+                                  }`} />
+                                ) : (
+                                  <i className={`fas fa-box text-xs ${
+                                    currentPlan.color === "blue" ? "text-blue-600" : currentPlan.color === "pink" ? "text-pink-600" : currentPlan.color === "purple" ? "text-purple-600" : "text-slate-600"
+                                  }`} />
+                                )}
                               </div>
                               <span className="text-xs text-slate-500">Current:</span>
                               <span className="font-semibold text-slate-900">{currentPlan.name}</span>
@@ -982,12 +1161,20 @@ export default function PackagesPage() {
                                 
                                 <div className="p-4">
                                   <div className="text-center mb-4">
-                                    <div className={`w-12 h-12 rounded-xl flex items-center justify-center mx-auto mb-2 ${
+                                    <div className={`w-12 h-12 rounded-xl flex items-center justify-center mx-auto mb-2 overflow-hidden ${
                                       plan.color === "blue" ? "bg-blue-100" : plan.color === "pink" ? "bg-pink-100" : plan.color === "purple" ? "bg-purple-100" : "bg-slate-100"
                                     }`}>
-                                      <i className={`fas ${plan.icon} ${
-                                        plan.color === "blue" ? "text-blue-600" : plan.color === "pink" ? "text-pink-600" : plan.color === "purple" ? "text-purple-600" : "text-slate-600"
-                                      }`} />
+                                      {plan.image ? (
+                                        <img src={plan.image} alt={plan.name} className="w-full h-full object-cover" />
+                                      ) : plan.icon ? (
+                                        <i className={`fas ${plan.icon} ${
+                                          plan.color === "blue" ? "text-blue-600" : plan.color === "pink" ? "text-pink-600" : plan.color === "purple" ? "text-purple-600" : "text-slate-600"
+                                        }`} />
+                                      ) : (
+                                        <i className={`fas fa-box ${
+                                          plan.color === "blue" ? "text-blue-600" : plan.color === "pink" ? "text-pink-600" : plan.color === "purple" ? "text-purple-600" : "text-slate-600"
+                                        }`} />
+                                      )}
                                     </div>
                                     <h4 className="text-lg font-bold text-slate-900 mb-1">{plan.name}</h4>
                                     <div className="mb-2">

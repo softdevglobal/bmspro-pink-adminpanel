@@ -43,7 +43,7 @@ export async function POST(req: NextRequest) {
     }
 
     const body = await req.json();
-    const { name, price, priceLabel, branches, staff, features, popular, color, icon, active } = body;
+    const { name, price, priceLabel, branches, staff, features, popular, color, image, icon, active } = body;
 
     // Validation
     if (!name || price === undefined || !priceLabel) {
@@ -54,7 +54,7 @@ export async function POST(req: NextRequest) {
     }
 
     const db = adminDb();
-    const planData = {
+    const planData: any = {
       name: name.trim(),
       price: parseFloat(price),
       priceLabel: priceLabel.trim(),
@@ -63,11 +63,17 @@ export async function POST(req: NextRequest) {
       features: Array.isArray(features) ? features : [],
       popular: popular === true || popular === "true",
       color: color || "blue",
-      icon: icon || "fa-star",
       active: active !== false && active !== "false",
       createdAt: new Date(),
       updatedAt: new Date(),
     };
+
+    // Add image if provided, otherwise keep icon for backward compatibility
+    if (image) {
+      planData.image = image;
+    } else if (icon) {
+      planData.icon = icon;
+    }
 
     const docRef = await db.collection("subscription_plans").add(planData);
 
@@ -105,7 +111,7 @@ export async function PUT(req: NextRequest) {
     }
 
     const body = await req.json();
-    const { id, name, price, priceLabel, branches, staff, features, popular, color, icon, active } = body;
+    const { id, name, price, priceLabel, branches, staff, features, popular, color, image, icon, active } = body;
 
     if (!id) {
       return NextResponse.json(
@@ -137,7 +143,15 @@ export async function PUT(req: NextRequest) {
     if (features !== undefined) updateData.features = Array.isArray(features) ? features : [];
     if (popular !== undefined) updateData.popular = popular === true || popular === "true";
     if (color !== undefined) updateData.color = color;
-    if (icon !== undefined) updateData.icon = icon;
+    if (image !== undefined) {
+      updateData.image = image;
+      // Remove icon if image is provided
+      if (image) {
+        updateData.icon = null;
+      }
+    } else if (icon !== undefined) {
+      updateData.icon = icon;
+    }
     if (active !== undefined) updateData.active = active !== false && active !== "false";
 
     await planRef.update(updateData);
