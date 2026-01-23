@@ -478,6 +478,9 @@ export default function PackagesPage() {
                 </div>
               )}
 
+              {/* Divider between Stats and Available Plans */}
+              <hr className="my-10 border-slate-200" />
+
               {/* Subscription Plans */}
               <div className="mb-8">
                 <div className="flex items-center justify-between mb-6">

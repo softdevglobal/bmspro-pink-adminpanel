@@ -39,6 +39,7 @@ export default function SettingsPage() {
   const [selectedSystemRole, setSelectedSystemRole] = useState<string>("salon_staff");
   const [selectedTimezone, setSelectedTimezone] = useState<string>("Australia/Sydney");
   const [selectedBranchId, setSelectedBranchId] = useState<string>("");
+  const [ownerPlan, setOwnerPlan] = useState<{ name: string; priceLabel: string } | null>(null);
 
   type StaffTraining = { ohs: boolean; prod: boolean; tool: boolean };
   type HoursDay = { open?: string; close?: string; closed?: boolean };
@@ -147,6 +148,28 @@ export default function SettingsPage() {
     };
   }, [ownerUid]);
 
+  // Fetch owner's package/plan
+  useEffect(() => {
+    if (!ownerUid) return;
+    const fetchOwnerPlan = async () => {
+      try {
+        const ownerDoc = await getDoc(doc(db, "users", ownerUid));
+        if (ownerDoc.exists()) {
+          const ownerData = ownerDoc.data();
+          if (ownerData.plan && ownerData.price) {
+            setOwnerPlan({
+              name: ownerData.plan,
+              priceLabel: ownerData.price,
+            });
+          }
+        }
+      } catch (error) {
+        console.error("Error fetching owner plan:", error);
+      }
+    };
+    fetchOwnerPlan();
+  }, [ownerUid]);
+
   // Auto-update timezone when branch is selected for Branch Admin
   useEffect(() => {
     if (selectedSystemRole === "salon_branch_admin" && selectedBranchId) {
@@ -232,7 +255,7 @@ export default function SettingsPage() {
     const role = String(formData.get("role") || "").trim();
     const email = String(formData.get("email") || "").trim().toLowerCase();
     const mobile = String(formData.get("mobile") || "").trim();
-    const password = String(formData.get("password") || "").trim();
+    const password = String(formData.get("password") || "").replace(/\D/g, ''); // Only digits
     const branchId = String(formData.get("branch") || selectedBranchId || "").trim();
     const systemRole = String(formData.get("system_role") || "salon_staff");
     // For Branch Admin, get timezone from the selected branch; otherwise use default
@@ -254,25 +277,25 @@ export default function SettingsPage() {
 
     if (!name || !role || !email || !mobile || !ownerUid) return;
     
-    // Validate password: For new staff (not editing), password is required and must be at least 6 characters
-    // For editing existing staff, password is optional but if provided must be at least 6 characters
+    // Validate password: Must be exactly 6 digits
+    const passwordDigits = password.replace(/\D/g, ''); // Remove non-digits
     if (!editingStaffId) {
       // Creating new staff - password is required
-      if (!password || password.length === 0) {
-        setPasswordError("Password is required (minimum 6 characters)");
-        showToast("Password is required when creating a new staff member");
+      if (!password || passwordDigits.length === 0) {
+        setPasswordError("Password is required (6 digits)");
+        showToast("Password is required when creating a new staff member (6 digits)");
         return;
       }
-      if (password.length < 6) {
-        setPasswordError("Password must be at least 6 characters long");
-        showToast("Password must be at least 6 characters long");
+      if (passwordDigits.length !== 6) {
+        setPasswordError("Password must be exactly 6 digits");
+        showToast("Password must be exactly 6 digits");
         return;
       }
     } else {
-      // Editing existing staff - password is optional but if provided must be at least 6 characters
-      if (password && password.length > 0 && password.length < 6) {
-        setPasswordError("Password must be at least 6 characters long");
-        showToast("Password must be at least 6 characters long");
+      // Editing existing staff - password is optional but if provided must be exactly 6 digits
+      if (password && passwordDigits.length > 0 && passwordDigits.length !== 6) {
+        setPasswordError("Password must be exactly 6 digits");
+        showToast("Password must be exactly 6 digits");
         return;
       }
     }
@@ -1306,6 +1329,27 @@ export default function SettingsPage() {
             </div>
             <form onSubmit={handleStaffSubmit} className="flex-1 overflow-y-auto custom-scrollbar">
               <div className="p-3 sm:p-6 space-y-3 sm:space-y-4">
+              {/* Package Information */}
+              {ownerPlan && (
+                <div className="bg-gradient-to-r from-pink-50 to-purple-50 rounded-lg sm:rounded-xl p-3 sm:p-4 border border-pink-200 mb-3 sm:mb-4">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2 sm:gap-3">
+                      <div className="w-8 h-8 sm:w-10 sm:h-10 rounded-lg bg-gradient-to-br from-pink-500 to-purple-600 flex items-center justify-center">
+                        <i className="fas fa-crown text-white text-xs sm:text-sm" />
+                      </div>
+                      <div>
+                        <div className="text-[10px] sm:text-xs text-slate-600 font-semibold">Current Plan</div>
+                        <div className="text-sm sm:text-base font-bold text-slate-900">{ownerPlan.name}</div>
+                      </div>
+                    </div>
+                    <div className="text-right">
+                      <div className="text-[10px] sm:text-xs text-slate-600 font-semibold">Price</div>
+                      <div className="text-sm sm:text-base font-bold text-pink-600">{ownerPlan.priceLabel}</div>
+                    </div>
+                  </div>
+                </div>
+              )}
+
               {/* Basic Information Section */}
               <div className="bg-slate-50 rounded-lg sm:rounded-xl p-3 sm:p-4 border border-slate-200">
                 <h4 className="text-xs sm:text-sm font-bold text-slate-700 mb-2 sm:mb-3 flex items-center gap-2">
@@ -1377,8 +1421,8 @@ export default function SettingsPage() {
                   {(!editingStaffId || (editingStaffId && !editingStaff?.authUid)) && (
                     <div>
                       <label className="block text-xs font-bold text-slate-600 mb-1">
-                        Password {!editingStaffId && <span className="text-red-500">*</span>}
-                        {!editingStaffId && <span className="text-slate-500 text-[10px] ml-1">(required, min 6 characters)</span>}
+                        Temporary Password {!editingStaffId && <span className="text-red-500">*</span>}
+                        {!editingStaffId && <span className="text-slate-500 text-[10px] ml-1">(required, exactly 6 digits)</span>}
                       </label>
                       <div className="relative">
                         <input
@@ -1389,20 +1433,32 @@ export default function SettingsPage() {
                               ? "border-red-500 focus:ring-red-500" 
                               : "border-slate-300 focus:ring-pink-500"
                           }`}
-                          placeholder={editingStaffId ? "Create password for login (min 6 characters)" : "Enter password (minimum 6 characters required)"}
+                          placeholder={editingStaffId ? "Create password (6 digits)" : "Enter 6-digit password (e.g., 123456)"}
                           required={!editingStaffId}
+                          maxLength={6}
                           onChange={(e) => {
-                            const value = e.target.value;
-                            if (value && value.length > 0 && value.length < 6) {
-                              setPasswordError("Password must be at least 6 characters long");
+                            const value = e.target.value.replace(/\D/g, ''); // Only allow digits
+                            e.target.value = value; // Update input value
+                            if (value && value.length > 0) {
+                              if (value.length !== 6) {
+                                setPasswordError("Password must be exactly 6 digits");
+                              } else {
+                                setPasswordError(null);
+                              }
                             } else {
                               setPasswordError(null);
                             }
                           }}
                           onBlur={(e) => {
-                            const value = e.target.value;
-                            if (value && value.length > 0 && value.length < 6) {
-                              setPasswordError("Password must be at least 6 characters long");
+                            const value = e.target.value.replace(/\D/g, '');
+                            if (value && value.length > 0) {
+                              if (value.length !== 6) {
+                                setPasswordError("Password must be exactly 6 digits");
+                              } else {
+                                setPasswordError(null);
+                              }
+                            } else if (!editingStaffId) {
+                              setPasswordError("Password is required (6 digits)");
                             } else {
                               setPasswordError(null);
                             }
@@ -1421,8 +1477,8 @@ export default function SettingsPage() {
                       ) : (
                         <p className="text-[10px] text-slate-500 mt-1">
                           {editingStaffId 
-                            ? "Set a password for them to login immediately (minimum 6 characters)." 
-                            : "Password is required when creating a new staff member. Must be at least 6 characters long."}
+                            ? "Set a 6-digit password for them to login immediately." 
+                            : "Password is required when creating a new staff member. Must be exactly 6 digits (0-9)."}
                         </p>
                       )}
                     </div>
