@@ -4,7 +4,7 @@ import Sidebar from "@/components/Sidebar";
 import { useRouter } from "next/navigation";
 import { onAuthStateChanged } from "firebase/auth";
 import { auth, db } from "@/lib/firebase";
-import { doc, getDoc, updateDoc } from "firebase/firestore";
+import { doc, getDoc, updateDoc, collection, query, where, getDocs } from "firebase/firestore";
 
 interface Package {
   id: string;
@@ -38,9 +38,7 @@ export default function SubscriptionPage() {
 
   // Calculator state
   const [branches, setBranches] = useState(1);
-  const [staff, setStaff] = useState(0);
-  const PRICE_BRANCH = 29.0;
-  const PRICE_STAFF = 9.99;
+  const [additionalBranchPrice, setAdditionalBranchPrice] = useState<number | null>(null);
 
   // Fetch packages from API
   const fetchPackages = useCallback(async () => {
@@ -95,6 +93,41 @@ export default function SubscriptionPage() {
           price: data?.price || "",
         });
 
+        // Get additional branch price from user document or fetch from plan
+        let branchPrice = data?.additionalBranchPrice;
+        
+        // If not in user doc, try to fetch from subscription plan
+        if (!branchPrice && data?.planId) {
+          try {
+            const planDoc = await getDoc(doc(db, "subscription_plans", data.planId));
+            if (planDoc.exists()) {
+              const planData = planDoc.data();
+              branchPrice = planData?.additionalBranchPrice;
+            }
+          } catch (e) {
+            console.error("Error fetching plan data:", e);
+          }
+        }
+        
+        // If still no data, try to find plan by name
+        if (!branchPrice && data?.plan) {
+          try {
+            const plansQuery = query(
+              collection(db, "subscription_plans"),
+              where("name", "==", data.plan)
+            );
+            const plansSnapshot = await getDocs(plansQuery);
+            if (!plansSnapshot.empty) {
+              const planData = plansSnapshot.docs[0].data();
+              branchPrice = planData?.additionalBranchPrice;
+            }
+          } catch (e) {
+            console.error("Error fetching plan by name:", e);
+          }
+        }
+        
+        setAdditionalBranchPrice(branchPrice || null);
+
         // Fetch packages after auth is ready
         fetchPackages();
 
@@ -108,17 +141,12 @@ export default function SubscriptionPage() {
     return () => unsub();
   }, [router, fetchPackages]);
 
-  const updateCalc = (type: "branch" | "staff", change: number) => {
-    if (type === "branch") {
-      setBranches((prev) => Math.max(1, prev + change));
-    } else {
-      setStaff((prev) => Math.max(0, prev + change));
-    }
+  const updateCalc = (change: number) => {
+    setBranches((prev) => Math.max(1, prev + change));
   };
 
-  const branchTotal = branches * PRICE_BRANCH;
-  const staffTotal = staff * PRICE_STAFF;
-  const grandTotal = branchTotal + staffTotal;
+  const branchTotal = additionalBranchPrice ? branches * additionalBranchPrice : 0;
+  const grandTotal = branchTotal;
 
   const selectPlan = (pkg: Package) => {
     setSelectedPackage(pkg);
@@ -388,12 +416,15 @@ export default function SubscriptionPage() {
                   </div>
                 )}
 
-                {/* Custom Enterprise Calculator */}
+                {/* Add Additional Branches */}
+                {userData?.plan && additionalBranchPrice && (
                 <div className="bg-white rounded-2xl shadow-sm border-t-4 border-pink-500 overflow-hidden">
                   <div className="p-8">
                     <div className="mb-8">
-                      <h2 className="text-2xl font-bold text-slate-900 mb-2">Custom Enterprise Plan</h2>
-                      <p className="text-slate-500">Build a plan that fits your exact business structure.</p>
+                      <h2 className="text-2xl font-bold text-slate-900 mb-2">Add Additional Branches</h2>
+                      <p className="text-slate-500">
+                        Your package is <span className="font-semibold text-pink-600">{userData.plan}</span>. You can add additional branches to your plan below.
+                      </p>
                     </div>
 
                     <div className="flex flex-col lg:flex-row gap-8">
@@ -403,41 +434,22 @@ export default function SubscriptionPage() {
                         <div className="flex items-center justify-between bg-slate-50 p-5 rounded-xl border border-slate-200">
                           <div>
                             <h3 className="text-lg font-semibold text-slate-900">Branches</h3>
-                            <p className="text-sm text-slate-500 mt-1">$29.00 per branch (Includes 1 Admin)</p>
+                            <p className="text-sm text-slate-500 mt-1">
+                              {additionalBranchPrice 
+                                ? `AU$${additionalBranchPrice.toFixed(2)} per branch (Includes 1 Admin)`
+                                : "Additional branch pricing not available"}
+                            </p>
                           </div>
                           <div className="flex items-center gap-4">
                             <button
-                              onClick={() => updateCalc("branch", -1)}
+                              onClick={() => updateCalc(-1)}
                               className="w-10 h-10 rounded-full border border-slate-300 bg-white hover:bg-slate-50 flex items-center justify-center text-slate-700 text-xl font-bold transition-colors"
                             >
                               −
                             </button>
                             <span className="text-xl font-bold text-slate-900 w-8 text-center">{branches}</span>
                             <button
-                              onClick={() => updateCalc("branch", 1)}
-                              className="w-10 h-10 rounded-full border border-slate-300 bg-white hover:bg-slate-50 flex items-center justify-center text-slate-700 text-xl font-bold transition-colors"
-                            >
-                              +
-                            </button>
-                          </div>
-                        </div>
-
-                        {/* Staff Control */}
-                        <div className="flex items-center justify-between bg-slate-50 p-5 rounded-xl border border-slate-200">
-                          <div>
-                            <h3 className="text-lg font-semibold text-slate-900">Staff Members</h3>
-                            <p className="text-sm text-slate-500 mt-1">$9.99 per additional staff member</p>
-                          </div>
-                          <div className="flex items-center gap-4">
-                            <button
-                              onClick={() => updateCalc("staff", -1)}
-                              className="w-10 h-10 rounded-full border border-slate-300 bg-white hover:bg-slate-50 flex items-center justify-center text-slate-700 text-xl font-bold transition-colors"
-                            >
-                              −
-                            </button>
-                            <span className="text-xl font-bold text-slate-900 w-8 text-center">{staff}</span>
-                            <button
-                              onClick={() => updateCalc("staff", 1)}
+                              onClick={() => updateCalc(1)}
                               className="w-10 h-10 rounded-full border border-slate-300 bg-white hover:bg-slate-50 flex items-center justify-center text-slate-700 text-xl font-bold transition-colors"
                             >
                               +
@@ -453,33 +465,28 @@ export default function SubscriptionPage() {
                         <div className="space-y-3 text-sm">
                           <div className="flex justify-between opacity-80">
                             <span>
-                              Branches ({branches} × $29)
+                              Branches ({branches} × {additionalBranchPrice ? `AU$${additionalBranchPrice.toFixed(2)}` : '$0.00'})
                             </span>
-                            <span>${branchTotal.toFixed(2)}</span>
-                          </div>
-                          <div className="flex justify-between opacity-80">
-                            <span>
-                              Staff ({staff} × $9.99)
-                            </span>
-                            <span>${staffTotal.toFixed(2)}</span>
+                            <span>AU${branchTotal.toFixed(2)}</span>
                           </div>
                         </div>
 
                         <div className="flex justify-between items-center mt-6 pt-6 border-t border-white/20 text-2xl font-bold text-pink-400">
                           <span>Total</span>
-                          <span>${grandTotal.toFixed(2)}</span>
+                          <span>AU${grandTotal.toFixed(2)}</span>
                         </div>
 
                         <button
-                          onClick={() => alert("Proceeding to checkout with Custom Plan...")}
+                          onClick={() => alert("Proceeding to add additional branches...")}
                           className="w-full mt-6 py-3.5 px-6 rounded-xl bg-pink-500 text-white font-semibold hover:bg-pink-600 transition-colors shadow-lg shadow-pink-500/30"
                         >
-                          Upgrade to Custom
+                          Add Branches
                         </button>
                       </div>
                     </div>
                   </div>
                 </div>
+                )}
 
                 {/* FAQ or Help Section */}
                 <div className="mt-10 text-center text-slate-500 text-sm">
