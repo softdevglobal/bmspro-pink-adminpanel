@@ -441,7 +441,6 @@ export default function BranchesPage() {
       setIsModalOpen(false);
       setShowBranchLimitModal(false);
       setPendingBranchData(null);
-      setAdditionalBranchConfirmed(false);
     } catch (err) {
       console.error("Failed to create branch", err);
     } finally {
