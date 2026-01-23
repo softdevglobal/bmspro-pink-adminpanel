@@ -187,10 +187,9 @@ export default function PackagesPage() {
       
       setConfirmingPlan(null);
       setSelectedTenant(null);
-      alert(`✅ Successfully updated ${tenant?.name || "tenant"} to ${confirmingPlan.name} plan`);
     } catch (error: any) {
       console.error("Error updating plan:", error);
-      alert(`❌ Failed to update plan: ${error.message}`);
+      alert(`Failed to update plan: ${error.message}`);
     } finally {
       setUpdating(false);
     }
