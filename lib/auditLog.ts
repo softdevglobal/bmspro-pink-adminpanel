@@ -1,5 +1,5 @@
 import { db, auth } from "@/lib/firebase";
-import { addDoc, collection, serverTimestamp } from "firebase/firestore";
+import { addDoc, collection, serverTimestamp, getDoc, doc } from "firebase/firestore";
 
 export type AuditActionType = 
   | "create" 
@@ -67,19 +67,50 @@ export async function createAuditLog(input: AuditLogInput): Promise<string | nul
     
     if (importantEntityTypes.includes(input.entityType) && importantActionTypes.includes(input.actionType)) {
       try {
+        // Fetch salon name for better context
+        let salonName = "";
+        try {
+          const ownerDoc = await getDoc(doc(db, "users", input.ownerUid));
+          if (ownerDoc.exists()) {
+            const ownerData = ownerDoc.data();
+            salonName = ownerData?.salonName || ownerData?.name || ownerData?.businessName || "";
+          }
+        } catch (e) {
+          console.warn("Could not fetch salon name for super admin log");
+        }
+
+        // Create a more descriptive action message for branches
+        let actionDescription = input.action;
+        if (input.entityType === "branch") {
+          const actionVerb = input.actionType === "create" ? "added" : 
+                           input.actionType === "delete" ? "deleted" : 
+                           input.actionType === "update" ? "updated" : "modified";
+          actionDescription = `Branch ${actionVerb}: "${input.entityName || "N/A"}"`;
+          if (salonName) {
+            actionDescription += ` (Salon: ${salonName})`;
+          }
+        }
+
         const superAdminLogData = {
-          action: `Salon Activity: ${input.action}`,
+          action: `Salon Activity: ${actionDescription}`,
           actionType: input.actionType,
           entityType: "tenant" as const,
           entityId: input.ownerUid,
-          entityName: input.performedByName || input.ownerUid,
+          entityName: salonName || input.performedByName || input.ownerUid,
           performedBy: input.performedBy,
           performedByName: input.performedByName,
-          details: `${input.entityType}: ${input.entityName || "N/A"}${input.details ? ` - ${input.details}` : ""}`,
+          performedByRole: input.performedByRole,
+          details: `${input.entityType.charAt(0).toUpperCase() + input.entityType.slice(1)}: ${input.entityName || "N/A"}${input.details ? ` - ${input.details}` : ""}`,
           previousValue: input.previousValue,
           newValue: input.newValue,
           timestamp: serverTimestamp(),
           createdAt: serverTimestamp(),
+          metadata: {
+            originalEntityType: input.entityType,
+            branchId: input.branchId,
+            branchName: input.branchName,
+            salonName: salonName || undefined,
+          },
         };
         
         // Remove undefined values
@@ -89,7 +120,17 @@ export async function createAuditLog(input: AuditLogInput): Promise<string | nul
           }
         });
         
+        // Clean up metadata
+        if (superAdminLogData.metadata) {
+          Object.keys(superAdminLogData.metadata).forEach(key => {
+            if ((superAdminLogData.metadata as any)[key] === undefined) {
+              delete (superAdminLogData.metadata as any)[key];
+            }
+          });
+        }
+        
         await addDoc(collection(db, "superAdminAuditLogs"), superAdminLogData);
+        console.log(`[Super Admin Audit] Logged ${input.entityType} ${input.actionType}:`, actionDescription);
       } catch (superAdminError) {
         console.warn("Failed to create super admin audit log:", superAdminError);
       }

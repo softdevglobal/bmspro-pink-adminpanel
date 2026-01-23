@@ -41,6 +41,7 @@ export interface AuditLogInput {
 
 /**
  * Creates an audit log entry in Firestore (server-side version for API routes)
+ * Also logs important salon activities to super admin audit logs for visibility
  */
 export async function createAuditLogServer(input: AuditLogInput): Promise<string | null> {
   try {
@@ -60,6 +61,82 @@ export async function createAuditLogServer(input: AuditLogInput): Promise<string
     });
 
     const ref = await db.collection("auditLogs").add(logData);
+
+    // Also log important salon activities to super admin audit logs
+    const importantEntityTypes = ["service", "branch", "staff", "booking", "settings"];
+    const importantActionTypes = ["create", "update", "delete", "status_change"];
+    
+    if (importantEntityTypes.includes(input.entityType) && importantActionTypes.includes(input.actionType)) {
+      try {
+        // Fetch salon name for better context
+        let salonName = "";
+        try {
+          const ownerDoc = await db.collection("users").doc(input.ownerUid).get();
+          if (ownerDoc.exists) {
+            const ownerData = ownerDoc.data();
+            salonName = ownerData?.salonName || ownerData?.name || ownerData?.businessName || "";
+          }
+        } catch (e) {
+          console.warn("Could not fetch salon name for super admin log");
+        }
+
+        // Create a more descriptive action message for branches
+        let actionDescription = input.action;
+        if (input.entityType === "branch") {
+          const actionVerb = input.actionType === "create" ? "added" : 
+                           input.actionType === "delete" ? "deleted" : 
+                           input.actionType === "update" ? "updated" : "modified";
+          actionDescription = `Branch ${actionVerb}: "${input.entityName || "N/A"}"`;
+          if (salonName) {
+            actionDescription += ` (Salon: ${salonName})`;
+          }
+        }
+
+        const superAdminLogData: Record<string, any> = {
+          action: `Salon Activity: ${actionDescription}`,
+          actionType: input.actionType,
+          entityType: "tenant",
+          entityId: input.ownerUid,
+          entityName: salonName || input.performedByName || input.ownerUid,
+          performedBy: input.performedBy,
+          performedByName: input.performedByName,
+          performedByRole: input.performedByRole,
+          details: `${input.entityType.charAt(0).toUpperCase() + input.entityType.slice(1)}: ${input.entityName || "N/A"}${input.details ? ` - ${input.details}` : ""}`,
+          previousValue: input.previousValue,
+          newValue: input.newValue,
+          timestamp: FieldValue.serverTimestamp(),
+          createdAt: FieldValue.serverTimestamp(),
+          metadata: {
+            originalEntityType: input.entityType,
+            branchId: input.branchId,
+            branchName: input.branchName,
+            salonName: salonName || undefined,
+          },
+        };
+        
+        // Remove undefined values
+        Object.keys(superAdminLogData).forEach(key => {
+          if (superAdminLogData[key] === undefined) {
+            delete superAdminLogData[key];
+          }
+        });
+        
+        // Clean up metadata
+        if (superAdminLogData.metadata) {
+          Object.keys(superAdminLogData.metadata).forEach(key => {
+            if (superAdminLogData.metadata[key] === undefined) {
+              delete superAdminLogData.metadata[key];
+            }
+          });
+        }
+        
+        await db.collection("superAdminAuditLogs").add(superAdminLogData);
+        console.log(`[Super Admin Audit] Logged ${input.entityType} ${input.actionType}:`, actionDescription);
+      } catch (superAdminError) {
+        console.warn("Failed to create super admin audit log:", superAdminError);
+      }
+    }
+
     return ref.id;
   } catch (error) {
     console.error("Failed to create audit log (server):", error);
