@@ -1,10 +1,25 @@
 "use client";
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useState, useCallback } from "react";
 import Sidebar from "@/components/Sidebar";
 import { useRouter } from "next/navigation";
 import { onAuthStateChanged } from "firebase/auth";
 import { auth, db } from "@/lib/firebase";
-import { doc, getDoc } from "firebase/firestore";
+import { doc, getDoc, updateDoc } from "firebase/firestore";
+
+interface Package {
+  id: string;
+  name: string;
+  price: number;
+  priceLabel: string;
+  branches: number;
+  staff: number;
+  features: string[];
+  popular?: boolean;
+  color: string;
+  image?: string;
+  icon?: string;
+  active?: boolean;
+}
 
 export default function SubscriptionPage() {
   const router = useRouter();
@@ -12,12 +27,45 @@ export default function SubscriptionPage() {
   const [mounted, setMounted] = useState(false);
   const [loading, setLoading] = useState(true);
   const [userData, setUserData] = useState<{ name: string; email: string; plan?: string; price?: string } | null>(null);
+  const [packages, setPackages] = useState<Package[]>([]);
+  const [packagesLoading, setPackagesLoading] = useState(true);
+  
+  // Confirmation modal state
+  const [showConfirmModal, setShowConfirmModal] = useState(false);
+  const [selectedPackage, setSelectedPackage] = useState<Package | null>(null);
+  const [updating, setUpdating] = useState(false);
 
   // Calculator state
   const [branches, setBranches] = useState(1);
   const [staff, setStaff] = useState(0);
   const PRICE_BRANCH = 29.0;
   const PRICE_STAFF = 9.99;
+
+  // Fetch packages from API
+  const fetchPackages = useCallback(async () => {
+    try {
+      setPackagesLoading(true);
+      const currentUser = auth.currentUser;
+      if (!currentUser) return;
+
+      const token = await currentUser.getIdToken();
+      const res = await fetch("/api/packages", {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+
+      if (res.ok) {
+        const data = await res.json();
+        // API returns 'plans' not 'packages'
+        const allPackages = data.plans || data.packages || [];
+        const activePackages = allPackages.filter((p: Package) => p.active !== false);
+        setPackages(activePackages);
+      }
+    } catch (error) {
+      console.error("Error fetching packages:", error);
+    } finally {
+      setPackagesLoading(false);
+    }
+  }, []);
 
   useEffect(() => {
     const unsub = onAuthStateChanged(auth, async (user) => {
@@ -46,6 +94,9 @@ export default function SubscriptionPage() {
           price: data?.price || "",
         });
 
+        // Fetch packages after auth is ready
+        fetchPackages();
+
         setMounted(true);
         setLoading(false);
       } catch (error) {
@@ -54,7 +105,7 @@ export default function SubscriptionPage() {
       }
     });
     return () => unsub();
-  }, [router]);
+  }, [router, fetchPackages]);
 
   const updateCalc = (type: "branch" | "staff", change: number) => {
     if (type === "branch") {
@@ -68,8 +119,54 @@ export default function SubscriptionPage() {
   const staffTotal = staff * PRICE_STAFF;
   const grandTotal = branchTotal + staffTotal;
 
-  const selectPlan = (name: string, price: number) => {
-    alert(`You selected the ${name} plan for $${price}/mo`);
+  const selectPlan = (pkg: Package) => {
+    setSelectedPackage(pkg);
+    setShowConfirmModal(true);
+  };
+
+  const confirmPlanChange = async () => {
+    if (!selectedPackage || !auth.currentUser) return;
+    
+    try {
+      setUpdating(true);
+      
+      // Update the user's subscription in Firestore
+      const userRef = doc(db, "users", auth.currentUser.uid);
+      await updateDoc(userRef, {
+        plan: selectedPackage.name,
+        price: selectedPackage.priceLabel,
+        planId: selectedPackage.id,
+        planUpdatedAt: new Date(),
+      });
+      
+      // Also update the owner document if exists
+      const ownerRef = doc(db, "owners", auth.currentUser.uid);
+      const ownerSnap = await getDoc(ownerRef);
+      if (ownerSnap.exists()) {
+        await updateDoc(ownerRef, {
+          plan: selectedPackage.name,
+          price: selectedPackage.priceLabel,
+          planId: selectedPackage.id,
+          planUpdatedAt: new Date(),
+        });
+      }
+      
+      // Update local state
+      setUserData(prev => prev ? {
+        ...prev,
+        plan: selectedPackage.name,
+        price: selectedPackage.priceLabel,
+      } : null);
+      
+      setShowConfirmModal(false);
+      setSelectedPackage(null);
+      
+    } catch (error) {
+      console.error("Error updating subscription:", error);
+      alert("Failed to update subscription. Please try again.");
+    } finally {
+      setUpdating(false);
+    }
   };
 
   return (
@@ -133,97 +230,150 @@ export default function SubscriptionPage() {
                 </div>
 
                 {/* Pricing Cards */}
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-10">
-                  {/* Starter Plan */}
-                  <div className="bg-white rounded-2xl p-8 shadow-sm border border-slate-200 flex flex-col items-center text-center hover:shadow-lg hover:-translate-y-1 transition-all duration-300">
-                    <div className="text-sm font-semibold text-slate-500 uppercase tracking-widest mb-4">Starter</div>
-                    <div className="text-5xl font-bold text-slate-900 mb-2">
-                      $29<span className="text-lg font-normal text-slate-500">/mo</span>
+                {packagesLoading ? (
+                  <div className="flex items-center justify-center py-12 mb-10">
+                    <div className="flex flex-col items-center gap-3">
+                      <i className="fas fa-circle-notch fa-spin text-3xl text-pink-500" />
+                      <p className="text-slate-500">Loading packages...</p>
                     </div>
-                    <p className="text-slate-500 mb-6 min-h-[48px]">Perfect for solo pros starting out.</p>
-                    <ul className="w-full text-left space-y-3 mb-8">
-                      <li className="flex items-center gap-3 py-2 border-b border-slate-100">
-                        <i className="fas fa-check text-pink-500 font-bold" />
-                        <span className="text-slate-700">1 Branch</span>
-                      </li>
-                      <li className="flex items-center gap-3 py-2 border-b border-slate-100">
-                        <i className="fas fa-check text-pink-500 font-bold" />
-                        <span className="text-slate-700">1 Staff Member</span>
-                      </li>
-                      <li className="flex items-center gap-3 py-2">
-                        <i className="fas fa-check text-pink-500 font-bold" />
-                        <span className="text-slate-700">Admin Included</span>
-                      </li>
-                    </ul>
-                    <button
-                      onClick={() => selectPlan("Starter", 29)}
-                      className="w-full py-3 px-6 rounded-xl border-2 border-pink-500 text-pink-500 font-semibold hover:bg-pink-50 transition-colors"
-                    >
-                      Select Plan
-                    </button>
                   </div>
-
-                  {/* Growth Plan - Most Popular */}
-                  <div className="relative bg-white rounded-2xl p-8 shadow-lg border-2 border-pink-500 flex flex-col items-center text-center hover:shadow-xl hover:-translate-y-1 transition-all duration-300">
-                    <div className="absolute -top-3 left-1/2 -translate-x-1/2 bg-pink-500 text-white text-xs font-bold px-4 py-1 rounded-full uppercase tracking-wide">
-                      Most Popular
-                    </div>
-                    <div className="text-sm font-semibold text-slate-500 uppercase tracking-widest mb-4">Growth</div>
-                    <div className="text-5xl font-bold text-slate-900 mb-2">
-                      $69<span className="text-lg font-normal text-slate-500">/mo</span>
-                    </div>
-                    <p className="text-slate-500 mb-6 min-h-[48px]">For growing teams and small salons.</p>
-                    <ul className="w-full text-left space-y-3 mb-8">
-                      <li className="flex items-center gap-3 py-2 border-b border-slate-100">
-                        <i className="fas fa-check text-pink-500 font-bold" />
-                        <span className="text-slate-700">1 Branch</span>
-                      </li>
-                      <li className="flex items-center gap-3 py-2 border-b border-slate-100">
-                        <i className="fas fa-check text-pink-500 font-bold" />
-                        <span className="text-slate-700">5 Staff Members</span>
-                      </li>
-                      <li className="flex items-center gap-3 py-2">
-                        <i className="fas fa-check text-pink-500 font-bold" />
-                        <span className="text-slate-700">Admin Included</span>
-                      </li>
-                    </ul>
-                    <button
-                      onClick={() => selectPlan("Growth", 69)}
-                      className="w-full py-3 px-6 rounded-xl bg-pink-500 text-white font-semibold hover:bg-pink-600 transition-colors shadow-lg shadow-pink-500/30"
-                    >
-                      Select Plan
-                    </button>
+                ) : packages.length === 0 ? (
+                  <div className="text-center py-12 mb-10">
+                    <i className="fas fa-box-open text-4xl text-slate-300 mb-3" />
+                    <p className="text-slate-500">No subscription plans available at the moment.</p>
                   </div>
-
-                  {/* Pro Plan */}
-                  <div className="bg-white rounded-2xl p-8 shadow-sm border border-slate-200 flex flex-col items-center text-center hover:shadow-lg hover:-translate-y-1 transition-all duration-300">
-                    <div className="text-sm font-semibold text-slate-500 uppercase tracking-widest mb-4">Pro</div>
-                    <div className="text-5xl font-bold text-slate-900 mb-2">
-                      $99<span className="text-lg font-normal text-slate-500">/mo</span>
-                    </div>
-                    <p className="text-slate-500 mb-6 min-h-[48px]">For busy salons running at scale.</p>
-                    <ul className="w-full text-left space-y-3 mb-8">
-                      <li className="flex items-center gap-3 py-2 border-b border-slate-100">
-                        <i className="fas fa-check text-pink-500 font-bold" />
-                        <span className="text-slate-700">1 Branch</span>
-                      </li>
-                      <li className="flex items-center gap-3 py-2 border-b border-slate-100">
-                        <i className="fas fa-check text-pink-500 font-bold" />
-                        <span className="text-slate-700">10 Staff Members</span>
-                      </li>
-                      <li className="flex items-center gap-3 py-2">
-                        <i className="fas fa-check text-pink-500 font-bold" />
-                        <span className="text-slate-700">Admin Included</span>
-                      </li>
-                    </ul>
-                    <button
-                      onClick={() => selectPlan("Pro", 99)}
-                      className="w-full py-3 px-6 rounded-xl border-2 border-pink-500 text-pink-500 font-semibold hover:bg-pink-50 transition-colors"
-                    >
-                      Select Plan
-                    </button>
+                ) : (
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5 mb-10">
+                    {packages.map((pkg) => {
+                      const isCurrentPlan = userData?.plan === pkg.name;
+                      const gradientClass = pkg.color === "blue" ? "from-blue-500 via-blue-600 to-indigo-600" 
+                        : pkg.color === "pink" ? "from-pink-500 via-rose-500 to-fuchsia-600" 
+                        : pkg.color === "purple" ? "from-purple-500 via-violet-500 to-indigo-600" 
+                        : pkg.color === "green" ? "from-emerald-500 via-green-500 to-teal-600"
+                        : pkg.color === "orange" ? "from-orange-500 via-amber-500 to-yellow-500"
+                        : pkg.color === "teal" ? "from-teal-500 via-cyan-500 to-blue-500"
+                        : "from-pink-500 via-rose-500 to-fuchsia-600";
+                      const lightBgClass = pkg.color === "blue" ? "bg-blue-50" 
+                        : pkg.color === "pink" ? "bg-pink-50" 
+                        : pkg.color === "purple" ? "bg-purple-50" 
+                        : pkg.color === "green" ? "bg-emerald-50"
+                        : pkg.color === "orange" ? "bg-orange-50"
+                        : pkg.color === "teal" ? "bg-teal-50"
+                        : "bg-pink-50";
+                      
+                      return (
+                        <div 
+                          key={pkg.id}
+                          className={`group relative bg-white rounded-xl overflow-hidden shadow-md hover:shadow-xl transition-all duration-300 hover:-translate-y-1 ${
+                            isCurrentPlan ? "ring-2 ring-emerald-500 ring-offset-1" : ""
+                          }`}
+                        >
+                          {/* Gradient Header - Compact */}
+                          <div className={`relative h-20 bg-gradient-to-br ${gradientClass} overflow-visible`}>
+                            {/* Decorative circles */}
+                            <div className="absolute -top-6 -right-6 w-20 h-20 bg-white/10 rounded-full" />
+                            <div className="absolute -bottom-4 -left-4 w-16 h-16 bg-white/10 rounded-full" />
+                            
+                            {/* Popular badge */}
+                            {pkg.popular && (
+                              <div className="absolute top-2 left-2 bg-white/20 backdrop-blur-sm text-white text-[10px] font-bold px-2 py-0.5 rounded-full flex items-center gap-1 z-10">
+                                <i className="fas fa-crown text-yellow-300 text-[8px]" />
+                                Popular
+                              </div>
+                            )}
+                            
+                            {/* Current Plan badge */}
+                            {isCurrentPlan && (
+                              <div className="absolute top-2 right-2 bg-emerald-500 text-white text-[10px] font-bold px-2 py-0.5 rounded-full flex items-center gap-1 z-10">
+                                <i className="fas fa-check text-[8px]" />
+                                Current
+                              </div>
+                            )}
+                            
+                            {/* Package Image/Icon - Compact */}
+                            <div className="absolute -bottom-7 left-1/2 -translate-x-1/2 z-20">
+                              <div className={`w-14 h-14 rounded-xl flex items-center justify-center overflow-hidden shadow-lg ring-2 ring-white ${lightBgClass}`}>
+                                {pkg.image ? (
+                                  <img src={pkg.image} alt={pkg.name} className="w-full h-full object-cover" />
+                                ) : pkg.icon ? (
+                                  <i className={`fas ${pkg.icon} text-xl bg-gradient-to-br ${gradientClass} bg-clip-text text-transparent`} />
+                                ) : (
+                                  <i className={`fas fa-box text-xl bg-gradient-to-br ${gradientClass} bg-clip-text text-transparent`} />
+                                )}
+                              </div>
+                            </div>
+                          </div>
+                          
+                          {/* Card Content - Compact */}
+                          <div className="pt-10 pb-4 px-4">
+                            {/* Plan Name */}
+                            <div className="text-center mb-3">
+                              <h3 className="text-base font-bold text-slate-900 mb-1">{pkg.name}</h3>
+                              <div className={`text-2xl font-extrabold bg-gradient-to-r ${gradientClass} bg-clip-text text-transparent`}>
+                                {pkg.priceLabel}
+                              </div>
+                            </div>
+                            
+                            {/* Branches & Staff */}
+                            <div className="flex items-center justify-center gap-2 mb-3 text-xs text-slate-500">
+                              <span className="flex items-center gap-1">
+                                <i className="fas fa-building text-[10px]" />
+                                {pkg.branches === -1 ? "Unlimited" : pkg.branches} Branch
+                              </span>
+                              <span className="w-0.5 h-0.5 bg-slate-300 rounded-full" />
+                              <span className="flex items-center gap-1">
+                                <i className="fas fa-users text-[10px]" />
+                                {pkg.staff === -1 ? "Unlimited" : pkg.staff} Staff
+                              </span>
+                            </div>
+                            
+                            {/* Divider */}
+                            <div className="h-px bg-gradient-to-r from-transparent via-slate-200 to-transparent mb-3" />
+                            
+                            {/* Features List - Compact */}
+                            {pkg.features && pkg.features.length > 0 && (
+                              <ul className="space-y-1.5 mb-4">
+                                {pkg.features.slice(0, 4).map((feature, idx) => (
+                                  <li key={idx} className="flex items-center gap-2">
+                                    <div className={`w-4 h-4 rounded-full bg-gradient-to-br ${gradientClass} flex items-center justify-center flex-shrink-0`}>
+                                      <i className="fas fa-check text-white text-[8px]" />
+                                    </div>
+                                    <span className="text-xs text-slate-600 line-clamp-1">{feature}</span>
+                                  </li>
+                                ))}
+                                {pkg.features.length > 4 && (
+                                  <li className="text-xs text-slate-400 text-center">
+                                    +{pkg.features.length - 4} more
+                                  </li>
+                                )}
+                              </ul>
+                            )}
+                            
+                            {/* Select Button - Compact */}
+                            <button
+                              onClick={() => selectPlan(pkg)}
+                              disabled={isCurrentPlan}
+                              className={`w-full py-2.5 px-4 rounded-lg font-semibold text-sm transition-all duration-200 ${
+                                isCurrentPlan
+                                  ? "bg-emerald-100 text-emerald-600 cursor-not-allowed"
+                                  : `bg-gradient-to-r ${gradientClass} text-white hover:shadow-lg hover:scale-[1.02]`
+                              }`}
+                            >
+                              {isCurrentPlan ? (
+                                <>
+                                  <i className="fas fa-check-circle mr-1.5" />
+                                  Current
+                                </>
+                              ) : (
+                                "Select Plan"
+                              )}
+                            </button>
+                          </div>
+                        </div>
+                      );
+                    })}
                   </div>
-                </div>
+                )}
 
                 {/* Custom Enterprise Calculator */}
                 <div className="bg-white rounded-2xl shadow-sm border-t-4 border-pink-500 overflow-hidden">
@@ -332,6 +482,121 @@ export default function SubscriptionPage() {
           )}
         </main>
       </div>
+
+      {/* Confirmation Modal */}
+      {showConfirmModal && selectedPackage && (
+        <div className="fixed inset-0 z-50">
+          <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" onClick={() => !updating && setShowConfirmModal(false)} />
+          <div className="relative flex items-center justify-center min-h-screen p-4">
+            <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden">
+              {/* Header */}
+              <div className={`bg-gradient-to-r ${
+                selectedPackage.color === "blue" ? "from-blue-500 to-indigo-600" 
+                : selectedPackage.color === "pink" ? "from-pink-500 to-fuchsia-600" 
+                : selectedPackage.color === "purple" ? "from-purple-500 to-indigo-600" 
+                : selectedPackage.color === "green" ? "from-emerald-500 to-teal-600"
+                : selectedPackage.color === "orange" ? "from-orange-500 to-yellow-500"
+                : selectedPackage.color === "teal" ? "from-teal-500 to-blue-500"
+                : "from-pink-500 to-fuchsia-600"
+              } p-6 text-white`}>
+                <div className="flex items-center gap-4">
+                  <div className="w-14 h-14 rounded-xl bg-white/20 backdrop-blur flex items-center justify-center">
+                    <i className="fas fa-exchange-alt text-2xl" />
+                  </div>
+                  <div>
+                    <h3 className="text-xl font-bold">Change Subscription</h3>
+                    <p className="text-white/80 text-sm">Confirm your plan change</p>
+                  </div>
+                </div>
+              </div>
+              
+              {/* Content */}
+              <div className="p-6">
+                <div className="text-center mb-6">
+                  <p className="text-slate-600 mb-4">
+                    You are about to change your subscription to:
+                  </p>
+                  <div className="inline-flex items-center gap-3 bg-slate-50 px-5 py-3 rounded-xl">
+                    {selectedPackage.image && (
+                      <img src={selectedPackage.image} alt={selectedPackage.name} className="w-10 h-10 rounded-lg object-cover" />
+                    )}
+                    <div className="text-left">
+                      <div className="font-bold text-slate-900">{selectedPackage.name}</div>
+                      <div className="text-sm text-pink-600 font-semibold">{selectedPackage.priceLabel}</div>
+                    </div>
+                  </div>
+                </div>
+                
+                {/* Plan Details */}
+                <div className="bg-slate-50 rounded-xl p-4 mb-6">
+                  <div className="flex items-center justify-between text-sm mb-2">
+                    <span className="text-slate-500">Branches</span>
+                    <span className="font-medium text-slate-700">
+                      {selectedPackage.branches === -1 ? "Unlimited" : selectedPackage.branches}
+                    </span>
+                  </div>
+                  <div className="flex items-center justify-between text-sm mb-2">
+                    <span className="text-slate-500">Staff</span>
+                    <span className="font-medium text-slate-700">
+                      {selectedPackage.staff === -1 ? "Unlimited" : selectedPackage.staff}
+                    </span>
+                  </div>
+                  <div className="flex items-center justify-between text-sm">
+                    <span className="text-slate-500">Features</span>
+                    <span className="font-medium text-slate-700">
+                      {selectedPackage.features?.length || 0} included
+                    </span>
+                  </div>
+                </div>
+                
+                {/* Current Plan Info */}
+                {userData?.plan && (
+                  <div className="flex items-center gap-2 text-sm text-amber-700 bg-amber-50 p-3 rounded-lg mb-6">
+                    <i className="fas fa-info-circle" />
+                    <span>Your current plan: <strong>{userData.plan}</strong> ({userData.price})</span>
+                  </div>
+                )}
+                
+                {/* Buttons */}
+                <div className="flex gap-3">
+                  <button
+                    onClick={() => setShowConfirmModal(false)}
+                    disabled={updating}
+                    className="flex-1 py-3 px-4 rounded-xl border border-slate-200 text-slate-700 font-medium hover:bg-slate-50 transition-colors disabled:opacity-50"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    onClick={confirmPlanChange}
+                    disabled={updating}
+                    className={`flex-1 py-3 px-4 rounded-xl text-white font-semibold transition-all disabled:opacity-70 bg-gradient-to-r ${
+                      selectedPackage.color === "blue" ? "from-blue-500 to-indigo-600" 
+                      : selectedPackage.color === "pink" ? "from-pink-500 to-fuchsia-600" 
+                      : selectedPackage.color === "purple" ? "from-purple-500 to-indigo-600" 
+                      : selectedPackage.color === "green" ? "from-emerald-500 to-teal-600"
+                      : selectedPackage.color === "orange" ? "from-orange-500 to-yellow-500"
+                      : selectedPackage.color === "teal" ? "from-teal-500 to-blue-500"
+                      : "from-pink-500 to-fuchsia-600"
+                    } hover:shadow-lg`}
+                  >
+                    {updating ? (
+                      <>
+                        <i className="fas fa-circle-notch fa-spin mr-2" />
+                        Updating...
+                      </>
+                    ) : (
+                      <>
+                        <i className="fas fa-check mr-2" />
+                        Confirm Change
+                      </>
+                    )}
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
