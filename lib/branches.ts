@@ -9,6 +9,7 @@ import {
   DocumentData,
   getDoc,
   getDocs,
+  increment,
   onSnapshot,
   query,
   serverTimestamp,
@@ -94,6 +95,18 @@ export async function createBranchForOwner(ownerUid: string, data: BranchInput, 
     }
   }
 
+  // Update owner's branch count and branch names
+  try {
+    const ownerRef = doc(db, "users", ownerUid);
+    await updateDoc(ownerRef, {
+      currentBranchCount: increment(1),
+      branchNames: arrayUnion(data.name),
+      updatedAt: serverTimestamp(),
+    });
+  } catch (e) {
+    console.error("Failed to update owner branch count:", e);
+  }
+
   // Audit log for branch creation
   try {
     const performer = await getCurrentUserForAudit();
@@ -137,7 +150,9 @@ export async function updateBranch(branchId: string, data: Partial<BranchInput>,
 
   // Build change description for audit log
   const changes: string[] = [];
-  if (data.name && data.name !== currentData?.name) changes.push(`Name: ${currentData?.name} → ${data.name}`);
+  const oldBranchName = currentData?.name || "";
+  const newBranchName = data.name || oldBranchName;
+  if (data.name && data.name !== oldBranchName) changes.push(`Name: ${oldBranchName} → ${data.name}`);
   if (data.address && data.address !== currentData?.address) changes.push(`Address updated`);
   if (data.phone && data.phone !== currentData?.phone) changes.push(`Phone updated`);
   if (data.status && data.status !== currentData?.status) changes.push(`Status: ${currentData?.status} → ${data.status}`);
@@ -146,6 +161,24 @@ export async function updateBranch(branchId: string, data: Partial<BranchInput>,
     ...data,
     updatedAt: serverTimestamp(),
   });
+
+  // Update owner's branch names if branch name changed
+  if (data.name && data.name !== oldBranchName && ownerUid) {
+    try {
+      const ownerRef = doc(db, "users", ownerUid);
+      // First remove old name, then add new name
+      await updateDoc(ownerRef, {
+        branchNames: arrayRemove(oldBranchName),
+        updatedAt: serverTimestamp(),
+      });
+      await updateDoc(ownerRef, {
+        branchNames: arrayUnion(newBranchName),
+        updatedAt: serverTimestamp(),
+      });
+    } catch (e) {
+      console.error("Failed to update owner branch names:", e);
+    }
+  }
 
   const newAdminId = data.adminStaffId;
 
@@ -223,6 +256,20 @@ export async function deleteBranch(branchId: string, ownerUid?: string) {
   }
 
   await deleteDoc(branchRef);
+
+  // Update owner's branch count and branch names
+  if (branchOwnerUid) {
+    try {
+      const ownerRef = doc(db, "users", branchOwnerUid);
+      await updateDoc(ownerRef, {
+        currentBranchCount: increment(-1),
+        branchNames: arrayRemove(branchName),
+        updatedAt: serverTimestamp(),
+      });
+    } catch (e) {
+      console.error("Failed to update owner branch count:", e);
+    }
+  }
 
   // Audit log for branch deletion
   try {
@@ -374,6 +421,36 @@ export async function syncBranchStaffFromSchedule(
 /**
  * Removes a staff member from all branches when they are deleted
  */
+// Sync branch count and names for an owner (useful for fixing existing data)
+export async function syncOwnerBranchCount(ownerUid: string) {
+  try {
+    // Get all branches for this owner
+    const branchesQuery = query(
+      collection(db, "branches"),
+      where("ownerUid", "==", ownerUid)
+    );
+    const branchesSnapshot = await getDocs(branchesQuery);
+    
+    const branchCount = branchesSnapshot.docs.length;
+    const branchNames = branchesSnapshot.docs
+      .map((doc) => doc.data()?.name)
+      .filter((name): name is string => !!name);
+    
+    // Update owner document
+    const ownerRef = doc(db, "users", ownerUid);
+    await updateDoc(ownerRef, {
+      currentBranchCount: branchCount,
+      branchNames: branchNames,
+      updatedAt: serverTimestamp(),
+    });
+    
+    return { branchCount, branchNames };
+  } catch (e) {
+    console.error("Failed to sync owner branch count:", e);
+    throw e;
+  }
+}
+
 export async function removeStaffFromAllBranches(staffId: string, ownerUid: string) {
   try {
     // Get all branches for this owner

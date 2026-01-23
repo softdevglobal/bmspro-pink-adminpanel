@@ -275,6 +275,7 @@ export default function TenantsPage() {
         branchLimit: selectedPackage.branches,
         additionalBranchPrice: selectedPackage.additionalBranchPrice || null,
         currentBranchCount: 0,
+        branchNames: [],
         status: formAbn.trim() ? "Active" : "Pending ABN",
         locationText: formAddress ? `${formAddress}${formPostcode ? ` ${formPostcode}` : ""}` : null,
         contactPhone: formPhone.trim() || null,

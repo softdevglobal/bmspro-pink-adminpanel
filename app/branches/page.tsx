@@ -4,8 +4,8 @@ import Sidebar from "@/components/Sidebar";
 import { useRouter } from "next/navigation";
 import { auth, db } from "@/lib/firebase";
 import { onAuthStateChanged } from "firebase/auth";
-import { doc, getDoc, collection, query, where, getDocs } from "firebase/firestore";
-import { BranchInput, BranchLocation, createBranchForOwner, subscribeBranchesForOwner } from "@/lib/branches";
+import { doc, getDoc, collection, query, where, getDocs, updateDoc, serverTimestamp } from "firebase/firestore";
+import { BranchInput, BranchLocation, createBranchForOwner, subscribeBranchesForOwner, syncOwnerBranchCount } from "@/lib/branches";
 import { subscribeSalonStaffForOwner } from "@/lib/salonStaff";
 import { subscribeServicesForOwner } from "@/lib/services";
 import { TIMEZONES } from "@/lib/timezone";
@@ -150,6 +150,19 @@ export default function BranchesPage() {
                   additionalBranchPrice = planData?.additionalBranchPrice;
                   if (!branchLimit) branchLimit = planData?.branches;
                   console.log("Fetched plan data from planId:", { additionalBranchPrice, branchLimit, planName: planData?.name });
+                  
+                  // Update user document with fetched additionalBranchPrice
+                  if (additionalBranchPrice !== undefined && additionalBranchPrice !== null) {
+                    try {
+                      await updateDoc(doc(db, "users", user.uid), {
+                        additionalBranchPrice: additionalBranchPrice,
+                        updatedAt: serverTimestamp(),
+                      });
+                      console.log("Updated user document with additionalBranchPrice:", additionalBranchPrice);
+                    } catch (updateError) {
+                      console.error("Failed to update user document with additionalBranchPrice:", updateError);
+                    }
+                  }
                 }
               } catch (e) {
                 console.error("Error fetching plan data:", e);
@@ -169,6 +182,19 @@ export default function BranchesPage() {
                   additionalBranchPrice = planData?.additionalBranchPrice;
                   if (!branchLimit) branchLimit = planData?.branches;
                   console.log("Fetched plan data from plan name:", { additionalBranchPrice, branchLimit, planName: planData?.name });
+                  
+                  // Update user document with fetched additionalBranchPrice
+                  if (additionalBranchPrice !== undefined && additionalBranchPrice !== null) {
+                    try {
+                      await updateDoc(doc(db, "users", user.uid), {
+                        additionalBranchPrice: additionalBranchPrice,
+                        updatedAt: serverTimestamp(),
+                      });
+                      console.log("Updated user document with additionalBranchPrice:", additionalBranchPrice);
+                    } catch (updateError) {
+                      console.error("Failed to update user document with additionalBranchPrice:", updateError);
+                    }
+                  }
                 }
               } catch (e) {
                 console.error("Error fetching plan by name:", e);
@@ -201,6 +227,19 @@ export default function BranchesPage() {
                   additionalBranchPrice = planData?.additionalBranchPrice;
                   if (!branchLimit) branchLimit = planData?.branches;
                   console.log("Fetched plan data from planId (branch admin):", { additionalBranchPrice, branchLimit, planName: planData?.name });
+                  
+                  // Update owner's document with fetched additionalBranchPrice
+                  if (additionalBranchPrice !== undefined && additionalBranchPrice !== null && userData?.ownerUid) {
+                    try {
+                      await updateDoc(doc(db, "users", userData.ownerUid), {
+                        additionalBranchPrice: additionalBranchPrice,
+                        updatedAt: serverTimestamp(),
+                      });
+                      console.log("Updated owner document with additionalBranchPrice:", additionalBranchPrice);
+                    } catch (updateError) {
+                      console.error("Failed to update owner document with additionalBranchPrice:", updateError);
+                    }
+                  }
                 }
               } catch (e) {
                 console.error("Error fetching plan data:", e);
@@ -220,6 +259,19 @@ export default function BranchesPage() {
                   additionalBranchPrice = planData?.additionalBranchPrice;
                   if (!branchLimit) branchLimit = planData?.branches;
                   console.log("Fetched plan data from plan name (branch admin):", { additionalBranchPrice, branchLimit, planName: planData?.name });
+                  
+                  // Update owner's document with fetched additionalBranchPrice
+                  if (additionalBranchPrice !== undefined && additionalBranchPrice !== null && userData?.ownerUid) {
+                    try {
+                      await updateDoc(doc(db, "users", userData.ownerUid), {
+                        additionalBranchPrice: additionalBranchPrice,
+                        updatedAt: serverTimestamp(),
+                      });
+                      console.log("Updated owner document with additionalBranchPrice:", additionalBranchPrice);
+                    } catch (updateError) {
+                      console.error("Failed to update owner document with additionalBranchPrice:", updateError);
+                    }
+                  }
                 }
               } catch (e) {
                 console.error("Error fetching plan by name:", e);
@@ -293,6 +345,36 @@ export default function BranchesPage() {
     }, role || undefined, currentUserUid || undefined);
     return () => unsub();
   }, [ownerUid, defaultBranches, role, router, currentUserUid]);
+
+  // Sync branch count if it doesn't match (for existing users with incorrect counts)
+  useEffect(() => {
+    if (!ownerUid || role !== "salon_owner") return;
+    
+    // Use a timeout to ensure branches are loaded
+    const timeoutId = setTimeout(() => {
+      const syncCount = async () => {
+        try {
+          const userDoc = await getDoc(doc(db, "users", ownerUid));
+          const userData = userDoc.data();
+          const storedCount = userData?.currentBranchCount ?? 0;
+          const actualCount = branches.length;
+          
+          if (storedCount !== actualCount) {
+            // Count is incorrect, sync it
+            console.log(`Branch count mismatch detected: stored=${storedCount}, actual=${actualCount}. Syncing...`);
+            await syncOwnerBranchCount(ownerUid);
+            console.log(`✅ Synced branch count for ${ownerUid}: ${storedCount} → ${actualCount}`);
+          }
+        } catch (e) {
+          console.error("Failed to sync branch count:", e);
+        }
+      };
+      
+      syncCount();
+    }, 1000); // Wait 1 second for branches to load
+    
+    return () => clearTimeout(timeoutId);
+  }, [ownerUid, role, branches.length]);
 
   // Real-time services and staff lists for assignment checklists
   useEffect(() => {
