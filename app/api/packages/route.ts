@@ -43,7 +43,7 @@ export async function POST(req: NextRequest) {
     }
 
     const body = await req.json();
-    const { name, price, priceLabel, branches, staff, features, popular, color, image, icon, active } = body;
+    const { name, price, priceLabel, branches, staff, features, popular, color, image, icon, active, additionalBranchPrice } = body;
 
     // Validation
     if (!name || price === undefined || !priceLabel) {
@@ -67,6 +67,11 @@ export async function POST(req: NextRequest) {
       createdAt: new Date(),
       updatedAt: new Date(),
     };
+
+    // Add additionalBranchPrice if provided
+    if (additionalBranchPrice !== undefined && additionalBranchPrice !== null && additionalBranchPrice !== "") {
+      planData.additionalBranchPrice = parseFloat(additionalBranchPrice);
+    }
 
     // Add image if provided, otherwise keep icon for backward compatibility
     if (image) {
@@ -111,7 +116,7 @@ export async function PUT(req: NextRequest) {
     }
 
     const body = await req.json();
-    const { id, name, price, priceLabel, branches, staff, features, popular, color, image, icon, active } = body;
+    const { id, name, price, priceLabel, branches, staff, features, popular, color, image, icon, active, additionalBranchPrice } = body;
 
     if (!id) {
       return NextResponse.json(
@@ -153,6 +158,13 @@ export async function PUT(req: NextRequest) {
       updateData.icon = icon;
     }
     if (active !== undefined) updateData.active = active !== false && active !== "false";
+    if (additionalBranchPrice !== undefined) {
+      if (additionalBranchPrice === null || additionalBranchPrice === "") {
+        updateData.additionalBranchPrice = null;
+      } else {
+        updateData.additionalBranchPrice = parseFloat(additionalBranchPrice);
+      }
+    }
 
     await planRef.update(updateData);
 

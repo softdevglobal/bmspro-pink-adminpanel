@@ -21,6 +21,7 @@ type SubscriptionPlan = {
   image?: string;
   icon?: string; // Keep for backward compatibility
   active?: boolean;
+  additionalBranchPrice?: number; // Price for additional branches beyond the included ones
 };
 
 export default function PackagesPage() {
@@ -58,6 +59,7 @@ export default function PackagesPage() {
     color: "blue",
     image: "",
     active: true,
+    additionalBranchPrice: "",
   });
 
   useEffect(() => {
@@ -214,6 +216,7 @@ export default function PackagesPage() {
       color: "blue",
       image: "",
       active: true,
+      additionalBranchPrice: "",
     });
     setImageFile(null);
     setImagePreview(null);
@@ -237,6 +240,7 @@ export default function PackagesPage() {
       color: pkg.color,
       image: pkg.image || "",
       active: pkg.active !== false,
+      additionalBranchPrice: pkg.additionalBranchPrice?.toString() || "",
     });
     setImageFile(null);
     setImagePreview(pkg.image || null);
@@ -304,6 +308,7 @@ export default function PackagesPage() {
         color: formData.color,
         image: finalImageUrl,
         active: formData.active,
+        additionalBranchPrice: formData.additionalBranchPrice ? parseFloat(formData.additionalBranchPrice) : undefined,
       };
 
       const url = editingPackage ? "/api/packages" : "/api/packages";
@@ -861,6 +866,23 @@ export default function PackagesPage() {
                               </label>
                             </div>
                           </div>
+                        </div>
+
+                        <div>
+                          <label className="block text-sm font-semibold text-slate-700 mb-2">
+                            Additional Branch Price
+                          </label>
+                          <input
+                            type="number"
+                            step="0.01"
+                            value={formData.additionalBranchPrice}
+                            onChange={(e) => setFormData({ ...formData, additionalBranchPrice: e.target.value })}
+                            className="w-full px-4 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-pink-500 focus:border-transparent [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                            placeholder="89.00"
+                          />
+                          <p className="text-xs text-slate-500 mt-1">
+                            Price per additional branch beyond the included branches (e.g., $89.00 per additional branch)
+                          </p>
                         </div>
 
                         <div>

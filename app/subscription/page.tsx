@@ -19,6 +19,7 @@ interface Package {
   image?: string;
   icon?: string;
   active?: boolean;
+  additionalBranchPrice?: number;
 }
 
 export default function SubscriptionPage() {
@@ -326,6 +327,14 @@ export default function SubscriptionPage() {
                                 {pkg.staff === -1 ? "Unlimited" : pkg.staff} Staff
                               </span>
                             </div>
+                            
+                            {/* Additional Branch Price */}
+                            {pkg.additionalBranchPrice && pkg.additionalBranchPrice > 0 && (
+                              <div className="flex items-center justify-center gap-1 mb-3 text-[10px] font-semibold" style={{ color: pkg.color === "blue" ? "#3B82F6" : pkg.color === "pink" ? "#FF2D8F" : pkg.color === "purple" ? "#8B5CF6" : pkg.color === "green" ? "#10B981" : pkg.color === "orange" ? "#F59E0B" : pkg.color === "teal" ? "#14B8A6" : "#FF2D8F" }}>
+                                <i className="fas fa-plus-circle text-[8px]" />
+                                <span>Additional: ${pkg.additionalBranchPrice.toFixed(2)}/branch</span>
+                              </div>
+                            )}
                             
                             {/* Divider */}
                             <div className="h-px bg-gradient-to-r from-transparent via-slate-200 to-transparent mb-3" />
