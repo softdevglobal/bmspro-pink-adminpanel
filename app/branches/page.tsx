@@ -4,7 +4,7 @@ import Sidebar from "@/components/Sidebar";
 import { useRouter } from "next/navigation";
 import { auth, db } from "@/lib/firebase";
 import { onAuthStateChanged } from "firebase/auth";
-import { doc, getDoc } from "firebase/firestore";
+import { doc, getDoc, collection, query, where, getDocs } from "firebase/firestore";
 import { BranchInput, BranchLocation, createBranchForOwner, subscribeBranchesForOwner } from "@/lib/branches";
 import { subscribeSalonStaffForOwner } from "@/lib/salonStaff";
 import { subscribeServicesForOwner } from "@/lib/services";
@@ -98,6 +98,15 @@ export default function BranchesPage() {
   // Location state for geofencing
   const [branchLocation, setBranchLocation] = useState<BranchLocation | null>(null);
   const [allowedCheckInRadius, setAllowedCheckInRadius] = useState(DEFAULT_CHECK_IN_RADIUS);
+  
+  // Branch limit and additional branch pricing state
+  const [ownerData, setOwnerData] = useState<{
+    branchLimit?: number;
+    additionalBranchPrice?: number;
+    plan?: string;
+  } | null>(null);
+  const [showBranchLimitModal, setShowBranchLimitModal] = useState(false);
+  const [pendingBranchData, setPendingBranchData] = useState<BranchInput | null>(null);
 
   // seed defaults (only used when no data in db; not persisted)
   const defaultBranches: Branch[] = useMemo(() => [], []);
@@ -128,8 +137,101 @@ export default function BranchesPage() {
         }
         if (r === "salon_owner") {
           setOwnerUid(user.uid);
+          // Store owner's subscription data for branch limit checking
+          let additionalBranchPrice = userData?.additionalBranchPrice;
+          let branchLimit = userData?.branchLimit;
+          
+            // If additionalBranchPrice is not in user doc, fetch from subscription plan
+            if ((additionalBranchPrice === undefined || additionalBranchPrice === null) && userData?.planId) {
+              try {
+                const planDoc = await getDoc(doc(db, "subscription_plans", userData.planId));
+                if (planDoc.exists()) {
+                  const planData = planDoc.data();
+                  additionalBranchPrice = planData?.additionalBranchPrice;
+                  if (!branchLimit) branchLimit = planData?.branches;
+                  console.log("Fetched plan data from planId:", { additionalBranchPrice, branchLimit, planName: planData?.name });
+                }
+              } catch (e) {
+                console.error("Error fetching plan data:", e);
+              }
+            }
+            
+            // If still no data, try to find plan by name
+            if ((additionalBranchPrice === undefined || additionalBranchPrice === null) && userData?.plan) {
+              try {
+                const plansQuery = query(
+                  collection(db, "subscription_plans"),
+                  where("name", "==", userData.plan)
+                );
+                const plansSnapshot = await getDocs(plansQuery);
+                if (!plansSnapshot.empty) {
+                  const planData = plansSnapshot.docs[0].data();
+                  additionalBranchPrice = planData?.additionalBranchPrice;
+                  if (!branchLimit) branchLimit = planData?.branches;
+                  console.log("Fetched plan data from plan name:", { additionalBranchPrice, branchLimit, planName: planData?.name });
+                }
+              } catch (e) {
+                console.error("Error fetching plan by name:", e);
+              }
+            }
+            
+            console.log("Final ownerData:", { branchLimit, additionalBranchPrice, plan: userData?.plan, planId: userData?.planId });
+          
+          setOwnerData({
+            branchLimit: branchLimit || userData?.branchLimit || 1,
+            additionalBranchPrice: additionalBranchPrice,
+            plan: userData?.plan,
+          });
         } else {
           setOwnerUid(userData?.ownerUid || null);
+          // Fetch owner's subscription data for branch admin
+          if (userData?.ownerUid) {
+            const ownerSnap = await getDoc(doc(db, "users", userData.ownerUid));
+            const ownerUserData = ownerSnap.data();
+            
+            let additionalBranchPrice = ownerUserData?.additionalBranchPrice;
+            let branchLimit = ownerUserData?.branchLimit;
+            
+            // If additionalBranchPrice is not in user doc, fetch from subscription plan
+            if ((additionalBranchPrice === undefined || additionalBranchPrice === null) && ownerUserData?.planId) {
+              try {
+                const planDoc = await getDoc(doc(db, "subscription_plans", ownerUserData.planId));
+                if (planDoc.exists()) {
+                  const planData = planDoc.data();
+                  additionalBranchPrice = planData?.additionalBranchPrice;
+                  if (!branchLimit) branchLimit = planData?.branches;
+                  console.log("Fetched plan data from planId (branch admin):", { additionalBranchPrice, branchLimit, planName: planData?.name });
+                }
+              } catch (e) {
+                console.error("Error fetching plan data:", e);
+              }
+            }
+            
+            // If still no data, try to find plan by name
+            if ((additionalBranchPrice === undefined || additionalBranchPrice === null) && ownerUserData?.plan) {
+              try {
+                const plansQuery = query(
+                  collection(db, "subscription_plans"),
+                  where("name", "==", ownerUserData.plan)
+                );
+                const plansSnapshot = await getDocs(plansQuery);
+                if (!plansSnapshot.empty) {
+                  const planData = plansSnapshot.docs[0].data();
+                  additionalBranchPrice = planData?.additionalBranchPrice;
+                  if (!branchLimit) branchLimit = planData?.branches;
+                  console.log("Fetched plan data from plan name (branch admin):", { additionalBranchPrice, branchLimit, planName: planData?.name });
+                }
+              } catch (e) {
+                console.error("Error fetching plan by name:", e);
+              }
+            }
+            
+            setOwnerData({
+              branchLimit: branchLimit || ownerUserData?.branchLimit || 1,
+              additionalBranchPrice: additionalBranchPrice,
+              plan: ownerUserData?.plan,
+            });
+          }
         }
       } catch {
         router.replace("/login");
@@ -223,6 +325,18 @@ export default function BranchesPage() {
   const saveData = (next: Branch[]) => setBranches(next);
 
   const openModal = () => {
+    // Check branch limit before opening modal
+    const branchLimit = ownerData?.branchLimit || 1;
+    const currentBranchCount = branches.length;
+    const additionalBranchPrice = ownerData?.additionalBranchPrice;
+
+    // If at or exceeding limit and there's additional branch pricing, show confirmation first
+    if (currentBranchCount >= branchLimit && additionalBranchPrice && additionalBranchPrice > 0) {
+      setShowBranchLimitModal(true);
+      return;
+    }
+
+    // Otherwise, open the branch creation modal directly
     setEditingId(null);
     setName("");
     setAddress("");
@@ -288,50 +402,96 @@ export default function BranchesPage() {
     setIsModalOpen(true);
   };
 
-  const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
-    e.preventDefault();
-    if (!name.trim() || !address.trim() || !ownerUid) return;
+  // Helper to build branch payload
+  const buildBranchPayload = (): BranchInput => {
+    let derivedManager: string | undefined = undefined;
+    let derivedEmail: string | undefined = undefined;
+    if (adminStaffId) {
+      const st = staffOptions.find((s) => s.id === adminStaffId);
+      if (st) {
+        derivedManager = st.name;
+        derivedEmail = st.email;
+      }
+    }
+
+    return {
+      name: name.trim(),
+      address: branchLocation?.formattedAddress || address.trim(),
+      phone: phone.trim() || undefined,
+      email: derivedEmail,
+      timezone: timezone || "Australia/Sydney",
+      staffIds: Object.keys(selectedStaffIds).filter((id) => selectedStaffIds[id]),
+      serviceIds: Object.keys(selectedServiceIds).filter((id) => selectedServiceIds[id]),
+      hours: hoursObj,
+      capacity: typeof capacity === "number" ? capacity : capacity === "" ? undefined : Number(capacity),
+      manager: derivedManager,
+      adminStaffId: adminStaffId || null,
+      status,
+      location: branchLocation || undefined,
+      allowedCheckInRadius: allowedCheckInRadius,
+    };
+  };
+
+  // Execute branch creation (after limit check or confirmation)
+  const executeBranchCreation = async (payload: BranchInput, managerName?: string) => {
+    if (!ownerUid) return;
     setSaving(true);
     try {
-      // Derive manager and email from adminStaffId if present
-      let derivedManager: string | undefined = undefined;
-      let derivedEmail: string | undefined = undefined;
-      if (adminStaffId) {
-        const st = staffOptions.find((s) => s.id === adminStaffId);
-        if (st) {
-          derivedManager = st.name;
-          derivedEmail = st.email;
-        }
-      }
-
-      const payload: BranchInput = {
-        name: name.trim(),
-        address: branchLocation?.formattedAddress || address.trim(),
-        phone: phone.trim() || undefined,
-        email: derivedEmail,
-        timezone: timezone || "Australia/Sydney", // Include timezone
-        staffIds: Object.keys(selectedStaffIds).filter((id) => selectedStaffIds[id]),
-        serviceIds: Object.keys(selectedServiceIds).filter((id) => selectedServiceIds[id]),
-        hours: hoursObj,
-        capacity: typeof capacity === "number" ? capacity : capacity === "" ? undefined : Number(capacity),
-        manager: derivedManager,
-        adminStaffId: adminStaffId || null,
-        status,
-        // Geolocation data for staff check-in
-        location: branchLocation || undefined,
-        allowedCheckInRadius: allowedCheckInRadius,
-      };
-      if (editingId) {
-        await (await import("@/lib/branches")).updateBranch(editingId, payload, derivedManager);
-      } else {
-        await createBranchForOwner(ownerUid, payload, derivedManager);
-      }
+      await createBranchForOwner(ownerUid, payload, managerName);
       setIsModalOpen(false);
+      setShowBranchLimitModal(false);
+      setPendingBranchData(null);
+      setAdditionalBranchConfirmed(false);
     } catch (err) {
       console.error("Failed to create branch", err);
     } finally {
       setSaving(false);
     }
+  };
+
+  const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
+    if (!name.trim() || !address.trim() || !ownerUid) return;
+    
+    const payload = buildBranchPayload();
+    const managerName = adminStaffId ? staffOptions.find((s) => s.id === adminStaffId)?.name : undefined;
+
+    if (editingId) {
+      // Editing existing branch - no limit check needed
+      setSaving(true);
+      try {
+        await (await import("@/lib/branches")).updateBranch(editingId, payload, managerName);
+        setIsModalOpen(false);
+      } catch (err) {
+        console.error("Failed to update branch", err);
+      } finally {
+        setSaving(false);
+      }
+    } else {
+      // Creating new branch - check branch limit
+      const branchLimit = ownerData?.branchLimit || 1;
+      const currentBranchCount = branches.length;
+      const additionalBranchPrice = ownerData?.additionalBranchPrice;
+
+      // Check if exceeding branch limit
+      if (currentBranchCount >= branchLimit && additionalBranchPrice && additionalBranchPrice > 0) {
+        // Show confirmation modal for additional branch charge
+        setPendingBranchData(payload);
+        setShowBranchLimitModal(true);
+        return;
+      }
+      
+      // Within limit or no additional branch pricing - proceed directly
+      await executeBranchCreation(payload, managerName);
+    }
+  };
+
+  // Confirm additional branch charge and navigate to subscription page
+  const handleConfirmAdditionalBranch = () => {
+    setShowBranchLimitModal(false);
+    setPendingBranchData(null);
+    // Navigate to subscription page to upgrade/add branches
+    router.push("/subscription");
   };
 
   return (
@@ -387,6 +547,41 @@ export default function BranchesPage() {
                 </button>
               )}
             </div>
+
+            {/* Branch Limit Info Banner */}
+            {role === "salon_owner" && ownerData && (
+              <div className="mb-6 bg-gradient-to-r from-pink-50 to-purple-50 border border-pink-200 rounded-xl p-4">
+                <div className="flex items-start gap-3">
+                  <div className="w-10 h-10 rounded-lg bg-pink-100 flex items-center justify-center flex-shrink-0">
+                    <i className="fas fa-info-circle text-pink-600" />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <h3 className="font-semibold text-slate-900 mb-2">Branch Limit Information</h3>
+                    <div className="text-sm text-slate-700 space-y-2">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span>
+                          Your <span className="font-semibold text-pink-600">{ownerData.plan || "current plan"}</span> includes{" "}
+                          <span className="font-semibold">{ownerData.branchLimit || 1} branch{(ownerData.branchLimit || 1) > 1 ? "es" : ""}</span>.
+                        </span>
+                        <span className="px-2 py-1 rounded-full bg-white border border-pink-200 text-xs font-medium">
+                          {branches.length} / {ownerData.branchLimit || 1} used
+                        </span>
+                      </div>
+                      {ownerData.additionalBranchPrice !== undefined && ownerData.additionalBranchPrice !== null && ownerData.additionalBranchPrice > 0 ? (
+                        <p className="text-slate-600">
+                          <i className="fas fa-plus-circle text-pink-500 mr-1" />
+                          Additional branches: <span className="font-semibold text-pink-600">AU${ownerData.additionalBranchPrice.toFixed(2)}/month</span> per branch
+                        </p>
+                      ) : (
+                        <p className="text-slate-500 text-xs">
+                          No additional branch pricing available. Upgrade your plan to add more branches.
+                        </p>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
 
                 <div id="branch-grid" className="grid grid-cols-1 lg:grid-cols-2 gap-6">
               {branches.map((b) => {
@@ -453,8 +648,25 @@ export default function BranchesPage() {
                 );
               })}
               {branches.length === 0 && (
-                <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-6 text-slate-500">
-                  No branches yet. Use “Add Branch” to create one.
+                <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-8 text-center">
+                  <div className="w-16 h-16 bg-slate-100 rounded-full flex items-center justify-center mx-auto mb-4">
+                    <i className="fas fa-store text-3xl text-slate-400" />
+                  </div>
+                  <h3 className="text-lg font-semibold text-slate-900 mb-2">No branches yet</h3>
+                  <p className="text-slate-600 mb-4">Use "Add Branch" to create your first branch.</p>
+                  {role === "salon_owner" && ownerData && (
+                    <div className="mt-4 pt-4 border-t border-slate-200">
+                      <p className="text-sm text-slate-500 mb-2">
+                        Your <span className="font-semibold text-pink-600">{ownerData.plan || "current plan"}</span> includes{" "}
+                        <span className="font-semibold">{ownerData.branchLimit || 1} branch{(ownerData.branchLimit || 1) > 1 ? "es" : ""}</span>.
+                      </p>
+                      {ownerData.additionalBranchPrice !== undefined && ownerData.additionalBranchPrice !== null && ownerData.additionalBranchPrice > 0 && (
+                        <p className="text-sm text-slate-500">
+                          Additional branches: <span className="font-semibold text-pink-600">AU${ownerData.additionalBranchPrice.toFixed(2)}/month</span> per branch
+                        </p>
+                      )}
+                    </div>
+                  )}
                 </div>
               )}
             </div>
@@ -971,6 +1183,91 @@ export default function BranchesPage() {
                   ) : (
                     "Delete"
                   )}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Additional Branch Charge Modal */}
+      {showBranchLimitModal && (
+        <div className="fixed inset-0 z-50">
+          <div className="absolute inset-0 bg-black/50" onClick={() => {
+            setShowBranchLimitModal(false);
+            setPendingBranchData(null);
+          }} />
+          <div className="relative flex items-center justify-center min-h-screen p-4">
+            <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden">
+              {/* Header */}
+              <div className="p-5 border-b border-slate-100 bg-gradient-to-r from-pink-500 to-pink-600">
+                <div className="flex items-center gap-3">
+                  <div className="w-12 h-12 rounded-full bg-white/20 flex items-center justify-center">
+                    <i className="fa-solid fa-code-branch text-white text-xl" />
+                  </div>
+                  <div>
+                    <h3 className="font-bold text-white text-lg">Additional Branch</h3>
+                    <p className="text-pink-100 text-sm">Your plan includes {ownerData?.branchLimit || 1} branch{(ownerData?.branchLimit || 1) > 1 ? 'es' : ''}</p>
+                  </div>
+                </div>
+              </div>
+
+              {/* Content */}
+              <div className="p-5">
+                <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 mb-4">
+                  <div className="flex items-start gap-3">
+                    <div className="w-8 h-8 rounded-full bg-amber-100 flex items-center justify-center flex-shrink-0">
+                      <i className="fa-solid fa-info-circle text-amber-600" />
+                    </div>
+                    <div>
+                      <p className="text-sm text-amber-800 font-medium">Branch Limit Reached</p>
+                      <p className="text-sm text-amber-700 mt-1">
+                        You currently have <span className="font-semibold">{branches.length} branch{branches.length > 1 ? 'es' : ''}</span>, which is the maximum included in your <span className="font-semibold">{ownerData?.plan || 'current'}</span> plan.
+                      </p>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="bg-slate-50 rounded-xl p-4">
+                  <div className="flex items-center justify-between">
+                    <span className="text-slate-600 text-sm">Additional Branch Fee</span>
+                    <span className="font-bold text-slate-900 text-xl">
+                      AU${(ownerData?.additionalBranchPrice || 0).toFixed(2)}<span className="text-sm font-normal text-slate-500">/mo</span>
+                    </span>
+                  </div>
+                  <div className="flex items-center justify-between pt-3 border-t border-slate-200 mt-3">
+                    <span className="font-medium text-slate-700">Total Additional Cost</span>
+                    <span className="font-bold text-pink-600 text-lg">
+                      +AU${(ownerData?.additionalBranchPrice || 0).toFixed(2)}/mo
+                    </span>
+                  </div>
+                </div>
+
+                <p className="text-xs text-slate-500 mt-3 text-center">
+                  This charge will be added to your monthly subscription.
+                </p>
+              </div>
+
+              {/* Actions */}
+              <div className="px-5 pb-5 flex items-center gap-3">
+                <button
+                  onClick={() => {
+                    setShowBranchLimitModal(false);
+                    setPendingBranchData(null);
+                  }}
+                  disabled={saving}
+                  className="flex-1 px-4 py-2.5 rounded-xl border border-slate-300 text-slate-700 font-medium hover:bg-slate-50 disabled:opacity-60 transition-colors"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={handleConfirmAdditionalBranch}
+                  disabled={saving}
+                  className="flex-1 px-4 py-2.5 rounded-xl bg-gradient-to-r from-pink-500 to-pink-600 text-white font-medium hover:from-pink-600 hover:to-pink-700 disabled:opacity-60 transition-all shadow-lg shadow-pink-500/25 whitespace-nowrap"
+                >
+                  <span className="inline-flex items-center justify-center gap-2">
+                    <i className="fa-solid fa-check" /> <span>Continue to Add Branch</span>
+                  </span>
                 </button>
               </div>
             </div>

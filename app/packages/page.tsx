@@ -475,6 +475,13 @@ export default function PackagesPage() {
                             {plan.branches === -1 ? "Unlimited Branches" : `${plan.branches} ${plan.branches === 1 ? "Branch" : "Branches"}`} • {" "}
                             {plan.staff === -1 ? "Unlimited Staff" : `${plan.staff} Staff`}
                           </p>
+                          {/* Additional Branch Price */}
+                          {plan.additionalBranchPrice !== undefined && plan.additionalBranchPrice !== null && plan.additionalBranchPrice > 0 && (
+                            <div className="mt-2 flex items-center gap-1 text-xs text-slate-500">
+                              <i className="fas fa-plus-circle text-[10px] text-pink-500" />
+                              <span>Additional: <span className="font-semibold text-pink-600">AU${plan.additionalBranchPrice.toFixed(2)}/branch</span></span>
+                            </div>
+                          )}
                         </div>
                       </div>
                     );
@@ -597,6 +604,13 @@ export default function PackagesPage() {
                                   {plan.staff === -1 ? "Unlimited" : plan.staff} Staff
                                 </span>
                               </div>
+                              {/* Additional Branch Price */}
+                              {plan.additionalBranchPrice !== undefined && plan.additionalBranchPrice !== null && plan.additionalBranchPrice > 0 && (
+                                <div className="mt-3 flex items-center justify-center gap-1 text-xs text-slate-500">
+                                  <i className="fas fa-plus-circle text-[10px] text-pink-500" />
+                                  <span>Additional branches: <span className="font-semibold text-pink-600">AU${plan.additionalBranchPrice.toFixed(2)}/branch</span></span>
+                                </div>
+                              )}
                             </div>
                             
                             {/* Divider */}
@@ -1208,6 +1222,13 @@ export default function PackagesPage() {
                                       {plan.branches === -1 ? "Unlimited Branches" : `${plan.branches} ${plan.branches === 1 ? "Branch" : "Branches"}`} • {" "}
                                       {plan.staff === -1 ? "Unlimited Staff" : `${plan.staff} ${plan.staff === 1 ? "Staff" : "Staff"}`}
                                     </div>
+                                    {/* Additional Branch Price */}
+                                    {plan.additionalBranchPrice !== undefined && plan.additionalBranchPrice !== null && plan.additionalBranchPrice > 0 && (
+                                      <div className="mt-2 flex items-center gap-1 text-xs text-slate-500">
+                                        <i className="fas fa-plus-circle text-[10px] text-pink-500" />
+                                        <span>Additional: <span className="font-semibold text-pink-600">AU${plan.additionalBranchPrice.toFixed(2)}/branch</span></span>
+                                      </div>
+                                    )}
                                   </div>
 
                                   {isCurrentPlan ? (

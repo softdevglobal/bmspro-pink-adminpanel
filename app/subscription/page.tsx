@@ -137,6 +137,8 @@ export default function SubscriptionPage() {
         plan: selectedPackage.name,
         price: selectedPackage.priceLabel,
         planId: selectedPackage.id,
+        branchLimit: selectedPackage.branches,
+        additionalBranchPrice: selectedPackage.additionalBranchPrice || null,
         planUpdatedAt: new Date(),
       });
       
@@ -148,6 +150,8 @@ export default function SubscriptionPage() {
           plan: selectedPackage.name,
           price: selectedPackage.priceLabel,
           planId: selectedPackage.id,
+          branchLimit: selectedPackage.branches,
+          additionalBranchPrice: selectedPackage.additionalBranchPrice || null,
           planUpdatedAt: new Date(),
         });
       }

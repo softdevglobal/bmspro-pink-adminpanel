@@ -122,7 +122,7 @@ export default function TenantsPage() {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [currentStep, setCurrentStep] = useState<1 | 2 | 3>(1);
   const [selectedPlan, setSelectedPlan] = useState<string | null>(null);
-  const [packages, setPackages] = useState<Array<{ id: string; name: string; price: number; priceLabel: string; branches: number; staff: number; features: string[]; popular?: boolean; color: string; image?: string; icon?: string; active?: boolean }>>([]);
+  const [packages, setPackages] = useState<Array<{ id: string; name: string; price: number; priceLabel: string; branches: number; staff: number; features: string[]; popular?: boolean; color: string; image?: string; icon?: string; active?: boolean; additionalBranchPrice?: number }>>([]);
   const [packagesLoading, setPackagesLoading] = useState(true);
   // Onboarding form (minimal fields to persist)
   const [formBusinessName, setFormBusinessName] = useState("");
@@ -270,8 +270,13 @@ export default function TenantsPage() {
         timezone: formTimezone || "Australia/Sydney", // Salon owner's timezone
         plan: planLabel,
         price: price || null,
+        // subscription package details
+        planId: selectedPackage.id,
+        branchLimit: selectedPackage.branches,
+        additionalBranchPrice: selectedPackage.additionalBranchPrice || null,
+        currentBranchCount: 0,
         status: formAbn.trim() ? "Active" : "Pending ABN",
-        locationText: formAddress ? `${formAddress}${formPostcode ? `, ${formPostcode}` : ""}` : null,
+        locationText: formAddress ? `${formAddress}${formPostcode ? ` ${formPostcode}` : ""}` : null,
         contactPhone: formPhone.trim() || null,
         businessStructure: formStructure || null,
         gstRegistered: formGst,
