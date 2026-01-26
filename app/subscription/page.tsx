@@ -276,7 +276,7 @@ export default function SubscriptionPage() {
                     <p className="text-slate-500">No subscription plans available at the moment.</p>
                   </div>
                 ) : (
-                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5 mb-10">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6 mb-10">
                     {packages.map((pkg) => {
                       const isCurrentPlan = userData?.plan === pkg.name;
                       const gradientClass = pkg.color === "blue" ? "from-blue-500 via-blue-600 to-indigo-600" 
@@ -297,118 +297,120 @@ export default function SubscriptionPage() {
                       return (
                         <div 
                           key={pkg.id}
-                          className={`group relative bg-white rounded-xl overflow-hidden shadow-md hover:shadow-xl transition-all duration-300 hover:-translate-y-1 ${
+                          className={`group relative bg-white rounded-xl overflow-hidden shadow-md hover:shadow-xl transition-all duration-300 hover:-translate-y-1 flex flex-col ${
                             isCurrentPlan ? "ring-2 ring-emerald-500 ring-offset-1" : ""
                           }`}
                         >
-                          {/* Gradient Header - Compact */}
-                          <div className={`relative h-20 bg-gradient-to-br ${gradientClass} overflow-visible`}>
+                          {/* Gradient Header */}
+                          <div className={`relative h-28 bg-gradient-to-br ${gradientClass} overflow-visible flex-shrink-0`}>
                             {/* Decorative circles */}
-                            <div className="absolute -top-6 -right-6 w-20 h-20 bg-white/10 rounded-full" />
-                            <div className="absolute -bottom-4 -left-4 w-16 h-16 bg-white/10 rounded-full" />
+                            <div className="absolute -top-6 -right-6 w-24 h-24 bg-white/10 rounded-full" />
+                            <div className="absolute -bottom-4 -left-4 w-20 h-20 bg-white/10 rounded-full" />
                             
                             {/* Popular badge */}
                             {pkg.popular && (
-                              <div className="absolute top-2 left-2 bg-white/20 backdrop-blur-sm text-white text-[10px] font-bold px-2 py-0.5 rounded-full flex items-center gap-1 z-10">
-                                <i className="fas fa-crown text-yellow-300 text-[8px]" />
+                              <div className="absolute top-3 left-3 bg-white/20 backdrop-blur-sm text-white text-xs font-bold px-3 py-1 rounded-full flex items-center gap-1.5 z-10">
+                                <i className="fas fa-crown text-yellow-300 text-xs" />
                                 Popular
                               </div>
                             )}
                             
                             {/* Current Plan badge */}
                             {isCurrentPlan && (
-                              <div className="absolute top-2 right-2 bg-emerald-500 text-white text-[10px] font-bold px-2 py-0.5 rounded-full flex items-center gap-1 z-10">
-                                <i className="fas fa-check text-[8px]" />
+                              <div className="absolute top-3 right-3 bg-emerald-500 text-white text-xs font-bold px-3 py-1 rounded-full flex items-center gap-1.5 z-10">
+                                <i className="fas fa-check text-xs" />
                                 Current
                               </div>
                             )}
                             
-                            {/* Package Image/Icon - Compact */}
-                            <div className="absolute -bottom-7 left-1/2 -translate-x-1/2 z-20">
-                              <div className={`w-14 h-14 rounded-xl flex items-center justify-center overflow-hidden shadow-lg ring-2 ring-white ${lightBgClass}`}>
+                            {/* Package Image/Icon - Larger */}
+                            <div className="absolute -bottom-10 left-1/2 -translate-x-1/2 z-20">
+                              <div className={`w-20 h-20 rounded-2xl flex items-center justify-center overflow-hidden shadow-lg ring-4 ring-white ${lightBgClass}`}>
                                 {pkg.image ? (
                                   <img src={pkg.image} alt={pkg.name} className="w-full h-full object-cover" />
                                 ) : pkg.icon ? (
-                                  <i className={`fas ${pkg.icon} text-xl bg-gradient-to-br ${gradientClass} bg-clip-text text-transparent`} />
+                                  <i className={`fas ${pkg.icon} text-3xl bg-gradient-to-br ${gradientClass} bg-clip-text text-transparent`} />
                                 ) : (
-                                  <i className={`fas fa-box text-xl bg-gradient-to-br ${gradientClass} bg-clip-text text-transparent`} />
+                                  <i className={`fas fa-box text-3xl bg-gradient-to-br ${gradientClass} bg-clip-text text-transparent`} />
                                 )}
                               </div>
                             </div>
                           </div>
                           
-                          {/* Card Content - Compact */}
-                          <div className="pt-10 pb-4 px-4">
+                          {/* Card Content */}
+                          <div className="pt-14 pb-5 px-5 flex flex-col flex-grow">
                             {/* Plan Name */}
-                            <div className="text-center mb-3">
-                              <h3 className="text-base font-bold text-slate-900 mb-1">{pkg.name}</h3>
-                              <div className={`text-2xl font-extrabold bg-gradient-to-r ${gradientClass} bg-clip-text text-transparent`}>
+                            <div className="text-center mb-4">
+                              <h3 className="text-lg font-bold text-slate-900 mb-1">{pkg.name}</h3>
+                              <div className={`text-3xl font-extrabold bg-gradient-to-r ${gradientClass} bg-clip-text text-transparent`}>
                                 {pkg.priceLabel}
                               </div>
                             </div>
                             
                             {/* Branches & Staff */}
-                            <div className="flex items-center justify-center gap-2 mb-3 text-xs text-slate-500">
-                              <span className="flex items-center gap-1">
-                                <i className="fas fa-building text-[10px]" />
+                            <div className="flex items-center justify-center gap-3 mb-4 text-sm text-slate-500">
+                              <span className="flex items-center gap-1.5">
+                                <i className="fas fa-building text-xs" />
                                 {pkg.branches === -1 ? "Unlimited" : pkg.branches} Branch
                               </span>
-                              <span className="w-0.5 h-0.5 bg-slate-300 rounded-full" />
-                              <span className="flex items-center gap-1">
-                                <i className="fas fa-users text-[10px]" />
+                              <span className="w-1 h-1 bg-slate-300 rounded-full" />
+                              <span className="flex items-center gap-1.5">
+                                <i className="fas fa-users text-xs" />
                                 {pkg.staff === -1 ? "Unlimited" : pkg.staff} Staff
                               </span>
                             </div>
                             
                             {/* Additional Branch Price */}
                             {pkg.additionalBranchPrice && pkg.additionalBranchPrice > 0 && (
-                              <div className="flex items-center justify-center gap-1 mb-3 text-[10px] font-semibold" style={{ color: pkg.color === "blue" ? "#3B82F6" : pkg.color === "pink" ? "#FF2D8F" : pkg.color === "purple" ? "#8B5CF6" : pkg.color === "green" ? "#10B981" : pkg.color === "orange" ? "#F59E0B" : pkg.color === "teal" ? "#14B8A6" : "#FF2D8F" }}>
-                                <i className="fas fa-plus-circle text-[8px]" />
+                              <div className="flex items-center justify-center gap-1.5 mb-4 text-xs font-semibold" style={{ color: pkg.color === "blue" ? "#3B82F6" : pkg.color === "pink" ? "#FF2D8F" : pkg.color === "purple" ? "#8B5CF6" : pkg.color === "green" ? "#10B981" : pkg.color === "orange" ? "#F59E0B" : pkg.color === "teal" ? "#14B8A6" : "#FF2D8F" }}>
+                                <i className="fas fa-plus-circle text-xs" />
                                 <span>Additional: ${pkg.additionalBranchPrice.toFixed(2)}/branch</span>
                               </div>
                             )}
                             
                             {/* Divider */}
-                            <div className="h-px bg-gradient-to-r from-transparent via-slate-200 to-transparent mb-3" />
+                            <div className="h-px bg-gradient-to-r from-transparent via-slate-200 to-transparent mb-4" />
                             
-                            {/* Features List - Compact */}
+                            {/* Features List - Scrollable */}
                             {pkg.features && pkg.features.length > 0 && (
-                              <ul className="space-y-1.5 mb-4">
-                                {pkg.features.slice(0, 4).map((feature, idx) => (
-                                  <li key={idx} className="flex items-center gap-2">
-                                    <div className={`w-4 h-4 rounded-full bg-gradient-to-br ${gradientClass} flex items-center justify-center flex-shrink-0`}>
-                                      <i className="fas fa-check text-white text-[8px]" />
-                                    </div>
-                                    <span className="text-xs text-slate-600 line-clamp-1">{feature}</span>
-                                  </li>
-                                ))}
-                                {pkg.features.length > 4 && (
-                                  <li className="text-xs text-slate-400 text-center">
-                                    +{pkg.features.length - 4} more
-                                  </li>
+                              <div className="mb-4 flex-grow">
+                                <ul className="space-y-2 max-h-48 overflow-y-auto pr-1 scrollbar-thin scrollbar-thumb-slate-200 scrollbar-track-transparent">
+                                  {pkg.features.map((feature, idx) => (
+                                    <li key={idx} className="flex items-start gap-2">
+                                      <div className={`w-5 h-5 rounded-full bg-gradient-to-br ${gradientClass} flex items-center justify-center flex-shrink-0 mt-0.5`}>
+                                        <i className="fas fa-check text-white text-[10px]" />
+                                      </div>
+                                      <span className="text-sm text-slate-600">{feature}</span>
+                                    </li>
+                                  ))}
+                                </ul>
+                                {pkg.features.length > 5 && (
+                                  <p className="text-xs text-slate-400 text-center mt-2 italic">Scroll for more</p>
                                 )}
-                              </ul>
+                              </div>
                             )}
                             
-                            {/* Select Button - Compact */}
-                            <button
-                              onClick={() => selectPlan(pkg)}
-                              disabled={isCurrentPlan}
-                              className={`w-full py-2.5 px-4 rounded-lg font-semibold text-sm transition-all duration-200 ${
-                                isCurrentPlan
-                                  ? "bg-emerald-100 text-emerald-600 cursor-not-allowed"
-                                  : `bg-gradient-to-r ${gradientClass} text-white hover:shadow-lg hover:scale-[1.02]`
-                              }`}
-                            >
-                              {isCurrentPlan ? (
-                                <>
-                                  <i className="fas fa-check-circle mr-1.5" />
-                                  Current
-                                </>
-                              ) : (
-                                "Select Plan"
-                              )}
-                            </button>
+                            {/* Select Button - Always at bottom */}
+                            <div className="mt-auto pt-2">
+                              <button
+                                onClick={() => selectPlan(pkg)}
+                                disabled={isCurrentPlan}
+                                className={`w-full py-3 px-4 rounded-xl font-semibold text-sm transition-all duration-200 ${
+                                  isCurrentPlan
+                                    ? "bg-emerald-100 text-emerald-600 cursor-not-allowed"
+                                    : `bg-gradient-to-r ${gradientClass} text-white hover:shadow-lg hover:scale-[1.02]`
+                                }`}
+                              >
+                                {isCurrentPlan ? (
+                                  <>
+                                    <i className="fas fa-check-circle mr-1.5" />
+                                    Current
+                                  </>
+                                ) : (
+                                  "Select Plan"
+                                )}
+                              </button>
+                            </div>
                           </div>
                         </div>
                       );
