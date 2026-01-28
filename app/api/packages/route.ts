@@ -43,7 +43,7 @@ export async function POST(req: NextRequest) {
     }
 
     const body = await req.json();
-    const { name, price, priceLabel, branches, staff, features, popular, color, image, icon, active, stripePriceId } = body;
+    const { name, price, priceLabel, branches, staff, features, popular, color, image, icon, active, stripePriceId, trialDays, plan_key } = body;
 
     // Validation
     if (!name || price === undefined || !priceLabel) {
@@ -64,6 +64,8 @@ export async function POST(req: NextRequest) {
       popular: popular === true || popular === "true",
       color: color || "blue",
       active: active !== false && active !== "false",
+      // Trial period in days (0 = no trial, null = no trial)
+      trialDays: trialDays !== undefined && trialDays !== null && trialDays !== "" ? parseInt(trialDays, 10) : 0,
       createdAt: new Date(),
       updatedAt: new Date(),
     };
@@ -71,6 +73,11 @@ export async function POST(req: NextRequest) {
     // Add Stripe Price ID if provided (required for payment processing)
     if (stripePriceId && stripePriceId.trim()) {
       planData.stripePriceId = stripePriceId.trim();
+    }
+
+    // Add plan_key if provided (internal identifier like SOLO, TEAM5)
+    if (plan_key && plan_key.trim()) {
+      planData.plan_key = plan_key.trim();
     }
 
     // Add image if provided, otherwise keep icon for backward compatibility
@@ -116,7 +123,7 @@ export async function PUT(req: NextRequest) {
     }
 
     const body = await req.json();
-    const { id, name, price, priceLabel, branches, staff, features, popular, color, image, icon, active, stripePriceId } = body;
+    const { id, name, price, priceLabel, branches, staff, features, popular, color, image, icon, active, stripePriceId, trialDays, plan_key } = body;
 
     if (!id) {
       return NextResponse.json(
@@ -160,6 +167,14 @@ export async function PUT(req: NextRequest) {
     if (active !== undefined) updateData.active = active !== false && active !== "false";
     if (stripePriceId !== undefined) {
       updateData.stripePriceId = stripePriceId && stripePriceId.trim() ? stripePriceId.trim() : null;
+    }
+    // Trial period in days (0 = no trial)
+    if (trialDays !== undefined) {
+      updateData.trialDays = trialDays !== null && trialDays !== "" ? parseInt(trialDays, 10) : 0;
+    }
+    // Internal plan key (e.g., SOLO, TEAM5)
+    if (plan_key !== undefined) {
+      updateData.plan_key = plan_key && plan_key.trim() ? plan_key.trim() : null;
     }
 
     await planRef.update(updateData);

@@ -5,8 +5,11 @@ import { adminDb, adminAuth } from "@/lib/firebaseAdmin";
 export const runtime = "nodejs";
 
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, {
-  apiVersion: "2024-12-18.acacia",
+  apiVersion: "2025-12-15.clover",
 });
+
+// Default product name for BMS Pro subscriptions
+const PRODUCT_NAME = "BMS Pro Subscription";
 
 export async function POST(req: NextRequest) {
   try {
@@ -25,6 +28,8 @@ export async function POST(req: NextRequest) {
     } catch (authError) {
       return NextResponse.json({ error: "Invalid token" }, { status: 401 });
     }
+
+    // Skip billing check for checkout (users need to pay even if suspended)
 
     const userId = decodedToken.uid;
     const body = await req.json();
@@ -48,10 +53,12 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const planData = planDoc.data();
-    if (!planData?.stripePriceId) {
+    const planData = planDoc.data()!;
+    
+    // Validate plan has a price
+    if (!planData.price || planData.price <= 0) {
       return NextResponse.json(
-        { error: "Subscription plan does not have a Stripe Price ID configured" },
+        { error: "Subscription plan does not have a valid price configured" },
         { status: 400 }
       );
     }
@@ -90,30 +97,62 @@ export async function POST(req: NextRequest) {
     // Create Stripe Checkout Session
     const baseUrl = req.headers.get("origin") || process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000";
     
+    // Get trial days from plan (0 or undefined = no trial)
+    const trialDays = planData.trialDays ? parseInt(planData.trialDays, 10) : 0;
+    
+    // Build subscription_data with optional trial period
+    const subscriptionData: Stripe.Checkout.SessionCreateParams.SubscriptionData = {
+      metadata: {
+        firebaseUid: userId,
+        planId: planId,
+        planName: planData.name,
+        plan_key: planData.plan_key || "",
+      },
+    };
+    
+    // Only add trial period if trialDays > 0
+    if (trialDays > 0) {
+      subscriptionData.trial_period_days = trialDays;
+    }
+
+    // Build line_items - use price_data to create price inline (no need for Stripe Price ID)
+    const lineItems: Stripe.Checkout.SessionCreateParams.LineItem[] = [
+      {
+        price_data: {
+          currency: "aud", // Australian Dollars
+          product_data: {
+            name: planData.name || PRODUCT_NAME,
+            description: planData.priceLabel || `${planData.name} Plan`,
+            metadata: {
+              planId: planId,
+              plan_key: planData.plan_key || "",
+            },
+          },
+          unit_amount: Math.round(planData.price * 100), // Convert to cents
+          recurring: {
+            interval: "day",
+            interval_count: 28, // 28-day billing cycle
+          },
+        },
+        quantity: 1,
+      },
+    ];
+    
     const session = await stripe.checkout.sessions.create({
       customer: stripeCustomerId,
       payment_method_types: ["card"],
       mode: "subscription",
-      line_items: [
-        {
-          price: planData.stripePriceId,
-          quantity: 1,
-        },
-      ],
+      line_items: lineItems,
       success_url: successUrl || `${baseUrl}/subscription/success?session_id={CHECKOUT_SESSION_ID}`,
       cancel_url: cancelUrl || `${baseUrl}/subscription/cancel`,
       metadata: {
         firebaseUid: userId,
         planId: planId,
         planName: planData.name,
+        trialDays: trialDays.toString(),
+        price: planData.price.toString(),
       },
-      subscription_data: {
-        metadata: {
-          firebaseUid: userId,
-          planId: planId,
-          planName: planData.name,
-        },
-      },
+      subscription_data: subscriptionData,
       allow_promotion_codes: true,
       billing_address_collection: "auto",
     });

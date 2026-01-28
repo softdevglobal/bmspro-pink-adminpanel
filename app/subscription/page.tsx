@@ -1,6 +1,7 @@
 "use client";
 import React, { useEffect, useState, useCallback } from "react";
 import Sidebar from "@/components/Sidebar";
+import BillingStatusBanner from "@/components/BillingStatusBanner";
 import { useRouter } from "next/navigation";
 import { onAuthStateChanged } from "firebase/auth";
 import { auth, db } from "@/lib/firebase";
@@ -20,6 +21,7 @@ interface Package {
   icon?: string;
   active?: boolean;
   stripePriceId?: string;
+  trialDays?: number;
 }
 
 interface UserData {
@@ -28,10 +30,25 @@ interface UserData {
   plan?: string;
   price?: string;
   subscriptionStatus?: string;
+  billing_status?: string;
   currentPeriodEnd?: Date;
   stripeSubscriptionId?: string;
   stripeCustomerId?: string;
+  stripePriceId?: string;
   accountStatus?: string;
+  downgradeScheduled?: boolean;
+  cancelAtPeriodEnd?: boolean;
+}
+
+interface BillingStatus {
+  plan: string;
+  billing_status: string;
+  next_billing_date?: string;
+  payment_required: boolean;
+  downgrade_scheduled: boolean;
+  trial_ends_at?: string;
+  grace_until?: string;
+  cancel_at_period_end: boolean;
 }
 
 export default function SubscriptionPage() {
@@ -49,6 +66,38 @@ export default function SubscriptionPage() {
   const [updating, setUpdating] = useState(false);
   const [checkoutLoading, setCheckoutLoading] = useState(false);
   const [portalLoading, setPortalLoading] = useState(false);
+  
+  // Billing status
+  const [billingStatus, setBillingStatus] = useState<BillingStatus | null>(null);
+  const [billingLoading, setBillingLoading] = useState(true);
+  const [upgradeLoading, setUpgradeLoading] = useState(false);
+  const [downgradeLoading, setDowngradeLoading] = useState(false);
+  const [cancelLoading, setCancelLoading] = useState(false);
+
+  // Fetch billing status
+  const fetchBillingStatus = useCallback(async () => {
+    try {
+      setBillingLoading(true);
+      const currentUser = auth.currentUser;
+      if (!currentUser) return;
+
+      const token = await currentUser.getIdToken();
+      const res = await fetch("/api/billing/status", {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+
+      if (res.ok) {
+        const data = await res.json();
+        if (data.success && data.billing) {
+          setBillingStatus(data.billing);
+        }
+      }
+    } catch (error) {
+      console.error("Error fetching billing status:", error);
+    } finally {
+      setBillingLoading(false);
+    }
+  }, []);
 
   // Fetch packages from API
   const fetchPackages = useCallback(async () => {
@@ -101,15 +150,20 @@ export default function SubscriptionPage() {
           email: user.email || data?.email || "",
           plan: data?.plan || "",
           price: data?.price || "",
-          subscriptionStatus: data?.subscriptionStatus || "",
+          subscriptionStatus: data?.subscriptionStatus || data?.billing_status || "",
+          billing_status: data?.billing_status || data?.subscriptionStatus || "",
           currentPeriodEnd: data?.currentPeriodEnd?.toDate?.() || null,
           stripeSubscriptionId: data?.stripeSubscriptionId || "",
           stripeCustomerId: data?.stripeCustomerId || "",
+          stripePriceId: data?.stripePriceId || "",
           accountStatus: data?.accountStatus || "active",
+          downgradeScheduled: data?.downgradeScheduled || false,
+          cancelAtPeriodEnd: data?.cancelAtPeriodEnd || false,
         });
 
-        // Fetch packages after auth is ready
+        // Fetch packages and billing status after auth is ready
         fetchPackages();
+        fetchBillingStatus();
 
         setMounted(true);
         setLoading(false);
@@ -119,7 +173,7 @@ export default function SubscriptionPage() {
       }
     });
     return () => unsub();
-  }, [router, fetchPackages]);
+  }, [router, fetchPackages, fetchBillingStatus]);
 
   const selectPlan = (pkg: Package) => {
     setSelectedPackage(pkg);
@@ -129,8 +183,8 @@ export default function SubscriptionPage() {
   const confirmPlanChange = async () => {
     if (!selectedPackage || !auth.currentUser) return;
     
-    // Check if package has Stripe Price ID
-    if (!selectedPackage.stripePriceId) {
+    // Check if package has a valid price
+    if (!selectedPackage.price || selectedPackage.price <= 0) {
       alert("This package is not configured for payments yet. Please contact support.");
       return;
     }
@@ -211,6 +265,106 @@ export default function SubscriptionPage() {
     }
   };
 
+  // Upgrade subscription
+  const handleUpgrade = async (newPlanId: string) => {
+    if (!auth.currentUser || !confirm("Upgrades start a new 28-day cycle today and charge immediately. Continue?")) return;
+    
+    try {
+      setUpgradeLoading(true);
+      const token = await auth.currentUser.getIdToken();
+      
+      const response = await fetch("/api/billing/upgrade", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${token}`,
+        },
+        body: JSON.stringify({ newPlanId }),
+      });
+      
+      const data = await response.json();
+      
+      if (!response.ok) {
+        throw new Error(data.error || "Failed to upgrade subscription");
+      }
+      
+      alert("Upgrade initiated! Payment will be processed immediately.");
+      fetchBillingStatus();
+      // Refresh page to show updated status
+      window.location.reload();
+    } catch (error: any) {
+      console.error("Error upgrading:", error);
+      alert(error.message || "Failed to upgrade subscription. Please try again.");
+    } finally {
+      setUpgradeLoading(false);
+    }
+  };
+
+  // Downgrade subscription
+  const handleDowngrade = async (newPlanId: string) => {
+    if (!auth.currentUser || !confirm("Downgrade applies at the end of your current 28-day cycle. Continue?")) return;
+    
+    try {
+      setDowngradeLoading(true);
+      const token = await auth.currentUser.getIdToken();
+      
+      const response = await fetch("/api/billing/downgrade", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${token}`,
+        },
+        body: JSON.stringify({ newPlanId }),
+      });
+      
+      const data = await response.json();
+      
+      if (!response.ok) {
+        throw new Error(data.error || "Failed to schedule downgrade");
+      }
+      
+      alert("Downgrade scheduled! Your plan will change at the end of your current billing cycle.");
+      fetchBillingStatus();
+    } catch (error: any) {
+      console.error("Error downgrading:", error);
+      alert(error.message || "Failed to schedule downgrade. Please try again.");
+    } finally {
+      setDowngradeLoading(false);
+    }
+  };
+
+  // Cancel subscription
+  const handleCancel = async () => {
+    if (!auth.currentUser || !confirm("Cancel subscription? Access will continue until the end of your current billing period.")) return;
+    
+    try {
+      setCancelLoading(true);
+      const token = await auth.currentUser.getIdToken();
+      
+      const response = await fetch("/api/billing/cancel", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${token}`,
+        },
+      });
+      
+      const data = await response.json();
+      
+      if (!response.ok) {
+        throw new Error(data.error || "Failed to cancel subscription");
+      }
+      
+      alert("Subscription cancelled. Access will continue until the end of your current billing period.");
+      fetchBillingStatus();
+    } catch (error: any) {
+      console.error("Error cancelling:", error);
+      alert(error.message || "Failed to cancel subscription. Please try again.");
+    } finally {
+      setCancelLoading(false);
+    }
+  };
+
   return (
     <div id="app" className="flex h-screen overflow-hidden bg-slate-50">
       <Sidebar />
@@ -255,8 +409,8 @@ export default function SubscriptionPage() {
                           <i className="fas fa-crown text-2xl" />
                         </div>
                         <div>
-                          <h1 className="text-3xl font-bold">Upgrade Membership</h1>
-                          <p className="text-white/90 mt-1">Scale your business with flexible pricing plans. Change anytime.</p>
+                          <h1 className="text-3xl font-bold">Subscription Management</h1>
+                          <p className="text-white/90 mt-1">Manage your plan, billing, and subscription settings</p>
                         </div>
                       </div>
                       <div className="flex items-center gap-3 flex-wrap">
@@ -268,23 +422,23 @@ export default function SubscriptionPage() {
                             </span>
                           </div>
                         )}
-                        {userData.subscriptionStatus && (
+                        {billingStatus?.billing_status && (
                           <div className={`flex items-center gap-2 px-4 py-2 rounded-xl ${
-                            userData.subscriptionStatus === "active" 
+                            billingStatus.billing_status === "active" || billingStatus.billing_status === "trialing"
                               ? "bg-emerald-500/20 text-emerald-100" 
-                              : userData.subscriptionStatus === "past_due"
+                              : billingStatus.billing_status === "past_due"
                               ? "bg-amber-500/20 text-amber-100"
                               : "bg-rose-500/20 text-rose-100"
                           }`}>
                             <i className={`fas ${
-                              userData.subscriptionStatus === "active" 
+                              billingStatus.billing_status === "active" || billingStatus.billing_status === "trialing"
                                 ? "fa-check-circle" 
-                                : userData.subscriptionStatus === "past_due"
+                                : billingStatus.billing_status === "past_due"
                                 ? "fa-exclamation-triangle"
                                 : "fa-times-circle"
                             }`} />
                             <span className="font-medium capitalize">
-                              {userData.subscriptionStatus.replace("_", " ")}
+                              {billingStatus.billing_status.replace("_", " ")}
                             </span>
                           </div>
                         )}
@@ -306,6 +460,82 @@ export default function SubscriptionPage() {
                     </div>
                   </div>
                 </div>
+
+                {/* Billing Status Banner */}
+                {billingStatus && (
+                  <BillingStatusBanner
+                    billingStatus={billingStatus.billing_status}
+                    graceUntil={billingStatus.grace_until}
+                    nextBillingDate={billingStatus.next_billing_date}
+                    onUpdatePayment={openBillingPortal}
+                  />
+                )}
+
+                {/* Current Plan Management Section */}
+                {userData.stripeSubscriptionId && userData.plan && (
+                  <div className="mb-8 bg-white rounded-2xl border border-slate-200 shadow-sm p-6">
+                    <h2 className="text-xl font-bold text-slate-900 mb-4">Current Plan</h2>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                      <div>
+                        <div className="text-sm text-slate-500 mb-1">Plan</div>
+                        <div className="text-lg font-semibold text-slate-900">{userData.plan}</div>
+                        {billingStatus?.next_billing_date && (
+                          <>
+                            <div className="text-sm text-slate-500 mt-3 mb-1">Next Billing Date</div>
+                            <div className="text-sm text-slate-700">
+                              {new Date(billingStatus.next_billing_date).toLocaleDateString()}
+                            </div>
+                          </>
+                        )}
+                        {billingStatus?.trial_ends_at && (
+                          <>
+                            <div className="text-sm text-slate-500 mt-3 mb-1">Trial Ends</div>
+                            <div className="text-sm text-slate-700">
+                              {new Date(billingStatus.trial_ends_at).toLocaleDateString()}
+                            </div>
+                          </>
+                        )}
+                      </div>
+                      <div className="flex flex-col gap-3">
+                        {billingStatus?.downgrade_scheduled && (
+                          <div className="bg-amber-50 border border-amber-200 rounded-lg p-3">
+                            <div className="flex items-center gap-2 text-amber-800">
+                              <i className="fas fa-info-circle" />
+                              <span className="text-sm font-medium">Downgrade scheduled</span>
+                            </div>
+                          </div>
+                        )}
+                        {userData.cancelAtPeriodEnd && (
+                          <div className="bg-rose-50 border border-rose-200 rounded-lg p-3">
+                            <div className="flex items-center gap-2 text-rose-800">
+                              <i className="fas fa-exclamation-triangle" />
+                              <span className="text-sm font-medium">Cancellation scheduled</span>
+                            </div>
+                          </div>
+                        )}
+                        {!userData.cancelAtPeriodEnd && (
+                          <button
+                            onClick={handleCancel}
+                            disabled={cancelLoading}
+                            className="px-4 py-2 border border-slate-300 rounded-lg text-slate-700 font-medium hover:bg-slate-50 transition-colors disabled:opacity-50 text-sm"
+                          >
+                            {cancelLoading ? (
+                              <>
+                                <i className="fas fa-circle-notch fa-spin mr-2" />
+                                Cancelling...
+                              </>
+                            ) : (
+                              <>
+                                <i className="fas fa-times mr-2" />
+                                Cancel Subscription
+                              </>
+                            )}
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                )}
 
                 {/* Pricing Cards */}
                 {packagesLoading ? (
@@ -393,7 +623,7 @@ export default function SubscriptionPage() {
                             </div>
                             
                             {/* Branches & Staff */}
-                            <div className="flex items-center justify-center gap-3 mb-4 text-sm text-slate-500">
+                            <div className="flex items-center justify-center gap-3 mb-2 text-sm text-slate-500">
                               <span className="flex items-center gap-1.5">
                                 <i className="fas fa-building text-xs" />
                                 {pkg.branches === -1 ? "Unlimited" : pkg.branches} Branch
@@ -405,6 +635,15 @@ export default function SubscriptionPage() {
                               </span>
                             </div>
                             
+                            {/* Trial Period Badge */}
+                            {pkg.trialDays && pkg.trialDays > 0 && (
+                              <div className="flex items-center justify-center mb-4">
+                                <span className="inline-flex items-center gap-1.5 px-3 py-1 bg-emerald-50 text-emerald-700 rounded-full text-xs font-semibold">
+                                  <i className="fas fa-gift" />
+                                  {pkg.trialDays}-day free trial
+                                </span>
+                              </div>
+                            )}
                             
                             {/* Divider */}
                             <div className="h-px bg-gradient-to-r from-transparent via-slate-200 to-transparent mb-4" />
@@ -428,36 +667,67 @@ export default function SubscriptionPage() {
                               </div>
                             )}
                             
-                            {/* Select Button - Always at bottom */}
-                            <div className="mt-auto pt-2">
-                              <button
-                                onClick={() => selectPlan(pkg)}
-                                disabled={isCurrentPlan || !pkg.stripePriceId}
-                                className={`w-full py-3 px-4 rounded-xl font-semibold text-sm transition-all duration-200 ${
-                                  isCurrentPlan
-                                    ? "bg-emerald-100 text-emerald-600 cursor-not-allowed"
-                                    : !pkg.stripePriceId
-                                    ? "bg-slate-100 text-slate-400 cursor-not-allowed"
-                                    : `bg-gradient-to-r ${gradientClass} text-white hover:shadow-lg hover:scale-[1.02]`
-                                }`}
-                              >
-                                {isCurrentPlan ? (
-                                  <>
-                                    <i className="fas fa-check-circle mr-1.5" />
-                                    Current Plan
-                                  </>
-                                ) : !pkg.stripePriceId ? (
-                                  <>
-                                    <i className="fas fa-lock mr-1.5" />
-                                    Not Available
-                                  </>
-                                ) : (
-                                  <>
-                                    <i className="fas fa-credit-card mr-1.5" />
-                                    Subscribe
-                                  </>
-                                )}
-                              </button>
+                            {/* Action Buttons - Always at bottom */}
+                            <div className="mt-auto pt-2 space-y-2">
+                              {isCurrentPlan ? (
+                                <button
+                                  disabled
+                                  className="w-full py-3 px-4 rounded-xl font-semibold text-sm bg-emerald-100 text-emerald-600 cursor-not-allowed"
+                                >
+                                  <i className="fas fa-check-circle mr-1.5" />
+                                  Current Plan
+                                </button>
+                              ) : userData.stripeSubscriptionId ? (
+                                // Has subscription - show upgrade/downgrade
+                                <>
+                                  {pkg.price > (parseFloat(userData.price?.replace(/[^0-9.]/g, "") || "0")) ? (
+                                    <button
+                                      onClick={() => handleUpgrade(pkg.id)}
+                                      disabled={upgradeLoading}
+                                      className={`w-full py-3 px-4 rounded-xl font-semibold text-sm transition-all duration-200 bg-gradient-to-r ${gradientClass} text-white hover:shadow-lg hover:scale-[1.02] disabled:opacity-50`}
+                                    >
+                                      {upgradeLoading ? (
+                                        <>
+                                          <i className="fas fa-circle-notch fa-spin mr-1.5" />
+                                          Upgrading...
+                                        </>
+                                      ) : (
+                                        <>
+                                          <i className="fas fa-arrow-up mr-1.5" />
+                                          Upgrade Now
+                                        </>
+                                      )}
+                                    </button>
+                                  ) : (
+                                    <button
+                                      onClick={() => handleDowngrade(pkg.id)}
+                                      disabled={downgradeLoading}
+                                      className={`w-full py-3 px-4 rounded-xl font-semibold text-sm transition-all duration-200 bg-gradient-to-r ${gradientClass} text-white hover:shadow-lg hover:scale-[1.02] disabled:opacity-50`}
+                                    >
+                                      {downgradeLoading ? (
+                                        <>
+                                          <i className="fas fa-circle-notch fa-spin mr-1.5" />
+                                          Scheduling...
+                                        </>
+                                      ) : (
+                                        <>
+                                          <i className="fas fa-arrow-down mr-1.5" />
+                                          Downgrade
+                                        </>
+                                      )}
+                                    </button>
+                                  )}
+                                </>
+                              ) : (
+                                // No subscription - show subscribe
+                                <button
+                                  onClick={() => selectPlan(pkg)}
+                                  className={`w-full py-3 px-4 rounded-xl font-semibold text-sm transition-all duration-200 bg-gradient-to-r ${gradientClass} text-white hover:shadow-lg hover:scale-[1.02]`}
+                                >
+                                  <i className="fas fa-credit-card mr-1.5" />
+                                  Subscribe
+                                </button>
+                              )}
                             </div>
                           </div>
                         </div>

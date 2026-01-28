@@ -22,6 +22,8 @@ type SubscriptionPlan = {
   icon?: string; // Keep for backward compatibility
   active?: boolean;
   stripePriceId?: string; // Stripe Price ID for payment processing
+  trialDays?: number; // Free trial period in days (0 = no trial)
+  plan_key?: string; // Internal plan identifier (e.g., SOLO, TEAM5)
 };
 
 export default function PackagesPage() {
@@ -60,6 +62,8 @@ export default function PackagesPage() {
     image: "",
     active: true,
     stripePriceId: "",
+    trialDays: "0", // Free trial period in days
+    plan_key: "", // Internal plan identifier
   });
 
   useEffect(() => {
@@ -217,6 +221,8 @@ export default function PackagesPage() {
       image: "",
       active: true,
       stripePriceId: "",
+      trialDays: "0",
+      plan_key: "",
     });
     setImageFile(null);
     setImagePreview(null);
@@ -241,6 +247,8 @@ export default function PackagesPage() {
       image: pkg.image || "",
       active: pkg.active !== false,
       stripePriceId: pkg.stripePriceId || "",
+      trialDays: (pkg.trialDays || 0).toString(),
+      plan_key: pkg.plan_key || "",
     });
     setImageFile(null);
     setImagePreview(pkg.image || null);
@@ -309,6 +317,8 @@ export default function PackagesPage() {
         image: finalImageUrl,
         active: formData.active,
         stripePriceId: formData.stripePriceId.trim() || undefined,
+        trialDays: parseInt(formData.trialDays, 10) || 0,
+        plan_key: formData.plan_key.trim() || undefined,
       };
 
       const url = editingPackage ? "/api/packages" : "/api/packages";
@@ -868,23 +878,38 @@ export default function PackagesPage() {
                           </div>
                         </div>
 
-                        <div>
-                          <label className="block text-sm font-semibold text-slate-700 mb-2">
-                            Stripe Price ID <span className="text-rose-500">*</span>
-                          </label>
-                          <input
-                            type="text"
-                            value={formData.stripePriceId}
-                            onChange={(e) => setFormData({ ...formData, stripePriceId: e.target.value })}
-                            className="w-full px-4 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-pink-500 focus:border-transparent font-mono text-sm"
-                            placeholder="price_1ABC123..."
-                          />
-                          <p className="text-xs text-slate-500 mt-1">
-                            Stripe Price ID for recurring subscription payments. Get this from{" "}
-                            <a href="https://dashboard.stripe.com/products" target="_blank" rel="noopener noreferrer" className="text-pink-600 hover:underline">
-                              Stripe Dashboard → Products
-                            </a>
-                          </p>
+                        <div className="grid grid-cols-2 gap-4">
+                          <div>
+                            <label className="block text-sm font-semibold text-slate-700 mb-2">
+                              Free Trial (Days)
+                            </label>
+                            <input
+                              type="number"
+                              min="0"
+                              value={formData.trialDays}
+                              onChange={(e) => setFormData({ ...formData, trialDays: e.target.value })}
+                              className="w-full px-4 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-pink-500 focus:border-transparent [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                              placeholder="0"
+                            />
+                            <p className="text-xs text-slate-500 mt-1">
+                              Enter 0 for no free trial
+                            </p>
+                          </div>
+                          <div>
+                            <label className="block text-sm font-semibold text-slate-700 mb-2">
+                              Plan Key (Internal ID)
+                            </label>
+                            <input
+                              type="text"
+                              value={formData.plan_key}
+                              onChange={(e) => setFormData({ ...formData, plan_key: e.target.value.toUpperCase() })}
+                              className="w-full px-4 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-pink-500 focus:border-transparent font-mono text-sm"
+                              placeholder="SOLO, TEAM5, ENTERPRISE"
+                            />
+                            <p className="text-xs text-slate-500 mt-1">
+                              Internal identifier for this plan
+                            </p>
+                          </div>
                         </div>
 
                         <div>

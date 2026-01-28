@@ -122,7 +122,7 @@ export default function TenantsPage() {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [currentStep, setCurrentStep] = useState<1 | 2 | 3>(1);
   const [selectedPlan, setSelectedPlan] = useState<string | null>(null);
-  const [packages, setPackages] = useState<Array<{ id: string; name: string; price: number; priceLabel: string; branches: number; staff: number; features: string[]; popular?: boolean; color: string; image?: string; icon?: string; active?: boolean; stripePriceId?: string }>>([]);
+  const [packages, setPackages] = useState<Array<{ id: string; name: string; price: number; priceLabel: string; branches: number; staff: number; features: string[]; popular?: boolean; color: string; image?: string; icon?: string; active?: boolean; stripePriceId?: string; trialDays?: number; plan_key?: string }>>([]);
   const [packagesLoading, setPackagesLoading] = useState(true);
   // Onboarding form (minimal fields to persist)
   const [formBusinessName, setFormBusinessName] = useState("");
@@ -297,7 +297,12 @@ export default function TenantsPage() {
         }
       }
 
+      // Get trial days from the plan (payment details required to start trial)
+      const trialDays = selectedPackage.trialDays ? parseInt(String(selectedPackage.trialDays), 10) : 0;
+      const hasFreeTrial = trialDays > 0;
+
       // Create Firestore document with Auth UID as document ID
+      // User starts as pending - must enter payment details to activate (even for trial)
       const newTenantRef = doc(db, "users", ownerUid);
       await setDoc(newTenantRef, {
         // user identity fields
@@ -315,14 +320,18 @@ export default function TenantsPage() {
         price: price || null,
         // subscription package details
         planId: selectedPackage.id,
-        stripePriceId: selectedPackage.stripePriceId || null,
+        plan_key: selectedPackage.plan_key || null,
         branchLimit: selectedPackage.branches,
         currentBranchCount: 0,
         branchNames: [],
-        // Payment status
-        status: "Pending Payment",
-        accountStatus: "pending_payment",
+        // Payment status - show free trial status if applicable
+        status: hasFreeTrial ? "Free Trial Pending" : "Pending Payment",
+        accountStatus: hasFreeTrial ? "free_trial_pending" : "pending_payment",
         subscriptionStatus: "pending",
+        billing_status: "pending",
+        // Trial period info (actual trial starts after payment details entered)
+        trialDays: trialDays,
+        hasFreeTrial: hasFreeTrial,
         locationText: formAddress ? `${formAddress}${formPostcode ? ` ${formPostcode}` : ""}` : null,
         contactPhone: formPhone.trim() || null,
         businessStructure: formStructure || null,
@@ -353,6 +362,8 @@ export default function TenantsPage() {
             planName: planLabel,
             planPrice: price,
             paymentUrl: paymentUrl, // Link to subscription page for payment
+            // Trial info (trial starts after entering payment details)
+            trialDays: trialDays,
           }),
         });
 

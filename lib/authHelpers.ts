@@ -15,11 +15,14 @@ export type AuthResult = {
     name?: string;
     email?: string;
     branchId?: string;
+    billingStatus?: string;
   };
 } | {
   success: false;
   error: string;
   status: number;
+  billingBlocked?: boolean;
+  redirectTo?: string;
 };
 
 /**
@@ -30,15 +33,31 @@ export const OWNER_ROLES = ["salon_owner", "super_admin"];
 export const STAFF_MANAGEMENT_ROLES = ["salon_owner", "salon_branch_admin", "super_admin"];
 
 /**
+ * Check if a route is a billing route (should be accessible even when suspended)
+ */
+function isBillingRoute(pathname: string): boolean {
+  const billingRoutes = [
+    "/api/billing/",
+    "/api/stripe/",
+    "/subscription",
+    "/billing",
+  ];
+  return billingRoutes.some(route => pathname.startsWith(route));
+}
+
+/**
  * Verify Firebase ID token and get user data with role and ownerUid
+ * Also checks billing status and blocks suspended/cancelled accounts (except billing routes)
  * 
  * @param req - NextRequest object
  * @param allowedRoles - Optional array of roles that are allowed (if not provided, all authenticated users are allowed)
+ * @param skipBillingCheck - If true, skip billing status check (for billing routes)
  * @returns AuthResult with user data or error details
  */
 export async function verifyAdminAuth(
   req: NextRequest,
-  allowedRoles?: string[]
+  allowedRoles?: string[],
+  skipBillingCheck: boolean = false
 ): Promise<AuthResult> {
   const authHeader = req.headers.get("authorization");
   
@@ -125,6 +144,26 @@ export async function verifyAdminAuth(
         };
       }
     }
+
+    // Check billing status (skip for super_admin and billing routes)
+    if (!skipBillingCheck && userRole !== "super_admin") {
+      const billingStatus = userData.billing_status || userData.subscriptionStatus || "active";
+      const pathname = req.nextUrl.pathname;
+
+      // Block suspended or cancelled accounts (except billing routes)
+      if ((billingStatus === "suspended" || billingStatus === "cancelled") && !isBillingRoute(pathname)) {
+        return {
+          success: false,
+          error: "Account suspended. Please update your payment method to continue.",
+          status: 403,
+          billingBlocked: true,
+          redirectTo: "/subscription",
+        };
+      }
+
+      // Allow past_due accounts but they'll see banners in UI
+      // (We don't block them, just show warnings)
+    }
     
     return {
       success: true,
@@ -136,6 +175,7 @@ export async function verifyAdminAuth(
         name: userData.name || userData.displayName,
         email: userData.email || decodedToken.email,
         branchId: userData.branchId,
+        billingStatus: userData.billing_status || userData.subscriptionStatus,
       },
     };
   } catch (error: any) {

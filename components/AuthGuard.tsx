@@ -22,6 +22,7 @@ interface PaymentInfo {
   planName?: string;
   planPrice?: string;
   planId?: string;
+  trialDays?: number;
 }
 
 export default function AuthGuard({ children }: AuthGuardProps) {
@@ -93,13 +94,29 @@ export default function AuthGuard({ children }: AuthGuardProps) {
             const subscriptionStatus = userData.subscriptionStatus || "active";
             console.log("[AuthGuard] Account status:", accountStatus, "Subscription status:", subscriptionStatus);
             
-            // Check if payment is required
+            // Check if user is in active trial (payment details already entered via Stripe)
+            const isActiveTrialing = subscriptionStatus === "trialing" && userData.stripeSubscriptionId;
+            
+            // Check trial expiry for active trials
+            let trialExpired = false;
+            if (isActiveTrialing && userData.trial_end) {
+              const trialEnd = userData.trial_end.toDate ? userData.trial_end.toDate() : new Date(userData.trial_end);
+              trialExpired = new Date() > trialEnd;
+            }
+            
+            // Check if payment details are required
+            // - pending_payment: needs to enter payment details
+            // - free_trial_pending: has trial, needs to enter payment details to start trial
+            // - suspended: account suspended
+            // - Active trial with Stripe subscription: allowed
             const needsPayment = 
               accountStatus === "pending_payment" || 
+              accountStatus === "free_trial_pending" ||
               accountStatus === "suspended" ||
-              subscriptionStatus === "pending" ||
+              (subscriptionStatus === "pending" && !isActiveTrialing) ||
               subscriptionStatus === "past_due" ||
-              subscriptionStatus === "unpaid";
+              subscriptionStatus === "unpaid" ||
+              trialExpired;
             
             console.log("[AuthGuard] Needs payment:", needsPayment, "Pathname:", pathname);
             
@@ -115,12 +132,29 @@ export default function AuthGuard({ children }: AuthGuardProps) {
               console.log("[AuthGuard] Is payment exempt page:", isPaymentExemptPage, "Is success page:", isSuccessPage);
               
               if (!isPaymentExemptPage && !isSuccessPage) {
-                console.log("[AuthGuard] SHOWING PAYMENT MODAL with planId:", userData.planId);
+                // Get trialDays from user data or fetch from plan
+                let trialDays = userData.trialDays || 0;
+                
+                // If trialDays not set on user, fetch from subscription plan
+                if (!trialDays && userData.planId) {
+                  try {
+                    const planDoc = await getDoc(doc(db, "subscription_plans", userData.planId));
+                    if (planDoc.exists()) {
+                      const planData = planDoc.data();
+                      trialDays = planData.trialDays ? parseInt(String(planData.trialDays), 10) : 0;
+                    }
+                  } catch (e) {
+                    console.error("[AuthGuard] Error fetching plan:", e);
+                  }
+                }
+                
+                console.log("[AuthGuard] SHOWING PAYMENT MODAL with planId:", userData.planId, "trialDays:", trialDays);
                 setPaymentInfo({
                   required: true,
                   planName: userData.plan || undefined,
                   planPrice: userData.price || undefined,
                   planId: userData.planId || undefined,
+                  trialDays: trialDays,
                 });
               } else {
                 setPaymentInfo({ required: false });
@@ -172,6 +206,7 @@ export default function AuthGuard({ children }: AuthGuardProps) {
         planName={paymentInfo.planName}
         planPrice={paymentInfo.planPrice}
         planId={paymentInfo.planId}
+        trialDays={paymentInfo.trialDays}
       />
     </>
   );
