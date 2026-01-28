@@ -21,7 +21,7 @@ type SubscriptionPlan = {
   image?: string;
   icon?: string; // Keep for backward compatibility
   active?: boolean;
-  additionalBranchPrice?: number; // Price for additional branches beyond the included ones
+  stripePriceId?: string; // Stripe Price ID for payment processing
 };
 
 export default function PackagesPage() {
@@ -59,7 +59,7 @@ export default function PackagesPage() {
     color: "blue",
     image: "",
     active: true,
-    additionalBranchPrice: "",
+    stripePriceId: "",
   });
 
   useEffect(() => {
@@ -216,7 +216,7 @@ export default function PackagesPage() {
       color: "blue",
       image: "",
       active: true,
-      additionalBranchPrice: "",
+      stripePriceId: "",
     });
     setImageFile(null);
     setImagePreview(null);
@@ -240,7 +240,7 @@ export default function PackagesPage() {
       color: pkg.color,
       image: pkg.image || "",
       active: pkg.active !== false,
-      additionalBranchPrice: pkg.additionalBranchPrice?.toString() || "",
+      stripePriceId: pkg.stripePriceId || "",
     });
     setImageFile(null);
     setImagePreview(pkg.image || null);
@@ -308,7 +308,7 @@ export default function PackagesPage() {
         color: formData.color,
         image: finalImageUrl,
         active: formData.active,
-        additionalBranchPrice: formData.additionalBranchPrice ? parseFloat(formData.additionalBranchPrice) : undefined,
+        stripePriceId: formData.stripePriceId.trim() || undefined,
       };
 
       const url = editingPackage ? "/api/packages" : "/api/packages";
@@ -475,13 +475,6 @@ export default function PackagesPage() {
                             {plan.branches === -1 ? "Unlimited Branches" : `${plan.branches} ${plan.branches === 1 ? "Branch" : "Branches"}`} • {" "}
                             {plan.staff === -1 ? "Unlimited Staff" : `${plan.staff} Staff`}
                           </p>
-                          {/* Additional Branch Price */}
-                          {plan.additionalBranchPrice !== undefined && plan.additionalBranchPrice !== null && plan.additionalBranchPrice > 0 && (
-                            <div className="mt-2 flex items-center gap-1 text-xs text-slate-500">
-                              <i className="fas fa-plus-circle text-[10px] text-pink-500" />
-                              <span>Additional: <span className="font-semibold text-pink-600">AU${plan.additionalBranchPrice.toFixed(2)}/branch</span></span>
-                            </div>
-                          )}
                         </div>
                       </div>
                     );
@@ -604,13 +597,6 @@ export default function PackagesPage() {
                                   {plan.staff === -1 ? "Unlimited" : plan.staff} Staff
                                 </span>
                               </div>
-                              {/* Additional Branch Price */}
-                              {plan.additionalBranchPrice !== undefined && plan.additionalBranchPrice !== null && plan.additionalBranchPrice > 0 && (
-                                <div className="mt-3 flex items-center justify-center gap-1 text-xs text-slate-500">
-                                  <i className="fas fa-plus-circle text-[10px] text-pink-500" />
-                                  <span>Additional branches: <span className="font-semibold text-pink-600">AU${plan.additionalBranchPrice.toFixed(2)}/branch</span></span>
-                                </div>
-                              )}
                             </div>
                             
                             {/* Divider */}
@@ -884,18 +870,20 @@ export default function PackagesPage() {
 
                         <div>
                           <label className="block text-sm font-semibold text-slate-700 mb-2">
-                            Additional Branch Price
+                            Stripe Price ID <span className="text-rose-500">*</span>
                           </label>
                           <input
-                            type="number"
-                            step="0.01"
-                            value={formData.additionalBranchPrice}
-                            onChange={(e) => setFormData({ ...formData, additionalBranchPrice: e.target.value })}
-                            className="w-full px-4 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-pink-500 focus:border-transparent [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
-                            placeholder="89.00"
+                            type="text"
+                            value={formData.stripePriceId}
+                            onChange={(e) => setFormData({ ...formData, stripePriceId: e.target.value })}
+                            className="w-full px-4 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-pink-500 focus:border-transparent font-mono text-sm"
+                            placeholder="price_1ABC123..."
                           />
                           <p className="text-xs text-slate-500 mt-1">
-                            Price per additional branch beyond the included branches (e.g., $89.00 per additional branch)
+                            Stripe Price ID for recurring subscription payments. Get this from{" "}
+                            <a href="https://dashboard.stripe.com/products" target="_blank" rel="noopener noreferrer" className="text-pink-600 hover:underline">
+                              Stripe Dashboard → Products
+                            </a>
                           </p>
                         </div>
 
@@ -1222,13 +1210,6 @@ export default function PackagesPage() {
                                       {plan.branches === -1 ? "Unlimited Branches" : `${plan.branches} ${plan.branches === 1 ? "Branch" : "Branches"}`} • {" "}
                                       {plan.staff === -1 ? "Unlimited Staff" : `${plan.staff} ${plan.staff === 1 ? "Staff" : "Staff"}`}
                                     </div>
-                                    {/* Additional Branch Price */}
-                                    {plan.additionalBranchPrice !== undefined && plan.additionalBranchPrice !== null && plan.additionalBranchPrice > 0 && (
-                                      <div className="mt-2 flex items-center gap-1 text-xs text-slate-500">
-                                        <i className="fas fa-plus-circle text-[10px] text-pink-500" />
-                                        <span>Additional: <span className="font-semibold text-pink-600">AU${plan.additionalBranchPrice.toFixed(2)}/branch</span></span>
-                                      </div>
-                                    )}
                                   </div>
 
                                   {isCurrentPlan ? (

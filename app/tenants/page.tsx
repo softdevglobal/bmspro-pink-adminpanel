@@ -3,7 +3,7 @@ import React, { useMemo, useState, useEffect, useCallback } from "react";
 import Sidebar from "@/components/Sidebar";
 import { useRouter } from "next/navigation";
 import { auth, db } from "@/lib/firebase";
-import { collection, onSnapshot, orderBy, query, addDoc, serverTimestamp, doc, getDoc, where, updateDoc, deleteDoc, getDocs } from "firebase/firestore";
+import { collection, onSnapshot, orderBy, query, addDoc, serverTimestamp, doc, getDoc, where, updateDoc, deleteDoc, getDocs, setDoc } from "firebase/firestore";
 import { initializeApp, getApp } from "firebase/app";
 import { getAuth, createUserWithEmailAndPassword, signOut as signOutSecondary, onAuthStateChanged } from "firebase/auth";
 import { TIMEZONES } from "@/lib/timezone";
@@ -122,7 +122,7 @@ export default function TenantsPage() {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [currentStep, setCurrentStep] = useState<1 | 2 | 3>(1);
   const [selectedPlan, setSelectedPlan] = useState<string | null>(null);
-  const [packages, setPackages] = useState<Array<{ id: string; name: string; price: number; priceLabel: string; branches: number; staff: number; features: string[]; popular?: boolean; color: string; image?: string; icon?: string; active?: boolean; additionalBranchPrice?: number }>>([]);
+  const [packages, setPackages] = useState<Array<{ id: string; name: string; price: number; priceLabel: string; branches: number; staff: number; features: string[]; popular?: boolean; color: string; image?: string; icon?: string; active?: boolean; stripePriceId?: string }>>([]);
   const [packagesLoading, setPackagesLoading] = useState(true);
   // Onboarding form (minimal fields to persist)
   const [formBusinessName, setFormBusinessName] = useState("");
@@ -221,19 +221,31 @@ export default function TenantsPage() {
     return emailRegex.test(email);
   };
 
+  // Sanitize email to remove hidden/unicode characters
+  const sanitizeEmail = (email: string): string => {
+    // Remove all types of whitespace and invisible characters
+    return email
+      .replace(/[\u200B-\u200D\uFEFF]/g, '') // Zero-width chars
+      .replace(/[\u00A0]/g, ' ') // Non-breaking space to regular space
+      .replace(/\s+/g, '') // Remove all whitespace
+      .toLowerCase();
+  };
+
   const goNext = async () => {
     if (currentStep < 3) {
       // Validate email before moving to next step if we're on step 2
       if (currentStep === 2) {
-        const trimmedEmail = formEmail.trim();
-        if (!trimmedEmail) {
+        const sanitizedEmail = sanitizeEmail(formEmail);
+        if (!sanitizedEmail) {
           setEmailError("Email is required.");
           return;
         }
-        if (!validateEmail(trimmedEmail)) {
+        if (!validateEmail(sanitizedEmail)) {
           setEmailError("Please enter a valid email address.");
           return;
         }
+        // Update the form with sanitized email
+        setFormEmail(sanitizedEmail);
         setEmailError("");
       }
       setCurrentStep((s) => ((s + 1) as 1 | 2 | 3));
@@ -243,9 +255,11 @@ export default function TenantsPage() {
     try {
       setCreating(true);
       if (!formBusinessName.trim()) throw new Error("Business name is required.");
-      const trimmedEmail = formEmail.trim();
+      const trimmedEmail = sanitizeEmail(formEmail);
       if (!trimmedEmail) throw new Error("Email is required.");
       if (!validateEmail(trimmedEmail)) throw new Error("Please enter a valid email address.");
+      
+      console.log("Creating tenant with email:", trimmedEmail, "Length:", trimmedEmail.length);
 
       // Get selected package data
       const selectedPackage = packages.find(p => p.id === selectedPlan);
@@ -256,27 +270,59 @@ export default function TenantsPage() {
       const planLabel = selectedPackage.name;
       const price = selectedPackage.priceLabel;
 
-      // Save as a salon owner record inside users collection (invite style)
-      const newTenantRef = await addDoc(collection(db, "users"), {
+      // Provision Auth account FIRST to get the UID
+      if (!formOwnerPassword.trim() || formOwnerPassword.trim().length < 6) {
+        throw new Error("Owner password is required (min 6 characters).");
+      }
+      
+      let ownerUid: string;
+      try {
+        const options: any = getApp().options;
+        const secondaryName = `provision-${Date.now()}`;
+        const secondaryApp = initializeApp(options, secondaryName);
+        const secondaryAuth = getAuth(secondaryApp);
+        console.log("Creating Firebase Auth account for:", trimmedEmail);
+        const userCredential = await createUserWithEmailAndPassword(secondaryAuth, trimmedEmail, formOwnerPassword.trim());
+        ownerUid = userCredential.user.uid;
+        await signOutSecondary(secondaryAuth);
+        console.log("Firebase Auth account created with UID:", ownerUid);
+      } catch (e: any) {
+        console.error("Firebase Auth error:", e?.code, e?.message, "Email used:", trimmedEmail);
+        if (e?.code === "auth/email-already-in-use") {
+          throw new Error("This email is already registered. Please use a different email.");
+        } else if (e?.code === "auth/invalid-email") {
+          throw new Error(`Invalid email format: "${trimmedEmail}". Please check for special characters or spaces.`);
+        } else {
+          throw e;
+        }
+      }
+
+      // Create Firestore document with Auth UID as document ID
+      const newTenantRef = doc(db, "users", ownerUid);
+      await setDoc(newTenantRef, {
         // user identity fields
         email: trimmedEmail,
         displayName: "",
         role: "salon_owner",
         provider: "password",
+        uid: ownerUid,
         // business fields
         name: formBusinessName.trim(),
         abn: formAbn.trim() || null,
         state: formState || null,
-        timezone: formTimezone || "Australia/Sydney", // Salon owner's timezone
+        timezone: formTimezone || "Australia/Sydney",
         plan: planLabel,
         price: price || null,
         // subscription package details
         planId: selectedPackage.id,
+        stripePriceId: selectedPackage.stripePriceId || null,
         branchLimit: selectedPackage.branches,
-        additionalBranchPrice: selectedPackage.additionalBranchPrice || null,
         currentBranchCount: 0,
         branchNames: [],
-        status: formAbn.trim() ? "Active" : "Pending ABN",
+        // Payment status
+        status: "Pending Payment",
+        accountStatus: "pending_payment",
+        subscriptionStatus: "pending",
         locationText: formAddress ? `${formAddress}${formPostcode ? ` ${formPostcode}` : ""}` : null,
         contactPhone: formPhone.trim() || null,
         businessStructure: formStructure || null,
@@ -285,28 +331,15 @@ export default function TenantsPage() {
         createdAt: serverTimestamp(),
         updatedAt: serverTimestamp(),
       });
+      console.log("Firestore document created with ID:", ownerUid);
 
-      // Provision Auth account for owner (password required)
-      if (!formOwnerPassword.trim() || formOwnerPassword.trim().length < 6) {
-        throw new Error("Owner password is required (min 6 characters).");
-      }
-      try {
-        const options: any = getApp().options;
-        const secondaryName = `provision-${Date.now()}`;
-        const secondaryApp = initializeApp(options, secondaryName);
-        const secondaryAuth = getAuth(secondaryApp);
-        await createUserWithEmailAndPassword(secondaryAuth, trimmedEmail, formOwnerPassword.trim());
-        await signOutSecondary(secondaryAuth);
-      } catch (e: any) {
-        if (e?.code !== "auth/email-already-in-use") {
-          console.warn("Owner auth provisioning failed:", e);
-          throw e;
-        }
-      }
-
-      // Send welcome email to salon owner with login credentials
+      // Send welcome email to salon owner with login credentials and payment link
       try {
         const idToken = await auth.currentUser?.getIdToken();
+        // Build payment URL - they'll be redirected to subscription page after login
+        const baseUrl = window.location.origin || "https://pink.bmspros.com.au";
+        const paymentUrl = `${baseUrl}/subscription`;
+        
         const response = await fetch("/api/salon-owner/welcome-email", {
           method: "POST",
           headers: {
@@ -317,6 +350,9 @@ export default function TenantsPage() {
             email: trimmedEmail,
             password: formOwnerPassword.trim(),
             businessName: formBusinessName.trim(),
+            planName: planLabel,
+            planPrice: price,
+            paymentUrl: paymentUrl, // Link to subscription page for payment
           }),
         });
 

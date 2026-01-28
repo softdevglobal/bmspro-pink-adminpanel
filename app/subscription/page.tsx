@@ -4,7 +4,7 @@ import Sidebar from "@/components/Sidebar";
 import { useRouter } from "next/navigation";
 import { onAuthStateChanged } from "firebase/auth";
 import { auth, db } from "@/lib/firebase";
-import { doc, getDoc, updateDoc, collection, query, where, getDocs } from "firebase/firestore";
+import { doc, getDoc } from "firebase/firestore";
 
 interface Package {
   id: string;
@@ -19,7 +19,19 @@ interface Package {
   image?: string;
   icon?: string;
   active?: boolean;
-  additionalBranchPrice?: number;
+  stripePriceId?: string;
+}
+
+interface UserData {
+  name: string;
+  email: string;
+  plan?: string;
+  price?: string;
+  subscriptionStatus?: string;
+  currentPeriodEnd?: Date;
+  stripeSubscriptionId?: string;
+  stripeCustomerId?: string;
+  accountStatus?: string;
 }
 
 export default function SubscriptionPage() {
@@ -27,7 +39,7 @@ export default function SubscriptionPage() {
   const [mobileOpen, setMobileOpen] = useState(false);
   const [mounted, setMounted] = useState(false);
   const [loading, setLoading] = useState(true);
-  const [userData, setUserData] = useState<{ name: string; email: string; plan?: string; price?: string } | null>(null);
+  const [userData, setUserData] = useState<UserData | null>(null);
   const [packages, setPackages] = useState<Package[]>([]);
   const [packagesLoading, setPackagesLoading] = useState(true);
   
@@ -35,10 +47,8 @@ export default function SubscriptionPage() {
   const [showConfirmModal, setShowConfirmModal] = useState(false);
   const [selectedPackage, setSelectedPackage] = useState<Package | null>(null);
   const [updating, setUpdating] = useState(false);
-
-  // Calculator state
-  const [branches, setBranches] = useState(1);
-  const [additionalBranchPrice, setAdditionalBranchPrice] = useState<number | null>(null);
+  const [checkoutLoading, setCheckoutLoading] = useState(false);
+  const [portalLoading, setPortalLoading] = useState(false);
 
   // Fetch packages from API
   const fetchPackages = useCallback(async () => {
@@ -91,42 +101,12 @@ export default function SubscriptionPage() {
           email: user.email || data?.email || "",
           plan: data?.plan || "",
           price: data?.price || "",
+          subscriptionStatus: data?.subscriptionStatus || "",
+          currentPeriodEnd: data?.currentPeriodEnd?.toDate?.() || null,
+          stripeSubscriptionId: data?.stripeSubscriptionId || "",
+          stripeCustomerId: data?.stripeCustomerId || "",
+          accountStatus: data?.accountStatus || "active",
         });
-
-        // Get additional branch price from user document or fetch from plan
-        let branchPrice = data?.additionalBranchPrice;
-        
-        // If not in user doc, try to fetch from subscription plan
-        if (!branchPrice && data?.planId) {
-          try {
-            const planDoc = await getDoc(doc(db, "subscription_plans", data.planId));
-            if (planDoc.exists()) {
-              const planData = planDoc.data();
-              branchPrice = planData?.additionalBranchPrice;
-            }
-          } catch (e) {
-            console.error("Error fetching plan data:", e);
-          }
-        }
-        
-        // If still no data, try to find plan by name
-        if (!branchPrice && data?.plan) {
-          try {
-            const plansQuery = query(
-              collection(db, "subscription_plans"),
-              where("name", "==", data.plan)
-            );
-            const plansSnapshot = await getDocs(plansQuery);
-            if (!plansSnapshot.empty) {
-              const planData = plansSnapshot.docs[0].data();
-              branchPrice = planData?.additionalBranchPrice;
-            }
-          } catch (e) {
-            console.error("Error fetching plan by name:", e);
-          }
-        }
-        
-        setAdditionalBranchPrice(branchPrice || null);
 
         // Fetch packages after auth is ready
         fetchPackages();
@@ -141,13 +121,6 @@ export default function SubscriptionPage() {
     return () => unsub();
   }, [router, fetchPackages]);
 
-  const updateCalc = (change: number) => {
-    setBranches((prev) => Math.max(1, prev + change));
-  };
-
-  const branchTotal = additionalBranchPrice ? branches * additionalBranchPrice : 0;
-  const grandTotal = branchTotal;
-
   const selectPlan = (pkg: Package) => {
     setSelectedPackage(pkg);
     setShowConfirmModal(true);
@@ -156,49 +129,85 @@ export default function SubscriptionPage() {
   const confirmPlanChange = async () => {
     if (!selectedPackage || !auth.currentUser) return;
     
+    // Check if package has Stripe Price ID
+    if (!selectedPackage.stripePriceId) {
+      alert("This package is not configured for payments yet. Please contact support.");
+      return;
+    }
+    
     try {
+      setCheckoutLoading(true);
       setUpdating(true);
       
-      // Update the user's subscription in Firestore
-      const userRef = doc(db, "users", auth.currentUser.uid);
-      await updateDoc(userRef, {
-        plan: selectedPackage.name,
-        price: selectedPackage.priceLabel,
-        planId: selectedPackage.id,
-        branchLimit: selectedPackage.branches,
-        additionalBranchPrice: selectedPackage.additionalBranchPrice || null,
-        planUpdatedAt: new Date(),
+      const token = await auth.currentUser.getIdToken();
+      
+      // Create Stripe Checkout session
+      const response = await fetch("/api/stripe/create-checkout", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          planId: selectedPackage.id,
+        }),
       });
       
-      // Also update the owner document if exists
-      const ownerRef = doc(db, "owners", auth.currentUser.uid);
-      const ownerSnap = await getDoc(ownerRef);
-      if (ownerSnap.exists()) {
-        await updateDoc(ownerRef, {
-          plan: selectedPackage.name,
-          price: selectedPackage.priceLabel,
-          planId: selectedPackage.id,
-          branchLimit: selectedPackage.branches,
-          additionalBranchPrice: selectedPackage.additionalBranchPrice || null,
-          planUpdatedAt: new Date(),
-        });
+      const data = await response.json();
+      
+      if (!response.ok || !data.success) {
+        throw new Error(data.error || "Failed to create checkout session");
       }
       
-      // Update local state
-      setUserData(prev => prev ? {
-        ...prev,
-        plan: selectedPackage.name,
-        price: selectedPackage.priceLabel,
-      } : null);
+      // Redirect to Stripe Checkout
+      if (data.url) {
+        window.location.href = data.url;
+      } else {
+        throw new Error("No checkout URL returned");
+      }
       
-      setShowConfirmModal(false);
-      setSelectedPackage(null);
-      
-    } catch (error) {
-      console.error("Error updating subscription:", error);
-      alert("Failed to update subscription. Please try again.");
-    } finally {
+    } catch (error: any) {
+      console.error("Error creating checkout:", error);
+      alert(error.message || "Failed to start checkout. Please try again.");
+      setCheckoutLoading(false);
       setUpdating(false);
+    }
+  };
+
+  // Open Stripe billing portal
+  const openBillingPortal = async () => {
+    if (!auth.currentUser) return;
+    
+    try {
+      setPortalLoading(true);
+      
+      const token = await auth.currentUser.getIdToken();
+      
+      const response = await fetch("/api/stripe/create-portal", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${token}`,
+        },
+        body: JSON.stringify({}),
+      });
+      
+      const data = await response.json();
+      
+      if (!response.ok || !data.success) {
+        throw new Error(data.error || "Failed to open billing portal");
+      }
+      
+      // Redirect to Stripe billing portal
+      if (data.url) {
+        window.location.href = data.url;
+      }
+      
+    } catch (error: any) {
+      console.error("Error opening billing portal:", error);
+      alert(error.message || "Failed to open billing portal. Please try again.");
+    } finally {
+      setPortalLoading(false);
     }
   };
 
@@ -250,14 +259,50 @@ export default function SubscriptionPage() {
                           <p className="text-white/90 mt-1">Scale your business with flexible pricing plans. Change anytime.</p>
                         </div>
                       </div>
-                      {userData.plan && (
-                        <div className="flex items-center gap-2 bg-white/20 backdrop-blur px-4 py-2 rounded-xl">
-                          <i className="fas fa-check-circle" />
-                          <span className="font-medium">
-                            Current: {userData.plan} {userData.price ? `(${userData.price})` : ""}
-                          </span>
-                        </div>
-                      )}
+                      <div className="flex items-center gap-3 flex-wrap">
+                        {userData.plan && (
+                          <div className="flex items-center gap-2 bg-white/20 backdrop-blur px-4 py-2 rounded-xl">
+                            <i className="fas fa-check-circle" />
+                            <span className="font-medium">
+                              Current: {userData.plan} {userData.price ? `(${userData.price})` : ""}
+                            </span>
+                          </div>
+                        )}
+                        {userData.subscriptionStatus && (
+                          <div className={`flex items-center gap-2 px-4 py-2 rounded-xl ${
+                            userData.subscriptionStatus === "active" 
+                              ? "bg-emerald-500/20 text-emerald-100" 
+                              : userData.subscriptionStatus === "past_due"
+                              ? "bg-amber-500/20 text-amber-100"
+                              : "bg-rose-500/20 text-rose-100"
+                          }`}>
+                            <i className={`fas ${
+                              userData.subscriptionStatus === "active" 
+                                ? "fa-check-circle" 
+                                : userData.subscriptionStatus === "past_due"
+                                ? "fa-exclamation-triangle"
+                                : "fa-times-circle"
+                            }`} />
+                            <span className="font-medium capitalize">
+                              {userData.subscriptionStatus.replace("_", " ")}
+                            </span>
+                          </div>
+                        )}
+                        {userData.stripeCustomerId && (
+                          <button
+                            onClick={openBillingPortal}
+                            disabled={portalLoading}
+                            className="flex items-center gap-2 bg-white/20 backdrop-blur px-4 py-2 rounded-xl hover:bg-white/30 transition-colors disabled:opacity-50"
+                          >
+                            {portalLoading ? (
+                              <i className="fas fa-circle-notch fa-spin" />
+                            ) : (
+                              <i className="fas fa-credit-card" />
+                            )}
+                            <span className="font-medium">Manage Billing</span>
+                          </button>
+                        )}
+                      </div>
                     </div>
                   </div>
                 </div>
@@ -360,13 +405,6 @@ export default function SubscriptionPage() {
                               </span>
                             </div>
                             
-                            {/* Additional Branch Price */}
-                            {pkg.additionalBranchPrice && pkg.additionalBranchPrice > 0 && (
-                              <div className="flex items-center justify-center gap-1.5 mb-4 text-xs font-semibold" style={{ color: pkg.color === "blue" ? "#3B82F6" : pkg.color === "pink" ? "#FF2D8F" : pkg.color === "purple" ? "#8B5CF6" : pkg.color === "green" ? "#10B981" : pkg.color === "orange" ? "#F59E0B" : pkg.color === "teal" ? "#14B8A6" : "#FF2D8F" }}>
-                                <i className="fas fa-plus-circle text-xs" />
-                                <span>Additional: ${pkg.additionalBranchPrice.toFixed(2)}/branch</span>
-                              </div>
-                            )}
                             
                             {/* Divider */}
                             <div className="h-px bg-gradient-to-r from-transparent via-slate-200 to-transparent mb-4" />
@@ -394,20 +432,30 @@ export default function SubscriptionPage() {
                             <div className="mt-auto pt-2">
                               <button
                                 onClick={() => selectPlan(pkg)}
-                                disabled={isCurrentPlan}
+                                disabled={isCurrentPlan || !pkg.stripePriceId}
                                 className={`w-full py-3 px-4 rounded-xl font-semibold text-sm transition-all duration-200 ${
                                   isCurrentPlan
                                     ? "bg-emerald-100 text-emerald-600 cursor-not-allowed"
+                                    : !pkg.stripePriceId
+                                    ? "bg-slate-100 text-slate-400 cursor-not-allowed"
                                     : `bg-gradient-to-r ${gradientClass} text-white hover:shadow-lg hover:scale-[1.02]`
                                 }`}
                               >
                                 {isCurrentPlan ? (
                                   <>
                                     <i className="fas fa-check-circle mr-1.5" />
-                                    Current
+                                    Current Plan
+                                  </>
+                                ) : !pkg.stripePriceId ? (
+                                  <>
+                                    <i className="fas fa-lock mr-1.5" />
+                                    Not Available
                                   </>
                                 ) : (
-                                  "Select Plan"
+                                  <>
+                                    <i className="fas fa-credit-card mr-1.5" />
+                                    Subscribe
+                                  </>
                                 )}
                               </button>
                             </div>
@@ -416,78 +464,6 @@ export default function SubscriptionPage() {
                       );
                     })}
                   </div>
-                )}
-
-                {/* Add Additional Branches */}
-                {userData?.plan && additionalBranchPrice && (
-                <div className="bg-white rounded-2xl shadow-sm border-t-4 border-pink-500 overflow-hidden">
-                  <div className="p-8">
-                    <div className="mb-8">
-                      <h2 className="text-2xl font-bold text-slate-900 mb-2">Add Additional Branches</h2>
-                      <p className="text-slate-500">
-                        Your package is <span className="font-semibold text-pink-600">{userData.plan}</span>. You can add additional branches to your plan below.
-                      </p>
-                    </div>
-
-                    <div className="flex flex-col lg:flex-row gap-8">
-                      {/* Controls */}
-                      <div className="flex-[2] space-y-4">
-                        {/* Branches Control */}
-                        <div className="flex items-center justify-between bg-slate-50 p-5 rounded-xl border border-slate-200">
-                          <div>
-                            <h3 className="text-lg font-semibold text-slate-900">Branches</h3>
-                            <p className="text-sm text-slate-500 mt-1">
-                              {additionalBranchPrice 
-                                ? `AU$${additionalBranchPrice.toFixed(2)} per branch (Includes 1 Admin)`
-                                : "Additional branch pricing not available"}
-                            </p>
-                          </div>
-                          <div className="flex items-center gap-4">
-                            <button
-                              onClick={() => updateCalc(-1)}
-                              className="w-10 h-10 rounded-full border border-slate-300 bg-white hover:bg-slate-50 flex items-center justify-center text-slate-700 text-xl font-bold transition-colors"
-                            >
-                              −
-                            </button>
-                            <span className="text-xl font-bold text-slate-900 w-8 text-center">{branches}</span>
-                            <button
-                              onClick={() => updateCalc(1)}
-                              className="w-10 h-10 rounded-full border border-slate-300 bg-white hover:bg-slate-50 flex items-center justify-center text-slate-700 text-xl font-bold transition-colors"
-                            >
-                              +
-                            </button>
-                          </div>
-                        </div>
-                      </div>
-
-                      {/* Summary Card */}
-                      <div className="flex-1 min-w-[280px] bg-slate-900 text-white p-8 rounded-2xl shadow-xl">
-                        <h3 className="text-lg font-semibold mb-6 pb-4 border-b border-white/20">Est. Monthly Cost</h3>
-
-                        <div className="space-y-3 text-sm">
-                          <div className="flex justify-between opacity-80">
-                            <span>
-                              Branches ({branches} × {additionalBranchPrice ? `AU$${additionalBranchPrice.toFixed(2)}` : '$0.00'})
-                            </span>
-                            <span>AU${branchTotal.toFixed(2)}</span>
-                          </div>
-                        </div>
-
-                        <div className="flex justify-between items-center mt-6 pt-6 border-t border-white/20 text-2xl font-bold text-pink-400">
-                          <span>Total</span>
-                          <span>AU${grandTotal.toFixed(2)}</span>
-                        </div>
-
-                        <button
-                          onClick={() => alert("Proceeding to add additional branches...")}
-                          className="w-full mt-6 py-3.5 px-6 rounded-xl bg-pink-500 text-white font-semibold hover:bg-pink-600 transition-colors shadow-lg shadow-pink-500/30"
-                        >
-                          Add Branches
-                        </button>
-                      </div>
-                    </div>
-                  </div>
-                </div>
                 )}
 
                 {/* FAQ or Help Section */}
@@ -526,8 +502,8 @@ export default function SubscriptionPage() {
                     <i className="fas fa-exchange-alt text-2xl" />
                   </div>
                   <div>
-                    <h3 className="text-xl font-bold">Change Subscription</h3>
-                    <p className="text-white/80 text-sm">Confirm your plan change</p>
+                    <h3 className="text-xl font-bold">Subscribe to Plan</h3>
+                    <p className="text-white/80 text-sm">You'll be redirected to secure checkout</p>
                   </div>
                 </div>
               </div>
@@ -601,15 +577,15 @@ export default function SubscriptionPage() {
                       : "from-pink-500 to-fuchsia-600"
                     } hover:shadow-lg`}
                   >
-                    {updating ? (
+                    {updating || checkoutLoading ? (
                       <>
                         <i className="fas fa-circle-notch fa-spin mr-2" />
-                        Updating...
+                        {checkoutLoading ? "Redirecting to checkout..." : "Processing..."}
                       </>
                     ) : (
                       <>
-                        <i className="fas fa-check mr-2" />
-                        Confirm Change
+                        <i className="fas fa-credit-card mr-2" />
+                        Subscribe & Pay
                       </>
                     )}
                   </button>

@@ -43,7 +43,7 @@ export async function POST(req: NextRequest) {
     }
 
     const body = await req.json();
-    const { name, price, priceLabel, branches, staff, features, popular, color, image, icon, active, additionalBranchPrice } = body;
+    const { name, price, priceLabel, branches, staff, features, popular, color, image, icon, active, stripePriceId } = body;
 
     // Validation
     if (!name || price === undefined || !priceLabel) {
@@ -68,9 +68,9 @@ export async function POST(req: NextRequest) {
       updatedAt: new Date(),
     };
 
-    // Add additionalBranchPrice if provided
-    if (additionalBranchPrice !== undefined && additionalBranchPrice !== null && additionalBranchPrice !== "") {
-      planData.additionalBranchPrice = parseFloat(additionalBranchPrice);
+    // Add Stripe Price ID if provided (required for payment processing)
+    if (stripePriceId && stripePriceId.trim()) {
+      planData.stripePriceId = stripePriceId.trim();
     }
 
     // Add image if provided, otherwise keep icon for backward compatibility
@@ -116,7 +116,7 @@ export async function PUT(req: NextRequest) {
     }
 
     const body = await req.json();
-    const { id, name, price, priceLabel, branches, staff, features, popular, color, image, icon, active, additionalBranchPrice } = body;
+    const { id, name, price, priceLabel, branches, staff, features, popular, color, image, icon, active, stripePriceId } = body;
 
     if (!id) {
       return NextResponse.json(
@@ -158,12 +158,8 @@ export async function PUT(req: NextRequest) {
       updateData.icon = icon;
     }
     if (active !== undefined) updateData.active = active !== false && active !== "false";
-    if (additionalBranchPrice !== undefined) {
-      if (additionalBranchPrice === null || additionalBranchPrice === "") {
-        updateData.additionalBranchPrice = null;
-      } else {
-        updateData.additionalBranchPrice = parseFloat(additionalBranchPrice);
-      }
+    if (stripePriceId !== undefined) {
+      updateData.stripePriceId = stripePriceId && stripePriceId.trim() ? stripePriceId.trim() : null;
     }
 
     await planRef.update(updateData);
