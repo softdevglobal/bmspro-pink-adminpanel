@@ -582,10 +582,10 @@ export default function PackagesPage() {
                               </div>
                             )}
                             
-                            {/* Hidden badge */}
+                            {/* Hidden badge - bottom left */}
                             {plan.hidden && (
-                              <div className="absolute top-3 left-3 bg-amber-500/90 backdrop-blur-sm text-white text-xs font-bold px-3 py-1.5 rounded-full flex items-center gap-1.5 z-10" style={{ left: plan.popular ? '120px' : '12px' }}>
-                                <i className="fas fa-eye-slash" />
+                              <div className="absolute bottom-3 left-3 bg-amber-500/90 text-white text-[10px] font-semibold px-2 py-0.5 rounded flex items-center gap-1 z-10">
+                                <i className="fas fa-eye-slash text-[8px]" />
                                 Hidden
                               </div>
                             )}
