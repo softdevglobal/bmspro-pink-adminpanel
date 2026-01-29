@@ -143,6 +143,9 @@ export async function POST(req: NextRequest) {
       price: newPlanData.priceLabel || `AU$${newPlanData.price}/mo`,
       currentPeriodEnd: new Date((updatedSubscription as any).current_period_end * 1000),
       currentPeriodStart: new Date((updatedSubscription as any).current_period_start * 1000),
+      // Update plan limits
+      branchLimit: newPlanData.branches ?? -1,
+      staffLimit: newPlanData.staff ?? -1,
       updatedAt: new Date(),
     };
 

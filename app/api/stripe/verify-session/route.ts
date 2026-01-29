@@ -81,6 +81,14 @@ export async function POST(req: NextRequest) {
 
     console.log("[VERIFY SESSION] Subscription status:", sub.status, "trial_end:", sub.trial_end, "isTrialing:", isTrialing);
 
+    // Safely convert timestamps
+    const safeTimestamp = (ts: any): Date | null => {
+      if (!ts) return null;
+      const seconds = typeof ts === 'number' ? ts : parseInt(ts, 10);
+      if (isNaN(seconds)) return null;
+      return new Date(seconds * 1000);
+    };
+
     // Update user in Firestore
     const updateData: any = {
       stripeCustomerId: customerId,
@@ -90,15 +98,20 @@ export async function POST(req: NextRequest) {
       billing_status: isTrialing ? "trialing" : (sub.status === "active" ? "active" : "pending"),
       accountStatus: isTrialing || sub.status === "active" ? "active" : "pending_payment",
       status: isTrialing ? "Trial" : (sub.status === "active" ? "Active" : "Pending Payment"),
-      currentPeriodStart: new Date(sub.current_period_start * 1000),
-      currentPeriodEnd: new Date(sub.current_period_end * 1000),
       cancelAtPeriodEnd: sub.cancel_at_period_end || false,
       updatedAt: new Date(),
     };
 
+    // Add period dates if valid
+    const periodStart = safeTimestamp(sub.current_period_start);
+    const periodEnd = safeTimestamp(sub.current_period_end);
+    if (periodStart) updateData.currentPeriodStart = periodStart;
+    if (periodEnd) updateData.currentPeriodEnd = periodEnd;
+
     // Set trial end if subscription has trial period
-    if (sub.trial_end) {
-      updateData.trial_end = new Date(sub.trial_end * 1000);
+    const trialEnd = safeTimestamp(sub.trial_end);
+    if (trialEnd) {
+      updateData.trial_end = trialEnd;
     }
 
     // Add metadata from session
@@ -125,7 +138,7 @@ export async function POST(req: NextRequest) {
       message: "Subscription verified and status updated",
       status: updateData.billing_status,
       isTrialing: isTrialing,
-      trialEnd: sub.trial_end ? new Date(sub.trial_end * 1000).toISOString() : null,
+      trialEnd: trialEnd ? trialEnd.toISOString() : null,
     });
   } catch (error: any) {
     console.error("[VERIFY SESSION] Error:", error);

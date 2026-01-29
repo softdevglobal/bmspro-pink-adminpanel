@@ -39,7 +39,8 @@ export default function SettingsPage() {
   const [selectedSystemRole, setSelectedSystemRole] = useState<string>("salon_staff");
   const [selectedTimezone, setSelectedTimezone] = useState<string>("Australia/Sydney");
   const [selectedBranchId, setSelectedBranchId] = useState<string>("");
-  const [ownerPlan, setOwnerPlan] = useState<{ name: string; priceLabel: string } | null>(null);
+  const [ownerPlan, setOwnerPlan] = useState<{ name: string; priceLabel: string; staffLimit: number } | null>(null);
+  const [showUpgradeModal, setShowUpgradeModal] = useState(false);
 
   type StaffTraining = { ohs: boolean; prod: boolean; tool: boolean };
   type HoursDay = { open?: string; close?: string; closed?: boolean };
@@ -148,7 +149,7 @@ export default function SettingsPage() {
     };
   }, [ownerUid]);
 
-  // Fetch owner's package/plan
+  // Fetch owner's package/plan with staff limit
   useEffect(() => {
     if (!ownerUid) return;
     const fetchOwnerPlan = async () => {
@@ -157,9 +158,41 @@ export default function SettingsPage() {
         if (ownerDoc.exists()) {
           const ownerData = ownerDoc.data();
           if (ownerData.plan && ownerData.price) {
+            // First check if staffLimit is stored directly on user document
+            let staffLimit = ownerData.staffLimit;
+            
+            // Fallback: fetch from subscription_plans if not on user document
+            if (staffLimit === undefined || staffLimit === null) {
+              staffLimit = -1; // Default to unlimited
+              const planId = ownerData.planId;
+              
+              if (planId) {
+                const planDoc = await getDoc(doc(db, "subscription_plans", planId));
+                if (planDoc.exists()) {
+                  const planData = planDoc.data();
+                  staffLimit = planData.staff ?? -1;
+                }
+              }
+              
+              // Fallback: search by plan name if planId not found
+              if (staffLimit === -1 && ownerData.plan) {
+                const { collection, query, where, getDocs } = await import("firebase/firestore");
+                const plansQuery = query(
+                  collection(db, "subscription_plans"),
+                  where("name", "==", ownerData.plan)
+                );
+                const plansSnapshot = await getDocs(plansQuery);
+                if (!plansSnapshot.empty) {
+                  const planData = plansSnapshot.docs[0].data();
+                  staffLimit = planData.staff ?? -1;
+                }
+              }
+            }
+            
             setOwnerPlan({
               name: ownerData.plan,
               priceLabel: ownerData.price,
+              staffLimit: staffLimit,
             });
           }
         }
@@ -188,6 +221,24 @@ export default function SettingsPage() {
     setTimeout(() => {
       setToasts((prev) => prev.filter((t) => t.id !== id));
     }, 3000);
+  };
+
+  // Check if staff limit has been reached
+  const isStaffLimitReached = () => {
+    if (!ownerPlan) return false;
+    if (ownerPlan.staffLimit === -1) return false; // Unlimited
+    return data.staff.length >= ownerPlan.staffLimit;
+  };
+
+  // Handle onboard staff click - check limits first
+  const handleOnboardClick = () => {
+    if (isStaffLimitReached()) {
+      setShowUpgradeModal(true);
+      return;
+    }
+    setIsStaffModalOpen(true);
+    setSelectedSystemRole("salon_staff");
+    setWeeklySchedule({});
   };
 
   // Toggle staff suspension status
@@ -249,6 +300,15 @@ export default function SettingsPage() {
 
   const handleStaffSubmit: React.FormEventHandler<HTMLFormElement> = async (e) => {
     e.preventDefault();
+    
+    // Check staff limit before creating new staff (skip for editing existing staff)
+    if (!editingStaffId && isStaffLimitReached()) {
+      showToast("Staff limit reached. Please upgrade your plan to add more staff.");
+      setIsStaffModalOpen(false);
+      setShowUpgradeModal(true);
+      return;
+    }
+    
     const form = e.currentTarget;
     const formData = new FormData(form);
     const name = String(formData.get("name") || "").trim();
@@ -751,6 +811,41 @@ export default function SettingsPage() {
             </div>
           </div>
 
+          {/* Staff Limit Info Banner */}
+          {ownerPlan && (
+            <div className="mb-4 sm:mb-6 bg-gradient-to-r from-indigo-50 to-purple-50 border border-indigo-200 rounded-xl p-4">
+              <div className="flex items-start gap-3">
+                <div className="w-10 h-10 rounded-lg bg-indigo-100 flex items-center justify-center flex-shrink-0">
+                  <i className="fas fa-users text-indigo-600" />
+                </div>
+                <div className="flex-1 min-w-0">
+                  <h3 className="font-semibold text-slate-900 mb-2">Staff Limit Information</h3>
+                  <div className="text-sm text-slate-700 space-y-2">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span>
+                        Your <span className="font-semibold text-indigo-600">{ownerPlan.name || "current plan"}</span> includes{" "}
+                        <span className="font-semibold">{ownerPlan.staffLimit === -1 ? "unlimited" : `${ownerPlan.staffLimit}`} staff member{ownerPlan.staffLimit !== 1 ? "s" : ""}</span>.
+                      </span>
+                      {ownerPlan.staffLimit !== -1 && (
+                        <span className={`px-2 py-1 rounded-full bg-white border text-xs font-medium ${
+                          isStaffLimitReached() ? "border-rose-300 text-rose-700" : "border-indigo-200 text-indigo-700"
+                        }`}>
+                          {data.staff.length} / {ownerPlan.staffLimit} used
+                        </span>
+                      )}
+                    </div>
+                    {isStaffLimitReached() && (
+                      <p className="text-slate-600">
+                        <i className="fas fa-arrow-up text-indigo-500 mr-1" />
+                        Need more staff? <button onClick={() => setShowUpgradeModal(true)} className="font-semibold text-indigo-600 hover:text-indigo-700 underline">Upgrade your package</button>
+                      </p>
+                    )}
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
           <section>
             <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-3 sm:gap-4 mb-4 sm:mb-6">
               <div className="bg-white border border-slate-200 p-1 rounded-lg flex w-full sm:w-auto justify-center sm:justify-start overflow-x-auto">
@@ -781,11 +876,7 @@ export default function SettingsPage() {
               </div>
 
               <button
-                onClick={() => {
-                  setIsStaffModalOpen(true);
-                  setSelectedSystemRole("salon_staff");
-                  setWeeklySchedule({});
-                }}
+                onClick={handleOnboardClick}
                 className="w-full sm:w-auto px-4 sm:px-5 py-2 sm:py-2.5 bg-gradient-to-r from-pink-600 to-fuchsia-600 text-white rounded-lg text-xs sm:text-sm font-semibold shadow-lg hover:shadow-xl hover:from-pink-700 hover:to-fuchsia-700 transition-all duration-200 flex items-center justify-center gap-2"
               >
                 <i className="fa-solid fa-user-plus" /> <span className="whitespace-nowrap">Onboard Staff</span>
@@ -815,11 +906,7 @@ export default function SettingsPage() {
                           <p className="text-sm text-slate-500">Get started by onboarding your first staff member</p>
                         </div>
                         <button
-                          onClick={() => {
-                            setIsStaffModalOpen(true);
-                            setSelectedSystemRole("salon_staff");
-                            setWeeklySchedule({});
-                          }}
+                          onClick={handleOnboardClick}
                           className="mt-2 px-5 py-2.5 bg-gradient-to-r from-pink-600 to-fuchsia-600 text-white rounded-lg text-sm font-semibold shadow-lg hover:shadow-xl hover:from-pink-700 hover:to-fuchsia-700 transition-all duration-200 flex items-center gap-2"
                         >
                           <i className="fa-solid fa-user-plus" /> Add First Staff Member
@@ -940,13 +1027,30 @@ export default function SettingsPage() {
                     <h3 className="font-bold text-base lg:text-lg">Quick Stats</h3>
                   </div>
                   <div className="space-y-3">
-                    <div className="bg-white/10 backdrop-blur-sm p-3 lg:p-4 rounded-lg flex justify-between items-center border border-white/5 hover:bg-white/15 transition">
+                    <div className={`backdrop-blur-sm p-3 lg:p-4 rounded-lg flex justify-between items-center border transition ${
+                      isStaffLimitReached() 
+                        ? "bg-rose-500/20 border-rose-400/20 hover:bg-rose-500/25" 
+                        : "bg-white/10 border-white/5 hover:bg-white/15"
+                    }`}>
                       <div className="flex items-center gap-2">
-                        <i className="fas fa-users text-slate-300" />
-                        <span className="text-slate-200 text-sm lg:text-base">Total Staff</span>
+                        <i className={`fas fa-users ${isStaffLimitReached() ? "text-rose-300" : "text-slate-300"}`} />
+                        <span className={`text-sm lg:text-base ${isStaffLimitReached() ? "text-rose-100" : "text-slate-200"}`}>Total Staff</span>
                       </div>
-                      <span className="font-bold text-lg lg:text-xl text-white">{data.staff.length}</span>
+                      <div className="text-right">
+                        <span className={`font-bold text-lg lg:text-xl ${isStaffLimitReached() ? "text-rose-300" : "text-white"}`}>
+                          {data.staff.length}
+                          {ownerPlan && ownerPlan.staffLimit !== -1 && (
+                            <span className="text-sm font-normal opacity-70">/{ownerPlan.staffLimit}</span>
+                          )}
+                        </span>
+                      </div>
                     </div>
+                    {isStaffLimitReached() && (
+                      <div className="bg-rose-500/30 border border-rose-400/30 rounded-lg p-3 text-xs text-rose-100">
+                        <i className="fas fa-exclamation-circle mr-1" />
+                        Staff limit reached. <button onClick={() => setShowUpgradeModal(true)} className="underline font-semibold hover:text-white">Upgrade plan</button>
+                      </div>
+                    )}
                     <div className="bg-emerald-500/20 backdrop-blur-sm p-3 lg:p-4 rounded-lg flex justify-between items-center border border-emerald-400/20 hover:bg-emerald-500/25 transition">
                       <div className="flex items-center gap-2">
                         <i className="fas fa-check-circle text-emerald-300" />
@@ -968,11 +1072,7 @@ export default function SettingsPage() {
                   {/* Quick Actions */}
                   <div className="mt-4 lg:mt-5 pt-4 lg:pt-5 border-t border-white/10">
                     <button
-                      onClick={() => {
-                        setIsStaffModalOpen(true);
-                        setSelectedSystemRole("salon_staff");
-                        setWeeklySchedule({});
-                      }}
+                      onClick={handleOnboardClick}
                       className="w-full py-2.5 lg:py-3 px-3 lg:px-4 bg-gradient-to-r from-pink-600 to-fuchsia-600 hover:from-pink-700 hover:to-fuchsia-700 rounded-lg text-xs lg:text-sm font-semibold transition-all duration-200 flex items-center justify-center gap-2 shadow-lg hover:shadow-xl"
                     >
                       <i className="fa-solid fa-user-plus" />
@@ -1343,10 +1443,18 @@ export default function SettingsPage() {
                       </div>
                     </div>
                     <div className="text-right">
-                      <div className="text-[10px] sm:text-xs text-slate-600 font-semibold">Price</div>
-                      <div className="text-sm sm:text-base font-bold text-pink-600">{ownerPlan.priceLabel}</div>
+                      <div className="text-[10px] sm:text-xs text-slate-600 font-semibold">Staff Limit</div>
+                      <div className={`text-sm sm:text-base font-bold ${isStaffLimitReached() ? "text-rose-600" : "text-pink-600"}`}>
+                        {data.staff.length}/{ownerPlan.staffLimit === -1 ? "∞" : ownerPlan.staffLimit}
+                      </div>
                     </div>
                   </div>
+                  {isStaffLimitReached() && !editingStaffId && (
+                    <div className="mt-3 bg-rose-100 border border-rose-200 rounded-lg p-2 text-xs text-rose-700 flex items-center gap-2">
+                      <i className="fas fa-exclamation-circle" />
+                      <span>Staff limit reached. <button type="button" onClick={() => { setIsStaffModalOpen(false); setShowUpgradeModal(true); }} className="underline font-semibold">Upgrade your plan</button> to add more.</span>
+                    </div>
+                  )}
                 </div>
               )}
 
@@ -1791,6 +1899,89 @@ export default function SettingsPage() {
                   "Delete"
                 )}
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Staff Limit Upgrade Modal */}
+      {showUpgradeModal && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden">
+            {/* Header */}
+            <div className="bg-gradient-to-r from-amber-500 to-orange-500 px-6 py-5 text-white relative">
+              <button
+                onClick={() => setShowUpgradeModal(false)}
+                className="absolute top-4 right-4 w-8 h-8 rounded-full bg-white/20 hover:bg-white/30 flex items-center justify-center transition-colors"
+              >
+                <i className="fas fa-times text-sm" />
+              </button>
+              <div className="flex items-center gap-4">
+                <div className="w-12 h-12 rounded-xl bg-white/20 flex items-center justify-center">
+                  <i className="fas fa-users-slash text-xl" />
+                </div>
+                <div>
+                  <h3 className="text-xl font-bold">Staff Limit Reached</h3>
+                  <p className="text-white/80 text-sm">
+                    {ownerPlan?.staffLimit !== -1 ? `${data.staff.length}/${ownerPlan?.staffLimit} staff used` : ""}
+                  </p>
+                </div>
+              </div>
+            </div>
+            
+            {/* Content */}
+            <div className="p-6">
+              <div className="text-center mb-6">
+                <div className="w-16 h-16 rounded-full bg-amber-100 flex items-center justify-center mx-auto mb-4">
+                  <i className="fas fa-crown text-3xl text-amber-500" />
+                </div>
+                <h4 className="text-lg font-bold text-slate-900 mb-2">
+                  Upgrade Your Plan
+                </h4>
+                <p className="text-sm text-slate-600">
+                  Your current plan <strong>({ownerPlan?.name})</strong> allows up to <strong>{ownerPlan?.staffLimit} staff members</strong>. 
+                  Upgrade to add more team members and unlock additional features.
+                </p>
+              </div>
+              
+              {/* Benefits */}
+              <div className="bg-gradient-to-r from-purple-50 to-pink-50 rounded-xl p-4 mb-6 border border-purple-100">
+                <h5 className="text-sm font-semibold text-purple-900 mb-3">Why upgrade?</h5>
+                <ul className="space-y-2 text-sm text-purple-700">
+                  <li className="flex items-center gap-2">
+                    <i className="fas fa-check-circle text-purple-500" />
+                    Add more staff members
+                  </li>
+                  <li className="flex items-center gap-2">
+                    <i className="fas fa-check-circle text-purple-500" />
+                    More branches available
+                  </li>
+                  <li className="flex items-center gap-2">
+                    <i className="fas fa-check-circle text-purple-500" />
+                    Premium features & support
+                  </li>
+                </ul>
+              </div>
+              
+              {/* Buttons */}
+              <div className="flex gap-3">
+                <button
+                  onClick={() => setShowUpgradeModal(false)}
+                  className="flex-1 py-3 px-4 rounded-xl border border-slate-300 text-slate-700 font-medium hover:bg-slate-50 transition-colors"
+                >
+                  Maybe Later
+                </button>
+                <button
+                  onClick={() => {
+                    setShowUpgradeModal(false);
+                    router.push("/subscription");
+                  }}
+                  className="flex-1 py-3 px-4 rounded-xl bg-gradient-to-r from-pink-600 to-purple-600 text-white font-semibold hover:shadow-lg transition-all"
+                >
+                  <i className="fas fa-arrow-up mr-2" />
+                  View Plans
+                </button>
+              </div>
             </div>
           </div>
         </div>

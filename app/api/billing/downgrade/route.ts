@@ -176,7 +176,7 @@ export async function POST(req: NextRequest) {
       scheduleId = schedule.id;
     }
 
-    // Update Firestore
+    // Update Firestore - store scheduled downgrade info including future limits
     const updateData: any = {
       stripeScheduleId: scheduleId,
       downgradeScheduled: true,
@@ -185,6 +185,10 @@ export async function POST(req: NextRequest) {
       downgradeEffectiveDate: new Date(currentPeriodEnd * 1000),
       downgradePlanKey: newPlanData.plan_key || newPlanId,
       downgradePlanName: newPlanData.name,
+      downgradePlanPrice: newPlanData.priceLabel || `AU$${newPlanData.price}/mo`,
+      // Store future limits (will be applied when downgrade takes effect)
+      downgradeBranchLimit: newPlanData.branches ?? -1,
+      downgradeStaffLimit: newPlanData.staff ?? -1,
       updatedAt: new Date(),
     };
 

@@ -324,6 +324,8 @@ export default function TenantsPage() {
         branchLimit: selectedPackage.branches,
         currentBranchCount: 0,
         branchNames: [],
+        staffLimit: selectedPackage.staff,
+        currentStaffCount: 0,
         // Payment status - show free trial status if applicable
         status: hasFreeTrial ? "Free Trial Pending" : "Pending Payment",
         accountStatus: hasFreeTrial ? "free_trial_pending" : "pending_payment",

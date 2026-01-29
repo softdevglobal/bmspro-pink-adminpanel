@@ -221,7 +221,7 @@ async function handleCheckoutCompleted(
     updateData.trial_end = new Date(sub.trial_end * 1000);
   }
 
-  // Get plan_key from subscription_plans if priceId matches
+  // Get plan details from subscription_plans if priceId matches
   if (priceId) {
     const plansSnapshot = await db
       .collection("subscription_plans")
@@ -234,6 +234,14 @@ async function handleCheckoutCompleted(
       updateData.plan_key = planData.plan_key || plansSnapshot.docs[0].id;
       updateData.plan = planData.name;
       updateData.planId = plansSnapshot.docs[0].id;
+      updateData.price = planData.priceLabel || null;
+      // Update limits from new plan
+      if (planData.branches !== undefined) {
+        updateData.branchLimit = planData.branches;
+      }
+      if (planData.staff !== undefined) {
+        updateData.staffLimit = planData.staff;
+      }
     }
   }
 
