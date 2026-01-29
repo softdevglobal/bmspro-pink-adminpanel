@@ -631,11 +631,13 @@ function generateWelcomeEmailHTML(
                   </table>
                 </div>
                 ` : ''}
-                <div style="text-align: center;">
-                  <a href="${paymentUrl}" style="display: inline-block; padding: 16px 40px; background: linear-gradient(135deg, #10b981 0%, #059669 100%); color: #ffffff; text-decoration: none; border-radius: 8px; font-weight: 700; font-size: 16px; box-shadow: 0 4px 6px rgba(16, 185, 129, 0.3);">
-                    💳 Pay Now & Activate Account
-                  </a>
-                </div>
+                <table cellpadding="0" cellspacing="0" border="0" align="center" style="margin: 0 auto 20px;">
+                  <tr>
+                    <td align="center" style="background-color: #059669; padding: 18px 44px; border-radius: 8px;">
+                      <a href="${paymentUrl}" style="color: #ffffff; text-decoration: none; font-weight: 700; font-size: 16px;">Pay Now &amp; Activate Account</a>
+                    </td>
+                  </tr>
+                </table>
                 <p style="margin: 15px 0 0; color: #92400e; font-size: 12px; text-align: center;">
                   Your account will be activated immediately after payment
                 </p>

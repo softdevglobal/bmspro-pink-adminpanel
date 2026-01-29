@@ -21,6 +21,7 @@ type SubscriptionPlan = {
   image?: string;
   icon?: string; // Keep for backward compatibility
   active?: boolean;
+  hidden?: boolean; // Hidden packages are not shown in subscription page for upgrade/downgrade
   stripePriceId?: string; // Stripe Price ID for payment processing
   trialDays?: number; // Free trial period in days (0 = no trial)
   plan_key?: string; // Internal plan identifier (e.g., SOLO, TEAM5)
@@ -61,6 +62,7 @@ export default function PackagesPage() {
     color: "blue",
     image: "",
     active: true,
+    hidden: false, // Hidden packages are not shown in subscription page for upgrade/downgrade
     stripePriceId: "",
     trialDays: "0", // Free trial period in days
     plan_key: "", // Internal plan identifier
@@ -220,6 +222,7 @@ export default function PackagesPage() {
       color: "blue",
       image: "",
       active: true,
+      hidden: false,
       stripePriceId: "",
       trialDays: "0",
       plan_key: "",
@@ -246,6 +249,7 @@ export default function PackagesPage() {
       color: pkg.color,
       image: pkg.image || "",
       active: pkg.active !== false,
+      hidden: pkg.hidden === true,
       stripePriceId: pkg.stripePriceId || "",
       trialDays: (pkg.trialDays || 0).toString(),
       plan_key: pkg.plan_key || "",
@@ -316,6 +320,7 @@ export default function PackagesPage() {
         color: formData.color,
         image: finalImageUrl,
         active: formData.active,
+        hidden: formData.hidden,
         stripePriceId: formData.stripePriceId.trim() || undefined,
         trialDays: parseInt(formData.trialDays, 10) || 0,
         plan_key: formData.plan_key.trim() || undefined,
@@ -574,6 +579,14 @@ export default function PackagesPage() {
                               <div className="absolute top-3 left-3 bg-white/20 backdrop-blur-sm text-white text-xs font-bold px-3 py-1.5 rounded-full flex items-center gap-1.5 z-10">
                                 <i className="fas fa-crown text-yellow-300" />
                                 Most Popular
+                              </div>
+                            )}
+                            
+                            {/* Hidden badge */}
+                            {plan.hidden && (
+                              <div className="absolute top-3 left-3 bg-amber-500/90 backdrop-blur-sm text-white text-xs font-bold px-3 py-1.5 rounded-full flex items-center gap-1.5 z-10" style={{ left: plan.popular ? '120px' : '12px' }}>
+                                <i className="fas fa-eye-slash" />
+                                Hidden
                               </div>
                             )}
                             
@@ -1003,7 +1016,30 @@ export default function PackagesPage() {
                           </div>
                         </div>
 
-                        <div className="flex items-center gap-6">
+                        {/* Visibility Section */}
+                        <div className="border border-amber-200 rounded-lg p-4 bg-amber-50/50">
+                          <label className="flex items-center gap-3 cursor-pointer">
+                            <input
+                              type="checkbox"
+                              checked={formData.hidden}
+                              onChange={(e) => setFormData({ ...formData, hidden: e.target.checked })}
+                              className="w-5 h-5 text-amber-600 rounded focus:ring-amber-500"
+                            />
+                            <div>
+                              <span className="text-sm font-semibold text-slate-700 flex items-center gap-2">
+                                <i className="fas fa-eye-slash text-amber-600" />
+                                Hidden (Budget Plan)
+                              </span>
+                              <p className="text-xs text-slate-500 mt-0.5">
+                                {formData.hidden 
+                                  ? "This package won't appear in subscription page. Only assignable by super admin."
+                                  : "Visible to all salons for upgrade/downgrade"}
+                              </p>
+                            </div>
+                          </label>
+                        </div>
+
+                        <div className="flex flex-wrap items-center gap-6">
                           <label className="flex items-center gap-2 cursor-pointer">
                             <input
                               type="checkbox"

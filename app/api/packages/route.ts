@@ -64,6 +64,8 @@ export async function POST(req: NextRequest) {
       popular: popular === true || popular === "true",
       color: color || "blue",
       active: active !== false && active !== "false",
+      // Hidden packages are not shown in subscription page for upgrade/downgrade (budget plans for specific salons)
+      hidden: body.hidden === true || body.hidden === "true",
       // Trial period in days (0 = no trial, null = no trial)
       trialDays: trialDays !== undefined && trialDays !== null && trialDays !== "" ? parseInt(trialDays, 10) : 0,
       createdAt: new Date(),
@@ -165,6 +167,8 @@ export async function PUT(req: NextRequest) {
       updateData.icon = icon;
     }
     if (active !== undefined) updateData.active = active !== false && active !== "false";
+    // Hidden packages are not shown in subscription page for upgrade/downgrade (budget plans for specific salons)
+    if (body.hidden !== undefined) updateData.hidden = body.hidden === true || body.hidden === "true";
     if (stripePriceId !== undefined) {
       updateData.stripePriceId = stripePriceId && stripePriceId.trim() ? stripePriceId.trim() : null;
     }

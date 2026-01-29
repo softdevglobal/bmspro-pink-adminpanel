@@ -20,6 +20,7 @@ interface Package {
   image?: string;
   icon?: string;
   active?: boolean;
+  hidden?: boolean; // Hidden packages are not shown for upgrade/downgrade (budget plans)
   stripePriceId?: string;
   trialDays?: number;
 }
@@ -128,6 +129,7 @@ export default function SubscriptionPage() {
         const data = await res.json();
         // API returns 'plans' not 'packages'
         const allPackages = data.plans || data.packages || [];
+        // Only filter by active - we'll handle hidden filtering when displaying
         const activePackages = allPackages.filter((p: Package) => p.active !== false);
         setPackages(activePackages);
       }
@@ -572,7 +574,16 @@ export default function SubscriptionPage() {
                   </div>
                 ) : (
                   <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6 mb-10">
-                    {packages.map((pkg) => {
+                    {/* Filter packages: show current plan always, only show non-hidden for upgrade/downgrade */}
+                    {packages
+                      .filter((pkg) => {
+                        const isCurrentPlan = userData?.plan === pkg.name;
+                        // Always show the current plan, even if hidden
+                        if (isCurrentPlan) return true;
+                        // For other plans, only show if not hidden
+                        return !pkg.hidden;
+                      })
+                      .map((pkg) => {
                       const isCurrentPlan = userData?.plan === pkg.name;
                       const gradientClass = pkg.color === "blue" ? "from-blue-500 via-blue-600 to-indigo-600" 
                         : pkg.color === "pink" ? "from-pink-500 via-rose-500 to-fuchsia-600" 
