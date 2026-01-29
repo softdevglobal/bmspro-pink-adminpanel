@@ -612,64 +612,64 @@ export default function BranchesPage() {
                 <div id="branch-grid" className="grid grid-cols-1 lg:grid-cols-2 gap-6">
               {branches.map((b) => {
                 return (
-                  <div key={b.id} className="bg-white rounded-2xl border border-slate-200 shadow-sm p-6">
-                    <div className="flex items-start justify-between mb-6">
-                      <div className="flex items-center gap-4">
-                        <div className="w-12 h-12 bg-purple-100 text-purple-600 rounded-xl flex items-center justify-center text-xl">
+                  <div key={b.id} className="bg-white rounded-2xl border border-slate-200 shadow-sm p-6 overflow-hidden">
+                    <div className="flex items-start justify-between gap-3 mb-4">
+                      <div className="flex items-center gap-4 min-w-0 flex-1">
+                        <div className="w-12 h-12 bg-purple-100 text-purple-600 rounded-xl flex items-center justify-center text-xl flex-shrink-0">
                           <i className="fas fa-building" />
                         </div>
-                        <div className="min-w-0">
+                        <div className="min-w-0 flex-1">
                           <h3 className="font-bold text-lg text-slate-900 truncate">{b.name}</h3>
-                          <p className="text-sm text-slate-500 truncate">{b.address}</p>
-                          <div className="mt-1 flex items-center gap-2 text-xs text-slate-500">
-                            {b.manager && <span className="inline-flex items-center gap-1"><i className="fas fa-user-tie" /> {b.manager}</span>}
+                          <p className="text-sm text-slate-500 truncate max-w-full" title={b.address}>{b.address}</p>
+                          <div className="mt-1 flex items-center gap-2 text-xs text-slate-500 flex-wrap">
+                            {b.manager && <span className="inline-flex items-center gap-1 truncate"><i className="fas fa-user-tie" /> {b.manager}</span>}
                             {b.status && (
-                              <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full ${b.status === "Active" ? "bg-emerald-50 text-emerald-700" : b.status === "Pending" ? "bg-amber-50 text-amber-700" : "bg-rose-50 text-rose-700"}`}>
-                                <i className="fas fa-circle" />
+                              <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full flex-shrink-0 ${b.status === "Active" ? "bg-emerald-50 text-emerald-700" : b.status === "Pending" ? "bg-amber-50 text-amber-700" : "bg-rose-50 text-rose-700"}`}>
+                                <i className="fas fa-circle text-[6px]" />
                                 {b.status}
                               </span>
                             )}
                           </div>
                         </div>
                       </div>
-                      <div className="flex items-center gap-3 text-slate-400">
-                        <button onClick={() => router.push(`/branches/${b.id}`)} title="Preview" className="hover:text-slate-600">
+                      <div className="flex items-center gap-2 text-slate-400 flex-shrink-0">
+                        <button onClick={() => router.push(`/branches/${b.id}`)} title="Preview" className="w-8 h-8 rounded-lg hover:bg-slate-100 hover:text-slate-600 flex items-center justify-center transition-colors">
                           <i className="fas fa-eye" />
                         </button>
                         {role === "salon_owner" && (
-                          <button onClick={() => openEditModal(b)} title="Edit" className="hover:text-blue-600">
+                          <button onClick={() => openEditModal(b)} title="Edit" className="w-8 h-8 rounded-lg hover:bg-blue-50 hover:text-blue-600 flex items-center justify-center transition-colors">
                             <i className="fas fa-pen" />
                           </button>
                         )}
                         {role === "salon_owner" && (
-                          <button onClick={() => setDeleteTarget(b)} title="Delete" className="hover:text-rose-600">
+                          <button onClick={() => setDeleteTarget(b)} title="Delete" className="w-8 h-8 rounded-lg hover:bg-rose-50 hover:text-rose-600 flex items-center justify-center transition-colors">
                             <i className="fas fa-trash" />
                           </button>
                         )}
                       </div>
                     </div>
-                        {/* Location & Contact Info */}
-                        <div className="mt-4 pt-4 border-t border-slate-100">
-                          <div className="flex flex-wrap items-center gap-2 text-xs">
-                            {/* Geofencing Status */}
-                            {b.location?.latitude && b.location?.longitude ? (
-                              <span className="inline-flex items-center gap-1 px-2 py-1 rounded-full bg-emerald-50 text-emerald-700">
-                                <i className="fas fa-map-marker-alt" />
-                                Geofencing: {b.allowedCheckInRadius || 100}m
-                              </span>
-                            ) : (
-                              <span className="inline-flex items-center gap-1 px-2 py-1 rounded-full bg-amber-50 text-amber-700">
-                                <i className="fas fa-map-marker-alt" />
-                                No location set
-                              </span>
-                            )}
-                            {b.phone && (
-                              <span className="inline-flex items-center gap-1 text-slate-500">
-                                <i className="fas fa-phone" /> {b.phone}
-                              </span>
-                            )}
-                          </div>
-                        </div>
+                    {/* Location & Contact Info */}
+                    <div className="pt-4 border-t border-slate-100">
+                      <div className="flex flex-wrap items-center gap-2 text-xs">
+                        {/* Geofencing Status */}
+                        {b.location?.latitude && b.location?.longitude ? (
+                          <span className="inline-flex items-center gap-1 px-2 py-1 rounded-full bg-emerald-50 text-emerald-700">
+                            <i className="fas fa-map-marker-alt" />
+                            Geofencing: {b.allowedCheckInRadius || 100}m
+                          </span>
+                        ) : (
+                          <span className="inline-flex items-center gap-1 px-2 py-1 rounded-full bg-amber-50 text-amber-700">
+                            <i className="fas fa-map-marker-alt" />
+                            No location set
+                          </span>
+                        )}
+                        {b.phone && (
+                          <span className="inline-flex items-center gap-1 text-slate-500">
+                            <i className="fas fa-phone" /> {b.phone}
+                          </span>
+                        )}
+                      </div>
+                    </div>
                   </div>
                 );
               })}
