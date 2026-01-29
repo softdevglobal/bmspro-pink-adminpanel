@@ -73,6 +73,19 @@ export default function SubscriptionPage() {
   const [upgradeLoading, setUpgradeLoading] = useState(false);
   const [downgradeLoading, setDowngradeLoading] = useState(false);
   const [cancelLoading, setCancelLoading] = useState(false);
+  
+  // Cancel modal state
+  const [showCancelModal, setShowCancelModal] = useState(false);
+  const [cancelReason, setCancelReason] = useState("");
+  const [customReason, setCustomReason] = useState("");
+  
+  const cancellationReasons = [
+    { id: "too_expensive", label: "Too expensive", icon: "fa-dollar-sign" },
+    { id: "not_using", label: "Not using enough", icon: "fa-clock" },
+    { id: "missing_features", label: "Missing features", icon: "fa-puzzle-piece" },
+    { id: "found_alternative", label: "Found alternative", icon: "fa-exchange-alt" },
+    { id: "other", label: "Other", icon: "fa-comment-dots" },
+  ];
 
   // Fetch billing status
   const fetchBillingStatus = useCallback(async () => {
@@ -333,9 +346,23 @@ export default function SubscriptionPage() {
     }
   };
 
+  // Open cancel modal
+  const openCancelModal = () => {
+    setCancelReason("");
+    setCustomReason("");
+    setShowCancelModal(true);
+  };
+
   // Cancel subscription
   const handleCancel = async () => {
-    if (!auth.currentUser || !confirm("Cancel subscription? Access will continue until the end of your current billing period.")) return;
+    if (!auth.currentUser) return;
+    
+    const reason = cancelReason === "other" ? customReason : cancellationReasons.find(r => r.id === cancelReason)?.label || "";
+    
+    if (!reason.trim()) {
+      alert("Please select or enter a reason for cancellation.");
+      return;
+    }
     
     try {
       setCancelLoading(true);
@@ -347,6 +374,7 @@ export default function SubscriptionPage() {
           "Content-Type": "application/json",
           "Authorization": `Bearer ${token}`,
         },
+        body: JSON.stringify({ reason }),
       });
       
       const data = await response.json();
@@ -355,8 +383,10 @@ export default function SubscriptionPage() {
         throw new Error(data.error || "Failed to cancel subscription");
       }
       
-      alert("Subscription cancelled. Access will continue until the end of your current billing period.");
+      setShowCancelModal(false);
       fetchBillingStatus();
+      // Show success message
+      alert("Subscription cancelled. You'll continue to have access until the end of your current billing period.");
     } catch (error: any) {
       console.error("Error cancelling:", error);
       alert(error.message || "Failed to cancel subscription. Please try again.");
@@ -515,21 +545,11 @@ export default function SubscriptionPage() {
                         )}
                         {!userData.cancelAtPeriodEnd && (
                           <button
-                            onClick={handleCancel}
-                            disabled={cancelLoading}
-                            className="px-4 py-2 border border-slate-300 rounded-lg text-slate-700 font-medium hover:bg-slate-50 transition-colors disabled:opacity-50 text-sm"
+                            onClick={openCancelModal}
+                            className="px-4 py-2 border border-rose-200 bg-rose-50 rounded-lg text-rose-600 font-medium hover:bg-rose-100 hover:border-rose-300 transition-colors text-sm group"
                           >
-                            {cancelLoading ? (
-                              <>
-                                <i className="fas fa-circle-notch fa-spin mr-2" />
-                                Cancelling...
-                              </>
-                            ) : (
-                              <>
-                                <i className="fas fa-times mr-2" />
-                                Cancel Subscription
-                              </>
-                            )}
+                            <i className="fas fa-times mr-2 group-hover:rotate-90 transition-transform" />
+                            Cancel Subscription
                           </button>
                         )}
                       </div>
@@ -857,6 +877,122 @@ export default function SubscriptionPage() {
                         <i className="fas fa-credit-card mr-2" />
                         Subscribe & Pay
                       </>
+                    )}
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Cancel Subscription Modal */}
+      {showCancelModal && (
+        <div className="fixed inset-0 z-50">
+          <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" onClick={() => !cancelLoading && setShowCancelModal(false)} />
+          <div className="relative flex items-center justify-center min-h-screen p-4">
+            <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg overflow-hidden">
+              {/* Header */}
+              <div className="bg-gradient-to-r from-rose-500 to-pink-500 px-6 py-5 text-white relative">
+                {/* Close button */}
+                <button
+                  onClick={() => !cancelLoading && setShowCancelModal(false)}
+                  className="absolute top-4 right-4 w-8 h-8 rounded-full bg-white/20 hover:bg-white/30 flex items-center justify-center transition-colors"
+                >
+                  <i className="fas fa-times text-sm" />
+                </button>
+                <div className="flex items-center gap-4">
+                  <div className="w-12 h-12 rounded-xl bg-white/20 flex items-center justify-center">
+                    <i className="fas fa-heart-broken text-xl" />
+                  </div>
+                  <div>
+                    <h3 className="text-xl font-bold">Cancel Subscription</h3>
+                    <p className="text-white/80 text-sm">
+                      Access until {billingStatus?.next_billing_date 
+                        ? new Date(billingStatus.next_billing_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+                        : "end of billing period"}
+                    </p>
+                  </div>
+                </div>
+              </div>
+              
+              {/* Content */}
+              <div className="p-6">
+                {/* Reason Selection */}
+                <div className="mb-5">
+                  <label className="block text-sm font-semibold text-slate-700 mb-3">
+                    Why are you leaving? <span className="text-rose-500">*</span>
+                  </label>
+                  <div className="grid grid-cols-2 gap-3">
+                    {cancellationReasons.map((reason) => (
+                      <label
+                        key={reason.id}
+                        className={`flex items-center gap-3 p-3 rounded-xl border-2 cursor-pointer transition-all ${
+                          cancelReason === reason.id
+                            ? "border-pink-500 bg-pink-50"
+                            : "border-slate-200 hover:border-slate-300 hover:bg-slate-50"
+                        }`}
+                      >
+                        <input
+                          type="radio"
+                          name="cancelReason"
+                          value={reason.id}
+                          checked={cancelReason === reason.id}
+                          onChange={(e) => setCancelReason(e.target.value)}
+                          className="sr-only"
+                        />
+                        <div className={`w-8 h-8 rounded-lg flex items-center justify-center ${
+                          cancelReason === reason.id
+                            ? "bg-pink-500 text-white"
+                            : "bg-slate-100 text-slate-500"
+                        }`}>
+                          <i className={`fas ${reason.icon} text-sm`} />
+                        </div>
+                        <span className={`text-sm font-medium ${
+                          cancelReason === reason.id ? "text-pink-700" : "text-slate-700"
+                        }`}>
+                          {reason.label}
+                        </span>
+                      </label>
+                    ))}
+                  </div>
+                </div>
+                
+                {/* Custom Reason Input */}
+                {cancelReason === "other" && (
+                  <div className="mb-5">
+                    <label className="block text-sm font-medium text-slate-700 mb-2">
+                      Please tell us more <span className="text-rose-500">*</span>
+                    </label>
+                    <textarea
+                      value={customReason}
+                      onChange={(e) => setCustomReason(e.target.value)}
+                      placeholder="Share your feedback..."
+                      rows={3}
+                      className="w-full px-4 py-3 rounded-xl border-2 border-slate-200 focus:border-pink-500 focus:ring-0 outline-none text-sm resize-none"
+                    />
+                  </div>
+                )}
+                
+                {/* Buttons */}
+                <div className="flex gap-3">
+                  <button
+                    onClick={() => setShowCancelModal(false)}
+                    disabled={cancelLoading}
+                    className="flex-1 py-3 px-4 rounded-xl bg-gradient-to-r from-emerald-500 to-teal-500 text-white font-semibold hover:shadow-lg transition-all disabled:opacity-50"
+                  >
+                    <i className="fas fa-heart mr-2" />
+                    Keep Subscription
+                  </button>
+                  <button
+                    onClick={handleCancel}
+                    disabled={cancelLoading || !cancelReason || (cancelReason === "other" && !customReason.trim())}
+                    className="flex-1 py-3 px-4 rounded-xl border-2 border-rose-300 text-rose-600 font-semibold hover:bg-rose-50 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    {cancelLoading ? (
+                      <><i className="fas fa-circle-notch fa-spin mr-2" />Cancelling...</>
+                    ) : (
+                      <><i className="fas fa-times mr-2" />Confirm Cancel</>
                     )}
                   </button>
                 </div>

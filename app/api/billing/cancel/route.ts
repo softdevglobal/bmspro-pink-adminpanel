@@ -31,6 +31,15 @@ export async function POST(req: NextRequest) {
       );
     }
 
+    // Parse request body for cancellation reason
+    let reason = "";
+    try {
+      const body = await req.json();
+      reason = body.reason || "";
+    } catch {
+      // No body provided, reason is optional
+    }
+
     const { userData } = authResult;
     const db = adminDb();
     const userId = userData.uid;
@@ -70,13 +79,15 @@ export async function POST(req: NextRequest) {
       metadata: {
         ...subscription.metadata,
         cancelled_at: new Date().toISOString(),
+        cancellation_reason: reason || "Not provided",
       },
     });
 
     // Update Firestore
-    const updateData = {
+    const updateData: any = {
       cancelAtPeriodEnd: true,
       cancellationRequestedAt: new Date(),
+      cancellationReason: reason || null,
       updatedAt: new Date(),
     };
 
@@ -88,12 +99,26 @@ export async function POST(req: NextRequest) {
       await db.collection("owners").doc(userId).update(updateData);
     }
 
+    // Save cancellation record for analytics
+    await db.collection("subscription_cancellations").add({
+      userId: userId,
+      userEmail: userData_db.email || null,
+      userName: userData_db.name || userData_db.displayName || null,
+      plan: userData_db.plan || null,
+      subscriptionId: subscriptionId,
+      reason: reason || "Not provided",
+      cancelledAt: new Date(),
+      accessEndsAt: (subscription as any).current_period_end 
+        ? new Date((subscription as any).current_period_end * 1000)
+        : null,
+    });
+
     // Use the subscription object we already retrieved (it has current_period_end)
     const currentPeriodEnd = (subscription as any).current_period_end 
       ? new Date((subscription as any).current_period_end * 1000).toISOString()
       : null;
 
-    console.log(`[BILLING] User ${userId} cancelled subscription. Access until ${currentPeriodEnd || 'end of period'}`);
+    console.log(`[BILLING] User ${userId} cancelled subscription. Reason: ${reason || 'Not provided'}. Access until ${currentPeriodEnd || 'end of period'}`);
 
     return NextResponse.json({
       success: true,
