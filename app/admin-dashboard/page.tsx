@@ -29,7 +29,7 @@ export default function AdminDashboardPage() {
   const [todayBookings, setTodayBookings] = useState<number>(0);
   const [avgRevenuePerTenant, setAvgRevenuePerTenant] = useState<number>(0);
   const [mrr, setMrr] = useState<number>(0);
-  const [planDistribution, setPlanDistribution] = useState<{ starter: number; pro: number; enterprise: number }>({ starter: 0, pro: 0, enterprise: 0 });
+  const [planDistribution, setPlanDistribution] = useState<{ name: string; count: number; revenue: number; color: string }[]>([]);
   const [topTenants, setTopTenants] = useState<any[]>([]);
   const [completionRate, setCompletionRate] = useState<number>(0);
   const [avgBookingValue, setAvgBookingValue] = useState<number>(0);
@@ -94,32 +94,76 @@ export default function AdminDashboardPage() {
         async (snapshot) => {
           const tenants = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
           
-          // Count active tenants
+          // Count active tenants (based on subscription/account status)
           const active = tenants.filter((t: any) => {
+            const subscriptionStatus = (t.subscriptionStatus || "").toLowerCase();
+            const accountStatus = (t.accountStatus || "").toLowerCase();
             const status = (t.status || "").toLowerCase();
-            return status.includes("active") && !status.includes("suspend");
+            
+            // Consider tenant active if:
+            // - subscriptionStatus is "active", "trialing", or "trial"
+            // - OR accountStatus is "active" and subscription isn't in a bad state
+            // - OR status field includes "active" or "trial"
+            const isActive = 
+              subscriptionStatus === "active" || 
+              subscriptionStatus === "trialing" ||
+              subscriptionStatus === "trial" ||
+              status === "active" ||
+              status === "trial" ||
+              status === "trialing" ||
+              (accountStatus === "active" && !["cancelled", "canceled", "suspended", "past_due", "unpaid"].includes(subscriptionStatus));
+            
+            return isActive;
           }).length;
           
           setActiveTenants(active);
           setTotalTenants(tenants.length);
 
-          // Calculate plan distribution
-          const plans = { starter: 0, pro: 0, enterprise: 0 };
+          // Calculate plan distribution and MRR with real data
+          const planColors = ["#3b82f6", "#ec4899", "#8b5cf6", "#10b981", "#f59e0b", "#ef4444"];
+          const planMap: { [key: string]: { count: number; revenue: number } } = {};
           let totalMRR = 0;
+          
           tenants.forEach((t: any) => {
-            const plan = (t.plan || "").toLowerCase();
-            if (plan.includes("starter")) {
-              plans.starter++;
-              totalMRR += 99;
-            } else if (plan.includes("pro")) {
-              plans.pro++;
-              totalMRR += 149;
-            } else if (plan.includes("enterprise")) {
-              plans.enterprise++;
-              totalMRR += 299;
+            const planName = t.plan || "Unknown";
+            const subscriptionStatus = (t.subscriptionStatus || "").toLowerCase();
+            const accountStatus = (t.accountStatus || "").toLowerCase();
+            
+            // Get the actual price from tenant data
+            const priceValue = t.price || t.planPrice || 0;
+            const numericPrice = typeof priceValue === "string" 
+              ? parseFloat(priceValue.replace(/[^0-9.]/g, "")) || 0
+              : (typeof priceValue === "number" ? priceValue : 0);
+            
+            // Initialize plan in map if not exists
+            if (!planMap[planName]) {
+              planMap[planName] = { count: 0, revenue: 0 };
+            }
+            planMap[planName].count++;
+            
+            // Only count MRR for active/trialing subscriptions
+            const isActiveSubscription = 
+              subscriptionStatus === "active" || 
+              subscriptionStatus === "trialing" ||
+              (accountStatus === "active" && !["cancelled", "canceled", "suspended", "past_due", "unpaid"].includes(subscriptionStatus));
+            
+            if (isActiveSubscription && numericPrice > 0) {
+              totalMRR += numericPrice;
+              planMap[planName].revenue += numericPrice;
             }
           });
-          setPlanDistribution(plans);
+          
+          // Convert map to array for display
+          const planDistArray = Object.entries(planMap)
+            .map(([name, data], idx) => ({
+              name,
+              count: data.count,
+              revenue: data.revenue,
+              color: planColors[idx % planColors.length]
+            }))
+            .sort((a, b) => b.count - a.count); // Sort by count descending
+          
+          setPlanDistribution(planDistArray);
           setMrr(totalMRR);
         },
         (error) => {
@@ -980,54 +1024,39 @@ export default function AdminDashboardPage() {
                 <p className="text-sm text-slate-500 mt-1">Active subscriptions by plan</p>
               </div>
               <div className="space-y-4">
-                <div>
-                  <div className="flex items-center justify-between mb-2">
-                    <div className="flex items-center gap-2">
-                      <div className="w-3 h-3 rounded-full bg-blue-500"></div>
-                      <span className="text-sm font-medium text-slate-700">Starter</span>
+                {planDistribution.length === 0 ? (
+                  <div className="text-center py-6 text-slate-400">
+                    <i className="fas fa-box-open text-2xl mb-2" />
+                    <p className="text-sm">No plans assigned yet</p>
+                  </div>
+                ) : (
+                  planDistribution.map((plan) => (
+                    <div key={plan.name}>
+                      <div className="flex items-center justify-between mb-2">
+                        <div className="flex items-center gap-2">
+                          <div 
+                            className="w-3 h-3 rounded-full" 
+                            style={{ backgroundColor: plan.color }}
+                          ></div>
+                          <span className="text-sm font-medium text-slate-700">{plan.name}</span>
+                        </div>
+                        <span className="text-sm font-semibold text-slate-900">{plan.count}</span>
+                      </div>
+                      <div className="w-full bg-slate-100 rounded-full h-2">
+                        <div 
+                          className="h-2 rounded-full transition-all duration-500" 
+                          style={{ 
+                            width: `${totalTenants > 0 ? (plan.count / totalTenants) * 100 : 0}%`,
+                            backgroundColor: plan.color
+                          }}
+                        ></div>
+                      </div>
+                      <p className="text-[10px] text-slate-400 mt-1">
+                        {plan.count} tenant{plan.count !== 1 ? 's' : ''} • MRR: AU${plan.revenue.toLocaleString()}
+                      </p>
                     </div>
-                    <span className="text-sm font-semibold text-slate-900">{planDistribution.starter}</span>
-                  </div>
-                  <div className="w-full bg-slate-100 rounded-full h-2">
-                    <div 
-                      className="bg-blue-500 h-2 rounded-full transition-all duration-500" 
-                      style={{ width: `${totalTenants > 0 ? (planDistribution.starter / totalTenants) * 100 : 0}%` }}
-                    ></div>
-                  </div>
-                  <p className="text-[10px] text-slate-400 mt-1">AU$99/mo × {planDistribution.starter} = AU${(planDistribution.starter * 99).toLocaleString()}</p>
-                </div>
-                <div>
-                  <div className="flex items-center justify-between mb-2">
-                    <div className="flex items-center gap-2">
-                      <div className="w-3 h-3 rounded-full bg-pink-500"></div>
-                      <span className="text-sm font-medium text-slate-700">Pro</span>
-                    </div>
-                    <span className="text-sm font-semibold text-slate-900">{planDistribution.pro}</span>
-                  </div>
-                  <div className="w-full bg-slate-100 rounded-full h-2">
-                    <div 
-                      className="bg-pink-500 h-2 rounded-full transition-all duration-500" 
-                      style={{ width: `${totalTenants > 0 ? (planDistribution.pro / totalTenants) * 100 : 0}%` }}
-                    ></div>
-                  </div>
-                  <p className="text-[10px] text-slate-400 mt-1">AU$149/mo × {planDistribution.pro} = AU${(planDistribution.pro * 149).toLocaleString()}</p>
-                </div>
-                <div>
-                  <div className="flex items-center justify-between mb-2">
-                    <div className="flex items-center gap-2">
-                      <div className="w-3 h-3 rounded-full bg-purple-500"></div>
-                      <span className="text-sm font-medium text-slate-700">Enterprise</span>
-                    </div>
-                    <span className="text-sm font-semibold text-slate-900">{planDistribution.enterprise}</span>
-                  </div>
-                  <div className="w-full bg-slate-100 rounded-full h-2">
-                    <div 
-                      className="bg-purple-500 h-2 rounded-full transition-all duration-500" 
-                      style={{ width: `${totalTenants > 0 ? (planDistribution.enterprise / totalTenants) * 100 : 0}%` }}
-                    ></div>
-                  </div>
-                  <p className="text-[10px] text-slate-400 mt-1">AU$299/mo × {planDistribution.enterprise} = AU${(planDistribution.enterprise * 299).toLocaleString()}</p>
-                </div>
+                  ))
+                )}
               </div>
               <div className="mt-6 pt-4 border-t border-slate-100">
                 <div className="flex items-center justify-between">
@@ -1112,8 +1141,10 @@ export default function AdminDashboardPage() {
             </div>
             <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
               <div className="bg-white/10 rounded-xl p-4">
-                <div className="text-2xl font-bold">{avgRevenuePerTenant > 0 ? `AU$${avgRevenuePerTenant}` : "—"}</div>
-                <div className="text-xs text-white/60">Avg Revenue/Tenant</div>
+                <div className="text-2xl font-bold">
+                  {activeTenants > 0 ? `AU$${Math.round(mrr / activeTenants)}` : (totalTenants > 0 ? `AU$${Math.round(mrr / totalTenants)}` : "AU$0")}
+                </div>
+                <div className="text-xs text-white/60">Avg MRR/Tenant</div>
               </div>
               <div className="bg-white/10 rounded-xl p-4">
                 <div className="text-2xl font-bold">{pendingApprovals}</div>
