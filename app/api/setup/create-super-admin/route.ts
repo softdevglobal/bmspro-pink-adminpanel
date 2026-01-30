@@ -30,16 +30,18 @@ export async function POST(req: NextRequest) {
     const body = await req.json();
     const { email, password, displayName, secretKey } = body;
 
-    // Validate secret key (set in environment variable)
-    // In development, allow default key for convenience
-    const expectedSecretKey = process.env.SETUP_SECRET_KEY || 
-      (process.env.NODE_ENV === "development" ? "dev-setup-key-allow" : "CHANGE_THIS_SECRET_KEY_IN_PRODUCTION");
-    if (!secretKey || secretKey !== expectedSecretKey) {
+    // Validate secret key: accept SETUP_SECRET_KEY from env, or in development also accept dev-setup-key-allow (method 2, no .env change)
+    const envSecretKey = process.env.SETUP_SECRET_KEY;
+    const devKey = "dev-setup-key-allow";
+    const validKey =
+      secretKey &&
+      (secretKey === envSecretKey || (process.env.NODE_ENV === "development" && secretKey === devKey));
+    if (!validKey) {
       return NextResponse.json(
-        { 
+        {
           error: "Invalid secret key",
-          hint: process.env.NODE_ENV === "development" 
-            ? "Use secretKey: 'dev-setup-key-allow' for development"
+          hint: process.env.NODE_ENV === "development"
+            ? "Use secretKey: 'dev-setup-key-allow' (method 2) or your SETUP_SECRET_KEY from .env"
             : "Set SETUP_SECRET_KEY in your environment"
         },
         { status: 403 }

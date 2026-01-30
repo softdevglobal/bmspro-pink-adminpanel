@@ -18,10 +18,11 @@ const app = getApps().length ? getApp() : initializeApp(firebaseConfig);
 const auth = getAuth(app);
 
 // Stabilize Firestore in Next.js dev (Turbopack/HMR) and varied network environments
-// Note: Removed experimentalAutoDetectLongPolling as it was causing connection warnings (code=unavailable)
+// Use custom database ID if specified in env, otherwise use the project's custom db name
+const FIRESTORE_DATABASE_ID = process.env.NEXT_PUBLIC_FIRESTORE_DATABASE_ID || "bmspro-pinkdb";
 const db = initializeFirestore(app, {
   ignoreUndefinedProperties: true,
-});
+}, FIRESTORE_DATABASE_ID);
 
 // Firebase Storage for file uploads
 const storage = getStorage(app);
