@@ -94,9 +94,8 @@ export function getAdminApp() {
 }
 
 export const adminAuth = () => getAuth(getAdminApp());
-// Use custom database ID - bmspro-pinkdb instead of (default)
-const FIRESTORE_DATABASE_ID = process.env.FIRESTORE_DATABASE_ID || "bmspro-pinkdb";
-export const adminDb = () => getFirestore(getAdminApp(), FIRESTORE_DATABASE_ID);
+// Use default database (or custom database ID if specified in env)
+export const adminDb = () => getFirestore(getAdminApp());
 export const adminMessaging = () => getMessaging(getAdminApp());
 
 
