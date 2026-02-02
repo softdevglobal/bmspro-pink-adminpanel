@@ -297,12 +297,19 @@ export default function TenantsPage() {
         }
       }
 
-      // Get trial days from the plan (payment details required to start trial)
+      // Get trial days from the plan
       const trialDays = selectedPackage.trialDays ? parseInt(String(selectedPackage.trialDays), 10) : 0;
       const hasFreeTrial = trialDays > 0;
 
+      // Calculate trial dates if free trial is available
+      // Trial starts immediately - no card details required during trial
+      const now = new Date();
+      const trialStart = hasFreeTrial ? now : null;
+      const trialEnd = hasFreeTrial ? new Date(now.getTime() + trialDays * 24 * 60 * 60 * 1000) : null;
+
       // Create Firestore document with Auth UID as document ID
-      // User starts as pending - must enter payment details to activate (even for trial)
+      // If free trial: user starts active and can use system without card details
+      // If no trial: user must enter payment details to activate
       const newTenantRef = doc(db, "users", ownerUid);
       await setDoc(newTenantRef, {
         // user identity fields
@@ -326,14 +333,17 @@ export default function TenantsPage() {
         branchNames: [],
         staffLimit: selectedPackage.staff,
         currentStaffCount: 0,
-        // Payment status - show free trial status if applicable
-        status: hasFreeTrial ? "Free Trial Pending" : "Pending Payment",
-        accountStatus: hasFreeTrial ? "free_trial_pending" : "pending_payment",
-        subscriptionStatus: "pending",
-        billing_status: "pending",
-        // Trial period info (actual trial starts after payment details entered)
+        // Payment status - free trial users start active without card
+        status: hasFreeTrial ? "Free Trial Active" : "Pending Payment",
+        accountStatus: hasFreeTrial ? "active_trial" : "pending_payment",
+        subscriptionStatus: hasFreeTrial ? "trialing" : "pending",
+        billing_status: hasFreeTrial ? "trialing" : "pending",
+        // Trial period info - trial starts immediately, no card required
         trialDays: trialDays,
         hasFreeTrial: hasFreeTrial,
+        trial_start: trialStart,
+        trial_end: trialEnd,
+        paymentDetailsRequired: !hasFreeTrial, // Card details NOT required during trial
         locationText: formAddress ? `${formAddress}${formPostcode ? ` ${formPostcode}` : ""}` : null,
         contactPhone: formPhone.trim() || null,
         businessStructure: formStructure || null,

@@ -373,12 +373,12 @@ export default function SuperAdminAuditLogsPage() {
                     />
                   </div>
                 </div>
-                <div className="flex gap-3">
-                  <div className="relative">
+                <div className="flex flex-wrap gap-3">
+                  <div className="relative min-w-[140px]">
                     <select
                       value={filterType}
                       onChange={(e) => setFilterType(e.target.value)}
-                      className="appearance-none pl-4 pr-12 py-2.5 border border-slate-300 rounded-lg text-sm bg-white focus:ring-2 focus:ring-indigo-500 focus:outline-none cursor-pointer"
+                      className="w-full appearance-none pl-4 pr-10 py-2.5 border border-slate-300 rounded-lg text-sm bg-white focus:ring-2 focus:ring-indigo-500 focus:outline-none cursor-pointer hover:border-slate-400 transition-colors"
                     >
                       <option value="all">All Actions</option>
                       <option value="create">Created</option>
@@ -388,21 +388,21 @@ export default function SuperAdminAuditLogsPage() {
                       <option value="login">Login</option>
                       <option value="logout">Logout</option>
                     </select>
-                    <i className="fas fa-chevron-down absolute right-4 top-1/2 -translate-y-1/2 text-slate-400 text-xs pointer-events-none" />
+                    <i className="fas fa-chevron-down absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 text-xs pointer-events-none" />
                   </div>
-                  <div className="relative">
+                  <div className="relative min-w-[160px]">
                     <select
                       value={filterEntity}
                       onChange={(e) => setFilterEntity(e.target.value)}
-                      className="appearance-none pl-4 pr-12 py-2.5 border border-slate-300 rounded-lg text-sm bg-white focus:ring-2 focus:ring-indigo-500 focus:outline-none cursor-pointer"
+                      className="w-full appearance-none pl-4 pr-10 py-2.5 border border-slate-300 rounded-lg text-sm bg-white focus:ring-2 focus:ring-indigo-500 focus:outline-none cursor-pointer hover:border-slate-400 transition-colors"
                     >
                       <option value="all">All Categories</option>
-                      <option value="tenant">Tenant Management</option>
-                      <option value="subscription">Subscription Changes</option>
-                      <option value="super_admin">Super Admin Activity</option>
+                      <option value="tenant">Tenants</option>
+                      <option value="subscription">Subscriptions</option>
+                      <option value="super_admin">Super Admin</option>
                       <option value="system">System</option>
                     </select>
-                    <i className="fas fa-chevron-down absolute right-4 top-1/2 -translate-y-1/2 text-slate-400 text-xs pointer-events-none" />
+                    <i className="fas fa-chevron-down absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 text-xs pointer-events-none" />
                   </div>
                 </div>
               </div>

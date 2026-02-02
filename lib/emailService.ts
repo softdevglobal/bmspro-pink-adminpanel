@@ -593,7 +593,8 @@ export async function sendBookingStatusChangeEmail(
 }
 
 /**
- * Generate HTML for salon owner welcome email with login credentials and payment link
+ * Generate HTML for salon owner welcome email with login credentials and optional payment link
+ * If trialDays > 0, the account is active immediately without payment (card-free trial)
  */
 function generateWelcomeEmailHTML(
   salonOwnerEmail: string,
@@ -601,12 +602,56 @@ function generateWelcomeEmailHTML(
   businessName: string,
   planName?: string,
   planPrice?: string,
-  paymentUrl?: string
+  paymentUrl?: string,
+  trialDays?: number
 ): string {
   const loginUrl = process.env.NEXT_PUBLIC_APP_URL || "https://pink.bmspros.com.au";
+  const hasFreeTrial = trialDays && trialDays > 0;
   
-  // Payment section HTML - only show if payment is required
-  const paymentSection = paymentUrl ? `
+  // Free trial section HTML - show if has free trial (card-free trial flow)
+  const trialSection = hasFreeTrial ? `
+          <!-- FREE TRIAL ACTIVE -->
+          <tr>
+            <td style="padding: 0 40px 30px;">
+              <div style="background: linear-gradient(135deg, #d1fae5 0%, #a7f3d0 100%); border: 2px solid #059669; border-radius: 10px; padding: 25px; margin-bottom: 20px;">
+                <h3 style="margin: 0 0 15px; color: #065f46; font-size: 18px; font-weight: 600; text-align: center;">
+                  🎁 Your ${trialDays}-Day Free Trial is Active!
+                </h3>
+                <p style="margin: 0 0 15px; color: #047857; font-size: 15px; line-height: 1.6; text-align: center;">
+                  Good news! Your account is <strong>fully active</strong> and you can start using all features right away.
+                  No credit card required during your trial period.
+                </p>
+                ${planName && planPrice ? `
+                <div style="background-color: rgba(255,255,255,0.7); border-radius: 8px; padding: 15px; margin-bottom: 15px;">
+                  <table style="width: 100%; border-collapse: collapse;">
+                    <tr>
+                      <td style='padding: 8px 0; color: #065f46; font-size: 14px; font-weight: 600;'>Selected Plan:</td>
+                      <td style='padding: 8px 0; color: #111827; font-size: 14px; font-weight: 600; text-align: right;'>${planName}</td>
+                    </tr>
+                    <tr>
+                      <td style='padding: 8px 0; color: #065f46; font-size: 14px; font-weight: 600;'>After Trial:</td>
+                      <td style='padding: 8px 0; color: #111827; font-size: 16px; font-weight: 700; text-align: right;'>${planPrice}</td>
+                    </tr>
+                    <tr>
+                      <td style='padding: 8px 0; color: #065f46; font-size: 14px; font-weight: 600;'>Free Trial:</td>
+                      <td style='padding: 8px 0; color: #059669; font-size: 14px; font-weight: 700; text-align: right;'>${trialDays} days</td>
+                    </tr>
+                  </table>
+                </div>
+                ` : ''}
+                <div style="background-color: #fef3c7; border-left: 3px solid #f59e0b; padding: 12px 16px; border-radius: 6px;">
+                  <p style='margin: 0; color: #92400e; font-size: 13px; line-height: 1.6;'>
+                    <strong style='color: #78350f;'>⏰ Reminder:</strong> We'll notify you 2 days before your trial ends.
+                    To continue using the platform after your trial, simply add your payment details in the subscription settings.
+                  </p>
+                </div>
+              </div>
+            </td>
+          </tr>
+  ` : '';
+  
+  // Payment section HTML - only show if payment is required AND no free trial
+  const paymentSection = (paymentUrl && !hasFreeTrial) ? `
           <!-- IMPORTANT: Payment Required -->
           <tr>
             <td style="padding: 0 40px 30px;">
@@ -676,11 +721,12 @@ function generateWelcomeEmailHTML(
             <td style="padding: 30px 40px 20px;">
               <p style="margin: 0 0 15px; color: #374151; font-size: 16px; line-height: 1.6;">Hello,</p>
               <p style="margin: 0 0 25px; color: #374151; font-size: 16px; line-height: 1.6;">
-                Your salon <strong>${businessName}</strong> has been successfully onboarded to BMS PRO PINK. ${paymentUrl ? '<strong>To activate your account, please complete your subscription payment below.</strong>' : 'You can now access your salon management dashboard using the login credentials below.'}
+                Your salon <strong>${businessName}</strong> has been successfully onboarded to BMS PRO PINK. ${hasFreeTrial ? `<strong>Your ${trialDays}-day free trial is now active!</strong> You can start using all features immediately - no payment required during your trial.` : (paymentUrl ? '<strong>To activate your account, please complete your subscription payment below.</strong>' : 'You can now access your salon management dashboard using the login credentials below.')}
               </p>
             </td>
           </tr>
           
+          ${trialSection}
           ${paymentSection}
           
           <!-- Login Credentials Card -->
@@ -721,11 +767,12 @@ function generateWelcomeEmailHTML(
                   Next Steps
                 </h3>
                 <ol style="margin: 0; padding-left: 20px; color: #374151; font-size: 15px; line-height: 1.8;">
-                  ${paymentUrl ? '<li style="margin-bottom: 10px;"><strong>Complete your subscription payment</strong> using the button above</li>' : ''}
+                  ${(paymentUrl && !hasFreeTrial) ? '<li style="margin-bottom: 10px;"><strong>Complete your subscription payment</strong> using the button above</li>' : ''}
                   <li style="margin-bottom: 10px;">Log in to your dashboard using the credentials above</li>
                   <li style="margin-bottom: 10px;">Change your temporary password to a secure one</li>
                   <li style="margin-bottom: 10px;">Complete your salon profile and settings</li>
-                  <li>Start managing your bookings, staff, and services</li>
+                  <li style="margin-bottom: 10px;">Start managing your bookings, staff, and services</li>
+                  ${hasFreeTrial ? `<li>Add payment details before your trial ends to continue uninterrupted</li>` : ''}
                 </ol>
               </div>
             </td>
@@ -773,6 +820,7 @@ function generateWelcomeEmailHTML(
 
 /**
  * Send welcome email to salon owner with login credentials and optional payment link
+ * If trialDays > 0, the email will reflect card-free trial activation
  */
 export async function sendSalonOwnerWelcomeEmail(
   salonOwnerEmail: string,
@@ -780,7 +828,8 @@ export async function sendSalonOwnerWelcomeEmail(
   businessName: string,
   planName?: string,
   planPrice?: string,
-  paymentUrl?: string
+  paymentUrl?: string,
+  trialDays?: number
 ): Promise<{ success: boolean; error?: string }> {
   console.log(`[EMAIL] Attempting to send welcome email to salon owner: ${salonOwnerEmail}`);
   
@@ -804,10 +853,13 @@ export async function sendSalonOwnerWelcomeEmail(
   }
   
   try {
-    const html = generateWelcomeEmailHTML(email, password, businessName, planName, planPrice, paymentUrl);
-    const subject = paymentUrl 
-      ? `Welcome to BMS PRO PINK - Complete Your Subscription`
-      : `Welcome to BMS PRO PINK - Your Account is Ready`;
+    const html = generateWelcomeEmailHTML(email, password, businessName, planName, planPrice, paymentUrl, trialDays);
+    const hasFreeTrial = trialDays && trialDays > 0;
+    const subject = hasFreeTrial
+      ? `Welcome to BMS PRO PINK - Your ${trialDays}-Day Free Trial is Active!`
+      : (paymentUrl 
+        ? `Welcome to BMS PRO PINK - Complete Your Subscription`
+        : `Welcome to BMS PRO PINK - Your Account is Ready`);
     
     const msg = {
       to: email,

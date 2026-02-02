@@ -7,6 +7,7 @@ import { auth, db } from "@/lib/firebase";
 import { doc, getDoc } from "firebase/firestore";
 import PaymentRequiredModal from "./PaymentRequiredModal";
 import OwnerAccountInactiveModal from "./OwnerAccountInactiveModal";
+import TrialWarningBanner from "./TrialWarningBanner";
 
 interface AuthGuardProps {
   children: React.ReactNode;
@@ -102,29 +103,43 @@ export default function AuthGuard({ children }: AuthGuardProps) {
             const subscriptionStatus = userData.subscriptionStatus || "active";
             console.log("[AuthGuard] Account status:", accountStatus, "Subscription status:", subscriptionStatus);
             
-            // Check if user is in active trial (payment details already entered via Stripe)
+            // Check if user is in active trial (with or without Stripe)
+            // active_trial: Free trial started, no card details yet (card-free trial)
+            // trialing with stripeSubscriptionId: Trial with card details entered
+            const isCardFreeTrial = accountStatus === "active_trial" && !userData.stripeSubscriptionId;
             const isActiveTrialing = subscriptionStatus === "trialing" && userData.stripeSubscriptionId;
             
-            // Check trial expiry for active trials
+            // Check trial expiry
             let trialExpired = false;
-            if (isActiveTrialing && userData.trial_end) {
+            if ((isCardFreeTrial || isActiveTrialing) && userData.trial_end) {
               const trialEnd = userData.trial_end.toDate ? userData.trial_end.toDate() : new Date(userData.trial_end);
               trialExpired = new Date() > trialEnd;
+              console.log("[AuthGuard] Trial end:", trialEnd, "Expired:", trialExpired);
+            }
+            
+            // Card-free trial: Allow access if trial hasn't expired
+            if (isCardFreeTrial && !trialExpired) {
+              console.log("[AuthGuard] User is in card-free trial period - allowing access");
+              setPaymentInfo({ required: false });
+              setOwnerBlocked({ blocked: false, reason: "" });
+              setAuthorized(true);
+              setLoading(false);
+              return;
             }
             
             // Check if payment details are required
             // - pending_payment: needs to enter payment details
-            // - free_trial_pending: has trial, needs to enter payment details to start trial
             // - suspended: account suspended
+            // - trial_expired: free trial ended without payment
             // - Active trial with Stripe subscription: allowed
             const needsPayment = 
               accountStatus === "pending_payment" || 
-              accountStatus === "free_trial_pending" ||
               accountStatus === "suspended" ||
-              (subscriptionStatus === "pending" && !isActiveTrialing) ||
+              accountStatus === "trial_expired" ||
+              (subscriptionStatus === "pending" && !isActiveTrialing && !isCardFreeTrial) ||
               subscriptionStatus === "past_due" ||
               subscriptionStatus === "unpaid" ||
-              trialExpired;
+              (trialExpired && !userData.stripeSubscriptionId);
             
             console.log("[AuthGuard] Needs payment:", needsPayment, "Pathname:", pathname);
             
@@ -189,25 +204,36 @@ export default function AuthGuard({ children }: AuthGuardProps) {
                   
                   console.log("[AuthGuard] Owner account status:", ownerAccountStatus, "Subscription status:", ownerSubscriptionStatus);
                   
-                  // Check if owner is in active trial
+                  // Check if owner is in card-free trial or active trial with Stripe
+                  const ownerIsCardFreeTrial = ownerAccountStatus === "active_trial" && !ownerData?.stripeSubscriptionId;
                   const ownerIsActiveTrialing = ownerSubscriptionStatus === "trialing" && ownerData?.stripeSubscriptionId;
                   
                   // Check trial expiry for owner
                   let ownerTrialExpired = false;
-                  if (ownerIsActiveTrialing && ownerData?.trial_end) {
+                  if ((ownerIsCardFreeTrial || ownerIsActiveTrialing) && ownerData?.trial_end) {
                     const trialEnd = ownerData.trial_end.toDate ? ownerData.trial_end.toDate() : new Date(ownerData.trial_end);
                     ownerTrialExpired = new Date() > trialEnd;
+                  }
+                  
+                  // Card-free trial is valid - owner can access
+                  if (ownerIsCardFreeTrial && !ownerTrialExpired) {
+                    console.log("[AuthGuard] Owner is in card-free trial period - allowing branch admin access");
+                    setOwnerBlocked({ blocked: false, reason: "" });
+                    setAuthorized(true);
+                    setLoading(false);
+                    return;
                   }
                   
                   // Determine if owner account is inactive
                   const ownerAccountInactive = 
                     ownerAccountStatus === "suspended" ||
                     ownerAccountStatus === "cancelled" ||
+                    ownerAccountStatus === "trial_expired" ||
                     ownerSubscriptionStatus === "past_due" ||
                     ownerSubscriptionStatus === "unpaid" ||
                     ownerSubscriptionStatus === "canceled" ||
                     ownerSubscriptionStatus === "cancelled" ||
-                    ownerTrialExpired;
+                    (ownerTrialExpired && !ownerData?.stripeSubscriptionId);
                   
                   if (ownerAccountInactive) {
                     // Determine the reason
@@ -300,6 +326,7 @@ export default function AuthGuard({ children }: AuthGuardProps) {
 
   return (
     <>
+      <TrialWarningBanner />
       {children}
       <PaymentRequiredModal
         isOpen={paymentInfo.required}

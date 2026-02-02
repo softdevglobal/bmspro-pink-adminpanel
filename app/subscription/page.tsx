@@ -39,6 +39,15 @@ interface UserData {
   accountStatus?: string;
   downgradeScheduled?: boolean;
   cancelAtPeriodEnd?: boolean;
+  trial_end?: Date | null;
+  trialDays?: number;
+}
+
+interface TrialInfo {
+  isTrialing: boolean;
+  daysRemaining: number;
+  trialEndDate: Date | null;
+  showWarning: boolean;
 }
 
 interface BillingStatus {
@@ -74,6 +83,14 @@ export default function SubscriptionPage() {
   const [upgradeLoading, setUpgradeLoading] = useState(false);
   const [downgradeLoading, setDowngradeLoading] = useState(false);
   const [cancelLoading, setCancelLoading] = useState(false);
+  
+  // Trial info
+  const [trialInfo, setTrialInfo] = useState<TrialInfo>({
+    isTrialing: false,
+    daysRemaining: 0,
+    trialEndDate: null,
+    showWarning: false,
+  });
   
   // Cancel modal state
   const [showCancelModal, setShowCancelModal] = useState(false);
@@ -160,6 +177,12 @@ export default function SubscriptionPage() {
           return;
         }
 
+        const trialEndRaw = data?.trial_end;
+        let trialEndDate: Date | null = null;
+        if (trialEndRaw) {
+          trialEndDate = trialEndRaw.toDate ? trialEndRaw.toDate() : new Date(trialEndRaw);
+        }
+
         setUserData({
           name: data?.name || data?.displayName || "",
           email: user.email || data?.email || "",
@@ -174,7 +197,40 @@ export default function SubscriptionPage() {
           accountStatus: data?.accountStatus || "active",
           downgradeScheduled: data?.downgradeScheduled || false,
           cancelAtPeriodEnd: data?.cancelAtPeriodEnd || false,
+          trial_end: trialEndDate,
+          trialDays: data?.trialDays || 0,
         });
+
+        // Calculate trial info for card-free trial users
+        const accountStatus = data?.accountStatus || "";
+        const subscriptionStatus = data?.subscriptionStatus || "";
+        const hasStripeSubscription = !!data?.stripeSubscriptionId;
+        
+        // Card-free trial: active_trial status without Stripe subscription
+        const isCardFreeTrial = 
+          (accountStatus === "active_trial" || subscriptionStatus === "trialing") && 
+          !hasStripeSubscription;
+
+        if (isCardFreeTrial && trialEndDate) {
+          const now = new Date();
+          const diffMs = trialEndDate.getTime() - now.getTime();
+          const daysRemaining = Math.ceil(diffMs / (1000 * 60 * 60 * 24));
+          const showWarning = daysRemaining <= 2 && daysRemaining > 0;
+          
+          setTrialInfo({
+            isTrialing: true,
+            daysRemaining: Math.max(0, daysRemaining),
+            trialEndDate,
+            showWarning,
+          });
+        } else {
+          setTrialInfo({
+            isTrialing: false,
+            daysRemaining: 0,
+            trialEndDate: null,
+            showWarning: false,
+          });
+        }
 
         // Fetch packages and billing status after auth is ready
         fetchPackages();
@@ -501,6 +557,127 @@ export default function SubscriptionPage() {
                     nextBillingDate={billingStatus.next_billing_date}
                     onUpdatePayment={openBillingPortal}
                   />
+                )}
+
+                {/* Trial Warning/Info Section - For card-free trial users */}
+                {trialInfo.isTrialing && (
+                  <div className={`mb-6 rounded-2xl border-2 overflow-hidden ${
+                    trialInfo.showWarning 
+                      ? "border-amber-400 bg-gradient-to-r from-amber-50 to-orange-50" 
+                      : "border-emerald-300 bg-gradient-to-r from-emerald-50 to-teal-50"
+                  }`}>
+                    <div className={`px-6 py-4 ${
+                      trialInfo.showWarning 
+                        ? "bg-gradient-to-r from-amber-500 to-orange-500" 
+                        : "bg-gradient-to-r from-emerald-500 to-teal-500"
+                    } text-white`}>
+                      <div className="flex items-center gap-3">
+                        <div className="w-10 h-10 rounded-xl bg-white/20 backdrop-blur flex items-center justify-center">
+                          <i className={`fas ${trialInfo.showWarning ? "fa-exclamation-triangle" : "fa-gift"} text-lg`} />
+                        </div>
+                        <div>
+                          <h3 className="font-bold text-lg">
+                            {trialInfo.showWarning 
+                              ? `Trial Ending Soon - ${trialInfo.daysRemaining} ${trialInfo.daysRemaining === 1 ? "Day" : "Days"} Left!`
+                              : `Free Trial Active - ${trialInfo.daysRemaining} ${trialInfo.daysRemaining === 1 ? "Day" : "Days"} Remaining`
+                            }
+                          </h3>
+                          <p className="text-white/90 text-sm">
+                            {trialInfo.trialEndDate && (
+                              <>Trial ends on {trialInfo.trialEndDate.toLocaleDateString("en-AU", { 
+                                weekday: "long", 
+                                day: "numeric", 
+                                month: "long", 
+                                year: "numeric" 
+                              })}</>
+                            )}
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+                    
+                    <div className="p-6">
+                      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+                        <div className="flex-1">
+                          {trialInfo.showWarning ? (
+                            <>
+                              <p className="text-amber-800 font-medium mb-1">
+                                <i className="fas fa-exclamation-circle mr-2" />
+                                Add payment details to continue using BMS PRO PINK
+                              </p>
+                              <p className="text-amber-700 text-sm">
+                                Your trial will expire soon. To avoid any interruption to your service, please add your payment details now. 
+                                You won't be charged until your trial ends.
+                              </p>
+                            </>
+                          ) : (
+                            <>
+                              <p className="text-emerald-800 font-medium mb-1">
+                                <i className="fas fa-info-circle mr-2" />
+                                Enjoying your free trial? Add payment details anytime!
+                              </p>
+                              <p className="text-emerald-700 text-sm">
+                                You can add your payment details early to ensure uninterrupted access after your trial ends. 
+                                You won't be charged until your trial period is over.
+                              </p>
+                            </>
+                          )}
+                        </div>
+                        
+                        <div className="flex-shrink-0">
+                          <button
+                            onClick={() => {
+                              // Find the current package and trigger checkout
+                              const currentPkg = packages.find(p => p.name === userData?.plan);
+                              if (currentPkg) {
+                                selectPlan(currentPkg);
+                              } else if (packages.length > 0) {
+                                // Default to first package if current not found
+                                selectPlan(packages[0]);
+                              }
+                            }}
+                            className={`px-6 py-3 rounded-xl font-semibold text-white transition-all hover:shadow-lg hover:scale-[1.02] ${
+                              trialInfo.showWarning 
+                                ? "bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-600 hover:to-orange-600" 
+                                : "bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-600 hover:to-teal-600"
+                            }`}
+                          >
+                            <i className="fas fa-credit-card mr-2" />
+                            Add Payment Details
+                          </button>
+                        </div>
+                      </div>
+                      
+                      {/* Progress bar showing trial progress */}
+                      <div className="mt-5">
+                        <div className="flex items-center justify-between text-xs mb-2">
+                          <span className={trialInfo.showWarning ? "text-amber-600" : "text-emerald-600"}>Trial Started</span>
+                          <span className={trialInfo.showWarning ? "text-amber-600" : "text-emerald-600"}>Trial Ends</span>
+                        </div>
+                        <div className={`h-2 rounded-full overflow-hidden ${
+                          trialInfo.showWarning ? "bg-amber-200" : "bg-emerald-200"
+                        }`}>
+                          <div 
+                            className={`h-full rounded-full transition-all ${
+                              trialInfo.showWarning 
+                                ? "bg-gradient-to-r from-amber-500 to-orange-500" 
+                                : "bg-gradient-to-r from-emerald-500 to-teal-500"
+                            }`}
+                            style={{ 
+                              width: `${Math.max(5, 100 - ((trialInfo.daysRemaining / (userData?.trialDays || 28)) * 100))}%` 
+                            }}
+                          />
+                        </div>
+                        <div className="text-center mt-2">
+                          <span className={`text-sm font-medium ${
+                            trialInfo.showWarning ? "text-amber-700" : "text-emerald-700"
+                          }`}>
+                            {trialInfo.daysRemaining} of {userData?.trialDays || 28} days remaining
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
                 )}
 
                 {/* Current Plan Management Section */}

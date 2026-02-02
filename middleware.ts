@@ -11,7 +11,7 @@ import { NextRequest, NextResponse } from "next/server";
  * 
  * @see https://developer.mozilla.org/en-US/docs/Web/HTTP/CSP
  */
-function generateCSP(): string {
+function generateCSP(isDev: boolean): string {
   const cspDirectives = [
     // Default: block everything unless explicitly allowed
     "default-src 'self'",
@@ -31,7 +31,8 @@ function generateCSP(): string {
     "font-src 'self' https://fonts.gstatic.com https://cdnjs.cloudflare.com",
     
     // Connect: API endpoints, Firebase, WebSocket connections, OpenStreetMap, and Leaflet CDN
-    "connect-src 'self' https://*.firebaseio.com https://*.googleapis.com wss://*.firebaseio.com https://firestore.googleapis.com https://identitytoolkit.googleapis.com https://securetoken.googleapis.com https://firebaseinstallations.googleapis.com https://*.cloudfunctions.net https://www.google.com https://www.recaptcha.net https://nominatim.openstreetmap.org https://*.tile.openstreetmap.org https://unpkg.com https://ka-f.fontawesome.com",
+    // Added *.firebaseapp.com for Firebase Auth popup/redirect
+    "connect-src 'self' https://*.firebaseio.com https://*.googleapis.com https://*.firebaseapp.com wss://*.firebaseio.com https://firestore.googleapis.com https://identitytoolkit.googleapis.com https://securetoken.googleapis.com https://firebaseinstallations.googleapis.com https://*.cloudfunctions.net https://www.google.com https://www.recaptcha.net https://nominatim.openstreetmap.org https://*.tile.openstreetmap.org https://unpkg.com https://ka-f.fontawesome.com",
     
     // Frames: Block all except Google reCAPTCHA and Firebase Auth
     "frame-src 'self' https://*.firebaseapp.com https://www.google.com https://www.recaptcha.net",
@@ -47,10 +48,12 @@ function generateCSP(): string {
     
     // Frame ancestors: Prevent clickjacking (equivalent to X-Frame-Options: DENY)
     "frame-ancestors 'none'",
-    
-    // Upgrade insecure requests in production
-    "upgrade-insecure-requests",
   ];
+  
+  // Only upgrade insecure requests in production (not on localhost)
+  if (!isDev) {
+    cspDirectives.push("upgrade-insecure-requests");
+  }
   
   return cspDirectives.join("; ");
 }
@@ -61,11 +64,15 @@ function generateCSP(): string {
 export function middleware(request: NextRequest) {
   const response = NextResponse.next();
   
+  // Check if running in development (localhost)
+  const host = request.headers.get("host") || "";
+  const isDev = host.includes("localhost") || host.includes("127.0.0.1");
+  
   // === MODERN SECURITY HEADERS (2025 Production Standard) ===
   
   // 1. Content Security Policy (CSP) - Replaces deprecated X-XSS-Protection
   // This is the primary defense against XSS attacks
-  response.headers.set("Content-Security-Policy", generateCSP());
+  response.headers.set("Content-Security-Policy", generateCSP(isDev));
   
   // 2. Prevent MIME type sniffing attacks
   response.headers.set("X-Content-Type-Options", "nosniff");

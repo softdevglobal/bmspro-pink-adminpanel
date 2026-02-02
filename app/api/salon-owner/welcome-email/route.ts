@@ -6,7 +6,7 @@ export const runtime = "nodejs";
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
-    const { email, password, businessName, planName, planPrice, paymentUrl } = body;
+    const { email, password, businessName, planName, planPrice, paymentUrl, trialDays } = body;
     
     if (!email || !password || !businessName) {
       return NextResponse.json(
@@ -15,7 +15,7 @@ export async function POST(req: NextRequest) {
       );
     }
     
-    console.log(`[API] Sending welcome email to salon owner: ${email}`);
+    console.log(`[API] Sending welcome email to salon owner: ${email}`, { trialDays });
     
     const result = await sendSalonOwnerWelcomeEmail(
       email, 
@@ -23,7 +23,8 @@ export async function POST(req: NextRequest) {
       businessName,
       planName,
       planPrice,
-      paymentUrl
+      paymentUrl,
+      trialDays
     );
     
     if (!result.success) {
