@@ -1,5 +1,5 @@
 "use client";
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import Sidebar from "@/components/Sidebar";
 import { useRouter } from "next/navigation";
 import { auth, db } from "@/lib/firebase";
@@ -9,6 +9,20 @@ import { subscribeBranchesForOwner, BranchLocation } from "@/lib/branches";
 import { subscribeToCheckInsForOwner, StaffCheckInRecord } from "@/lib/staffCheckIn";
 import { formatDistance } from "@/lib/geolocation";
 import dynamic from "next/dynamic";
+
+// Helper to get date string in YYYY-MM-DD format (stable for dependency comparison)
+const getDateString = (date: Date): string => {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+};
+
+// Helper to parse date string back to Date
+const parseDateString = (dateStr: string): Date => {
+  const [year, month, day] = dateStr.split('-').map(Number);
+  return new Date(year, month - 1, day);
+};
 
 // Dynamically import map component to avoid SSR issues
 const CheckInsMapView = dynamic(
@@ -37,13 +51,27 @@ export default function AttendancePage() {
   const router = useRouter();
   const [ownerUid, setOwnerUid] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
-  const [selectedDate, setSelectedDate] = useState(new Date());
+  // Use date string for stable dependency comparison (prevents unnecessary re-subscriptions)
+  const [selectedDateStr, setSelectedDateStr] = useState(() => getDateString(new Date()));
   const [selectedBranchId, setSelectedBranchId] = useState<string>("all");
   const [checkIns, setCheckIns] = useState<StaffCheckInRecord[]>([]);
   const [branches, setBranches] = useState<Branch[]>([]);
   const [selectedCheckIn, setSelectedCheckIn] = useState<StaffCheckInRecord | null>(null);
   const [activeView, setActiveView] = useState<"dashboard" | "timesheets">("dashboard");
   const [mobileOpen, setMobileOpen] = useState(false);
+  
+  // Track if component is mounted to prevent state updates after unmount
+  const isMountedRef = useRef(true);
+  
+  useEffect(() => {
+    isMountedRef.current = true;
+    return () => {
+      isMountedRef.current = false;
+    };
+  }, []);
+  
+  // Memoized selectedDate object derived from the date string
+  const selectedDate = useMemo(() => parseDateString(selectedDateStr), [selectedDateStr]);
 
   // Auth check
   useEffect(() => {
@@ -83,15 +111,28 @@ export default function AttendancePage() {
   }, [ownerUid]);
 
   // Subscribe to check-ins for selected date
+  // Using selectedDateStr (string) as dependency for stable comparison
   useEffect(() => {
     if (!ownerUid) return;
     
-    const unsub = subscribeToCheckInsForOwner(ownerUid, selectedDate, (records) => {
-      setCheckIns(records);
+    // Parse date from string for the subscription
+    const dateForQuery = parseDateString(selectedDateStr);
+    
+    console.log("[AttendancePage] Subscribing to check-ins for:", selectedDateStr, "ownerUid:", ownerUid);
+    
+    const unsub = subscribeToCheckInsForOwner(ownerUid, dateForQuery, (records) => {
+      // Only update state if component is still mounted
+      if (isMountedRef.current) {
+        console.log("[AttendancePage] Received check-ins:", records.length);
+        setCheckIns(records);
+      }
     });
     
-    return () => unsub();
-  }, [ownerUid, selectedDate]);
+    return () => {
+      console.log("[AttendancePage] Cleaning up check-ins subscription");
+      unsub();
+    };
+  }, [ownerUid, selectedDateStr]);
 
   // Computed values
   const activeCheckIns = checkIns.filter(c => c.status === "checked_in");
@@ -104,21 +145,21 @@ export default function AttendancePage() {
     : checkIns.filter(c => c.branchId === selectedBranchId);
 
   // Date navigation
-  const goToPreviousDay = () => {
-    const newDate = new Date(selectedDate);
-    newDate.setDate(newDate.getDate() - 1);
-    setSelectedDate(newDate);
-  };
+  const goToPreviousDay = useCallback(() => {
+    const currentDate = parseDateString(selectedDateStr);
+    currentDate.setDate(currentDate.getDate() - 1);
+    setSelectedDateStr(getDateString(currentDate));
+  }, [selectedDateStr]);
 
-  const goToNextDay = () => {
-    const newDate = new Date(selectedDate);
-    newDate.setDate(newDate.getDate() + 1);
-    setSelectedDate(newDate);
-  };
+  const goToNextDay = useCallback(() => {
+    const currentDate = parseDateString(selectedDateStr);
+    currentDate.setDate(currentDate.getDate() + 1);
+    setSelectedDateStr(getDateString(currentDate));
+  }, [selectedDateStr]);
 
-  const goToToday = () => {
-    setSelectedDate(new Date());
-  };
+  const goToToday = useCallback(() => {
+    setSelectedDateStr(getDateString(new Date()));
+  }, []);
 
   const formatDate = (date: Date) => {
     return date.toLocaleDateString("en-AU", { 

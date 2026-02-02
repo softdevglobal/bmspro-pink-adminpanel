@@ -1,12 +1,25 @@
 import { NextRequest, NextResponse } from "next/server";
-import { sendSalonOwnerWelcomeEmail } from "@/lib/emailService";
+import { sendSalonOwnerWelcomeEmail, sendAdminSignupNotificationEmail } from "@/lib/emailService";
 
 export const runtime = "nodejs";
 
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
-    const { email, password, businessName, planName, planPrice, paymentUrl, trialDays } = body;
+    const { 
+      email, 
+      password, 
+      businessName, 
+      planName, 
+      planPrice, 
+      paymentUrl, 
+      trialDays,
+      // Additional fields for admin notification
+      businessType,
+      state,
+      phone,
+      abn,
+    } = body;
     
     if (!email || !password || !businessName) {
       return NextResponse.json(
@@ -17,6 +30,7 @@ export async function POST(req: NextRequest) {
     
     console.log(`[API] Sending welcome email to salon owner: ${email}`, { trialDays });
     
+    // Send welcome email to the new salon owner
     const result = await sendSalonOwnerWelcomeEmail(
       email, 
       password, 
@@ -32,6 +46,25 @@ export async function POST(req: NextRequest) {
         { error: result.error || "Failed to send welcome email" },
         { status: 500 }
       );
+    }
+    
+    // Send notification email to admin about the new signup
+    try {
+      await sendAdminSignupNotificationEmail(
+        businessName,
+        email,
+        planName,
+        planPrice,
+        businessType,
+        state,
+        phone,
+        abn,
+        trialDays
+      );
+      console.log(`[API] Admin notification sent for new signup: ${businessName}`);
+    } catch (adminEmailError) {
+      // Don't fail the whole request if admin email fails
+      console.error("[API] Failed to send admin notification email:", adminEmailError);
     }
     
     return NextResponse.json({

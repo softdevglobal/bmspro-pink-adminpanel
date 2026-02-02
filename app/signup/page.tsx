@@ -286,10 +286,13 @@ export default function SignupPage() {
         updatedAt: serverTimestamp(),
       });
 
-      // Send welcome email
+      // Send welcome email and admin notification
       try {
         const baseUrl = window.location.origin || "https://pink.bmspros.com.au";
         const paymentUrl = `${baseUrl}/subscription`;
+        
+        // Get business type label for admin notification
+        const businessTypeLabel = businessTypes.find(t => t.id === formBusinessType)?.label || formBusinessType;
         
         await fetch("/api/salon-owner/welcome-email", {
           method: "POST",
@@ -302,6 +305,11 @@ export default function SignupPage() {
             planPrice: selectedPackage.priceLabel,
             paymentUrl: paymentUrl,
             trialDays: trialDays,
+            // Additional fields for admin notification
+            businessType: businessTypeLabel,
+            state: formState || undefined,
+            phone: formPhone.trim() || undefined,
+            abn: formAbn.replace(/\s/g, '').trim() || undefined,
           }),
         });
       } catch (emailError) {

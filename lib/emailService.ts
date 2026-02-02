@@ -1433,6 +1433,248 @@ function generatePasswordResetEmailHTML(
 }
 
 /**
+ * Generate HTML for admin notification email when a new salon signs up
+ */
+function generateAdminSignupNotificationEmailHTML(
+  businessName: string,
+  ownerEmail: string,
+  planName?: string,
+  planPrice?: string,
+  businessType?: string,
+  state?: string,
+  phone?: string,
+  abn?: string,
+  trialDays?: number
+): string {
+  const signupDate = new Date().toLocaleString("en-AU", {
+    weekday: "long",
+    year: "numeric",
+    month: "long",
+    day: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+    timeZone: "Australia/Sydney",
+  });
+
+  const hasFreeTrial = trialDays && trialDays > 0;
+  
+  return `
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>New Salon Signup - BMS PRO PINK</title>
+</head>
+<body style="margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; background-color: #f3f4f6;">
+  <table role="presentation" style="width: 100%; border-collapse: collapse; background-color: #f3f4f6;">
+    <tr>
+      <td style="padding: 40px 20px;">
+        <table role="presentation" style="max-width: 600px; margin: 0 auto; background-color: #ffffff; border-radius: 12px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); overflow: hidden;">
+          
+          <!-- Header -->
+          <tr>
+            <td style="padding: 0; background: linear-gradient(135deg, #10b981 0%, #059669 100%);">
+              <div style="padding: 40px; text-align: center;">
+                <div style="font-size: 56px; margin-bottom: 15px; line-height: 1;">🎉</div>
+                <h1 style="margin: 0; color: #ffffff; font-size: 28px; font-weight: 700; letter-spacing: -0.3px;">New Salon Signup!</h1>
+                <p style="margin: 15px 0 0; color: rgba(255,255,255,0.9); font-size: 16px;">A new business has joined BMS PRO PINK</p>
+              </div>
+            </td>
+          </tr>
+          
+          <!-- Main Content -->
+          <tr>
+            <td style="padding: 30px 40px 20px;">
+              <p style="margin: 0 0 25px; color: #374151; font-size: 16px; line-height: 1.6;">
+                A new salon has signed up for BMS PRO PINK. Here are the details:
+              </p>
+            </td>
+          </tr>
+          
+          <!-- Business Details Card -->
+          <tr>
+            <td style="padding: 0 40px 30px;">
+              <div style="background-color: #ecfdf5; border: 2px solid #10b981; border-radius: 10px; padding: 25px;">
+                <h3 style="margin: 0 0 20px; color: #065f46; font-size: 18px; font-weight: 600;">
+                  <span style="display: inline-block; width: 4px; height: 20px; background-color: #10b981; border-radius: 2px; margin-right: 10px; vertical-align: middle;"></span>
+                  Business Details
+                </h3>
+                
+                <table style="width: 100%; border-collapse: collapse;">
+                  <tr>
+                    <td style='padding: 10px 0; color: #065f46; font-size: 14px; font-weight: 600; width: 40%;'>Business Name:</td>
+                    <td style='padding: 10px 0; color: #111827; font-size: 14px; font-weight: 600;'>${businessName}</td>
+                  </tr>
+                  <tr>
+                    <td style='padding: 10px 0; color: #065f46; font-size: 14px; font-weight: 600;'>Owner Email:</td>
+                    <td style='padding: 10px 0; color: #111827; font-size: 14px;'><a href="mailto:${ownerEmail}" style="color: #059669;">${ownerEmail}</a></td>
+                  </tr>
+                  ${businessType ? `
+                  <tr>
+                    <td style='padding: 10px 0; color: #065f46; font-size: 14px; font-weight: 600;'>Business Type:</td>
+                    <td style='padding: 10px 0; color: #111827; font-size: 14px;'>${businessType}</td>
+                  </tr>
+                  ` : ''}
+                  ${state ? `
+                  <tr>
+                    <td style='padding: 10px 0; color: #065f46; font-size: 14px; font-weight: 600;'>State:</td>
+                    <td style='padding: 10px 0; color: #111827; font-size: 14px;'>${state}</td>
+                  </tr>
+                  ` : ''}
+                  ${phone ? `
+                  <tr>
+                    <td style='padding: 10px 0; color: #065f46; font-size: 14px; font-weight: 600;'>Phone:</td>
+                    <td style='padding: 10px 0; color: #111827; font-size: 14px;'>${phone}</td>
+                  </tr>
+                  ` : ''}
+                  ${abn ? `
+                  <tr>
+                    <td style='padding: 10px 0; color: #065f46; font-size: 14px; font-weight: 600;'>ABN:</td>
+                    <td style='padding: 10px 0; color: #111827; font-size: 14px; font-family: monospace;'>${abn}</td>
+                  </tr>
+                  ` : ''}
+                </table>
+              </div>
+            </td>
+          </tr>
+          
+          <!-- Plan Details Card -->
+          <tr>
+            <td style="padding: 0 40px 30px;">
+              <div style="background-color: #eef2ff; border: 2px solid #6366f1; border-radius: 10px; padding: 25px;">
+                <h3 style="margin: 0 0 20px; color: #312e81; font-size: 18px; font-weight: 600;">
+                  <span style="display: inline-block; width: 4px; height: 20px; background-color: #6366f1; border-radius: 2px; margin-right: 10px; vertical-align: middle;"></span>
+                  Subscription Details
+                </h3>
+                
+                <table style="width: 100%; border-collapse: collapse;">
+                  ${planName ? `
+                  <tr>
+                    <td style='padding: 10px 0; color: #312e81; font-size: 14px; font-weight: 600; width: 40%;'>Plan:</td>
+                    <td style='padding: 10px 0; color: #111827; font-size: 14px; font-weight: 600;'>${planName}</td>
+                  </tr>
+                  ` : ''}
+                  ${planPrice ? `
+                  <tr>
+                    <td style='padding: 10px 0; color: #312e81; font-size: 14px; font-weight: 600;'>Price:</td>
+                    <td style='padding: 10px 0; color: #111827; font-size: 16px; font-weight: 700;'>${planPrice}</td>
+                  </tr>
+                  ` : ''}
+                  <tr>
+                    <td style='padding: 10px 0; color: #312e81; font-size: 14px; font-weight: 600;'>Status:</td>
+                    <td style='padding: 10px 0;'>
+                      <span style="display: inline-block; padding: 4px 12px; border-radius: 20px; font-size: 13px; font-weight: 600; ${
+                        hasFreeTrial 
+                          ? 'background-color: #d1fae5; color: #065f46;'
+                          : 'background-color: #fef3c7; color: #92400e;'
+                      }">
+                        ${hasFreeTrial ? `${trialDays}-Day Free Trial` : 'Pending Payment'}
+                      </span>
+                    </td>
+                  </tr>
+                  <tr>
+                    <td style='padding: 10px 0; color: #312e81; font-size: 14px; font-weight: 600;'>Signup Date:</td>
+                    <td style='padding: 10px 0; color: #111827; font-size: 14px;'>${signupDate}</td>
+                  </tr>
+                </table>
+              </div>
+            </td>
+          </tr>
+          
+          <!-- Footer -->
+          <tr>
+            <td style="padding: 25px 40px; background-color: #f9fafb; border-top: 1px solid #e5e7eb; text-align: center;">
+              <p style="margin: 0 0 8px; color: #111827; font-size: 14px; font-weight: 600;">BMS PRO PINK - Admin Notification</p>
+              <p style="margin: 0; color: #6b7280; font-size: 12px; line-height: 1.5;">
+                This is an automated notification email.<br>
+                New customer signup details for your records.
+              </p>
+            </td>
+          </tr>
+          
+        </table>
+      </td>
+    </tr>
+  </table>
+</body>
+</html>
+  `.trim();
+}
+
+/**
+ * Send admin notification email when a new salon signs up
+ */
+export async function sendAdminSignupNotificationEmail(
+  businessName: string,
+  ownerEmail: string,
+  planName?: string,
+  planPrice?: string,
+  businessType?: string,
+  state?: string,
+  phone?: string,
+  abn?: string,
+  trialDays?: number
+): Promise<{ success: boolean; error?: string }> {
+  const ADMIN_NOTIFICATION_EMAIL = "admin@bmspros.com.au";
+  
+  console.log(`[EMAIL] Sending admin signup notification for: ${businessName}`);
+  
+  // Verify SendGrid is configured
+  if (!SENDGRID_API_KEY || SENDGRID_API_KEY === "") {
+    console.error(`[EMAIL] SendGrid API key not configured!`);
+    return { success: false, error: "SendGrid API key not configured" };
+  }
+  
+  try {
+    const html = generateAdminSignupNotificationEmailHTML(
+      businessName,
+      ownerEmail,
+      planName,
+      planPrice,
+      businessType,
+      state,
+      phone,
+      abn,
+      trialDays
+    );
+    
+    const hasFreeTrial = trialDays && trialDays > 0;
+    const subject = `🎉 New Salon Signup: ${businessName}${hasFreeTrial ? ` (${trialDays}-Day Trial)` : ''}`;
+    
+    const msg = {
+      to: ADMIN_NOTIFICATION_EMAIL,
+      from: ADMIN_FROM_EMAIL,
+      subject: subject,
+      html: html,
+    };
+    
+    console.log(`[EMAIL] Sending admin notification email via SendGrid:`, {
+      to: ADMIN_NOTIFICATION_EMAIL,
+      from: ADMIN_FROM_EMAIL,
+      subject: subject,
+      businessName: businessName,
+      ownerEmail: ownerEmail,
+    });
+    
+    await sgMail.send(msg);
+    
+    console.log(`[EMAIL] ✅ Admin signup notification sent successfully for ${businessName}`);
+    return { success: true };
+  } catch (error: any) {
+    console.error(`[EMAIL] ❌ Error sending admin signup notification:`, error);
+    console.error(`[EMAIL] Error details:`, {
+      message: error?.message,
+      code: error?.code,
+      response: error?.response?.body,
+      statusCode: error?.response?.statusCode,
+    });
+    const errorMessage = error?.response?.body?.errors?.[0]?.message || error?.message || "Unknown error";
+    return { success: false, error: errorMessage };
+  }
+}
+
+/**
  * Send password reset email to user with 6-digit code
  */
 export async function sendPasswordResetEmail(

@@ -285,11 +285,12 @@ export function subscribeToCheckInsForOwner(
   date: Date,
   onChange: (records: StaffCheckInRecord[]) => void
 ) {
-  const startOfDay = new Date(date);
-  startOfDay.setHours(0, 0, 0, 0);
+  // Create fresh Date objects to avoid mutating the input
+  const startOfDay = new Date(date.getFullYear(), date.getMonth(), date.getDate(), 0, 0, 0, 0);
+  const endOfDay = new Date(date.getFullYear(), date.getMonth(), date.getDate(), 23, 59, 59, 999);
   
-  const endOfDay = new Date(date);
-  endOfDay.setHours(23, 59, 59, 999);
+  console.log("[subscribeToCheckInsForOwner] Starting subscription for owner:", ownerUid);
+  console.log("[subscribeToCheckInsForOwner] Date range:", startOfDay.toISOString(), "to", endOfDay.toISOString());
   
   const q = query(
     collection(db, "staff_check_ins"),
@@ -299,19 +300,29 @@ export function subscribeToCheckInsForOwner(
     orderBy("checkInTime", "desc")
   );
   
+  let hasReceivedInitialData = false;
+  
   return onSnapshot(
     q, 
     (snapshot) => {
+      hasReceivedInitialData = true;
       const records = snapshot.docs.map((doc) => ({
         id: doc.id,
         ...doc.data(),
       })) as StaffCheckInRecord[];
+      console.log("[subscribeToCheckInsForOwner] Received", records.length, "check-ins");
       onChange(records);
     },
     (error) => {
-      console.error("Error subscribing to check-ins:", error);
-      // Return empty array on permission error - collection may not exist yet
-      onChange([]);
+      console.error("[subscribeToCheckInsForOwner] Error:", error);
+      // Only send empty array if we haven't received initial data yet
+      // This prevents clearing existing data on transient network errors
+      if (!hasReceivedInitialData) {
+        console.log("[subscribeToCheckInsForOwner] No initial data received, returning empty array");
+        onChange([]);
+      } else {
+        console.log("[subscribeToCheckInsForOwner] Keeping existing data despite error");
+      }
     }
   );
 }
