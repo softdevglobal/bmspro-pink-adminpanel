@@ -999,23 +999,21 @@ export default function TenantsPage() {
             <div className="flex-1 overflow-auto bg-slate-50">
               <div className="p-6 space-y-6">
                 {/* Email Section - Creative Read-Only Display */}
-                <div className="bg-gradient-to-r from-slate-800 to-slate-900 rounded-xl p-4 shadow-lg">
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-3">
-                      <div className="w-10 h-10 rounded-lg bg-white/10 flex items-center justify-center">
-                        <i className="fas fa-envelope text-white" />
-                      </div>
-                      <div>
-                        <div className="text-xs text-slate-400 flex items-center gap-1">
-                          Account Email
-                          <i className="fas fa-lock text-[10px] text-amber-400" title="Cannot be changed" />
-                        </div>
-                        <div className="text-white font-medium">{previewTenant.data.email || "—"}</div>
-                      </div>
+                <div className="bg-white border border-slate-200 rounded-xl p-4 shadow-sm">
+                  <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-pink-500 to-fuchsia-600 flex items-center justify-center shadow-lg shadow-pink-500/20">
+                      <i className="fas fa-envelope text-white" />
                     </div>
-                    <div className="flex items-center gap-2">
-                      <span className="px-2 py-1 rounded-full bg-emerald-500/20 text-emerald-400 text-[10px] font-semibold flex items-center gap-1">
-                        <i className="fas fa-check-circle" />
+                    <div className="flex-1 min-w-0">
+                      <div className="text-xs text-slate-500 flex items-center gap-1.5 mb-0.5">
+                        Account Email
+                        <i className="fas fa-lock text-[9px] text-slate-400" title="Cannot be changed" />
+                      </div>
+                      <div className="text-slate-900 font-medium truncate">{previewTenant.data.email || "—"}</div>
+                    </div>
+                    <div className="flex-shrink-0">
+                      <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-emerald-50 border border-emerald-200 text-emerald-700 text-xs font-semibold">
+                        <i className="fas fa-check-circle text-emerald-500" />
                         Verified
                       </span>
                     </div>

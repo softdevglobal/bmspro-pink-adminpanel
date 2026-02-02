@@ -1,6 +1,7 @@
 "use client";
 import React, { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
+import Link from "next/link";
 import { signInWithEmailAndPassword } from "firebase/auth";
 import { auth, db } from "@/lib/firebase";
 import { doc, getDoc } from "firebase/firestore";
@@ -273,7 +274,7 @@ export default function LoginPage() {
             <h2 className="text-xl font-bold text-slate-900">Sign in</h2>
           </div>
           <p className="text-sm text-slate-500 mb-6">
-            Access your admin dashboard
+            Access your business dashboard
           </p>
 
           <form onSubmit={handleSubmit} className="space-y-4">
@@ -393,6 +394,25 @@ export default function LoginPage() {
             </a>
             .
           </p>
+
+          {/* Sign Up Section */}
+          <div className="mt-8 pt-6 border-t border-slate-200">
+            <div className="text-center">
+              <p className="text-sm text-slate-600 mb-3">
+                New to BMS PRO PINK?
+              </p>
+              <Link
+                href="/signup"
+                className="w-full inline-flex items-center justify-center gap-2 px-5 py-3 border-2 border-pink-500 text-pink-600 font-semibold rounded-lg hover:bg-pink-50 transition"
+              >
+                <i className="fas fa-store" />
+                Register Your Business
+              </Link>
+              <p className="text-xs text-slate-500 mt-3">
+                Beauty salons, hair studios, nail spas, massage centers & more
+              </p>
+            </div>
+          </div>
         </div>
       </div>
 
