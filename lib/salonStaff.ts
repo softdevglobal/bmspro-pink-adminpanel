@@ -57,7 +57,7 @@ export type SalonStaffInput = {
   mobile?: string;
 };
 
-// Creates a staff member directly in the 'users' collection using the authUid as the document key
+// Creates a staff member directly in the 'users' collection using the authUid as the document key 
 export async function createSalonStaffForOwner(ownerUid: string, data: SalonStaffInput) {
   if (!data.authUid) {
     throw new Error("authUid is required to create a staff member in the users table.");
@@ -418,33 +418,38 @@ export async function promoteStaffToBranchAdmin(staffId: string, options?: Promo
   }
 
   if (staffEmail && finalBranchName) {
-    try {
-      console.log(`[PROMOTE STAFF] Sending branch admin assignment email to ${staffEmail} for branch ${finalBranchName}`);
-      // Get salon name
-      let salonName: string | undefined;
-      if (staffOwnerUid) {
-        try {
-          const ownerDoc = await getDoc(doc(db, "users", staffOwnerUid));
-          if (ownerDoc.exists()) {
-            const ownerData = ownerDoc.data();
-            salonName = ownerData?.salonName || ownerData?.name || ownerData?.businessName || ownerData?.displayName;
+    // Only send email on server side
+    if (typeof window === "undefined") {
+      try {
+        console.log(`[PROMOTE STAFF] Sending branch admin assignment email to ${staffEmail} for branch ${finalBranchName}`);
+        // Get salon name
+        let salonName: string | undefined;
+        if (staffOwnerUid) {
+          try {
+            const ownerDoc = await getDoc(doc(db, "users", staffOwnerUid));
+            if (ownerDoc.exists()) {
+              const ownerData = ownerDoc.data();
+              salonName = ownerData?.salonName || ownerData?.name || ownerData?.businessName || ownerData?.displayName;
+            }
+          } catch (e) {
+            console.error("Failed to fetch salon name for branch admin email:", e);
           }
-        } catch (e) {
-          console.error("Failed to fetch salon name for branch admin email:", e);
         }
+        
+        // Import server wrapper - only works on server side
+        const emailService = await import("@/lib/emailService.server");
+        const emailResult = await emailService.sendBranchAdminAssignmentEmail(staffEmail, staffName, finalBranchName, salonName);
+        if (emailResult.success) {
+          console.log(`[PROMOTE STAFF] ✅ Branch admin assignment email sent successfully to ${staffEmail}`);
+        } else {
+          console.error(`[PROMOTE STAFF] ❌ Failed to send email: ${emailResult.error}`);
+        }
+      } catch (emailError) {
+        console.error("Failed to send branch admin assignment email:", emailError);
+        // Don't block promotion if email fails
       }
-      
-      // Import server wrapper - webpack will handle client-side replacement
-      const emailService = await import("@/lib/emailService.server");
-      const emailResult = await emailService.sendBranchAdminAssignmentEmail(staffEmail, staffName, finalBranchName, salonName);
-      if (emailResult.success) {
-        console.log(`[PROMOTE STAFF] ✅ Branch admin assignment email sent successfully to ${staffEmail}`);
-      } else {
-        console.error(`[PROMOTE STAFF] ❌ Failed to send email: ${emailResult.error}`);
-      }
-    } catch (emailError) {
-      console.error("Failed to send branch admin assignment email:", emailError);
-      // Don't block promotion if email fails
+    } else {
+      console.log(`[PROMOTE STAFF] Skipping email send (client-side). Email will be sent via API route if needed.`);
     }
   } else {
     if (!staffEmail) {

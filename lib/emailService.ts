@@ -593,13 +593,59 @@ export async function sendBookingStatusChangeEmail(
 }
 
 /**
- * Generate HTML for salon owner welcome email with login credentials
+ * Generate HTML for salon owner welcome email with login credentials and payment link
  */
 function generateWelcomeEmailHTML(
   salonOwnerEmail: string,
   password: string,
-  businessName: string
+  businessName: string,
+  planName?: string,
+  planPrice?: string,
+  paymentUrl?: string
 ): string {
+  const loginUrl = process.env.NEXT_PUBLIC_APP_URL || "https://pink.bmspros.com.au";
+  
+  // Payment section HTML - only show if payment is required
+  const paymentSection = paymentUrl ? `
+          <!-- IMPORTANT: Payment Required -->
+          <tr>
+            <td style="padding: 0 40px 30px;">
+              <div style="background: linear-gradient(135deg, #fef3c7 0%, #fde68a 100%); border: 2px solid #f59e0b; border-radius: 10px; padding: 25px; margin-bottom: 20px;">
+                <h3 style="margin: 0 0 15px; color: #78350f; font-size: 18px; font-weight: 600; text-align: center;">
+                  💳 Complete Your Subscription
+                </h3>
+                <p style="margin: 0 0 20px; color: #92400e; font-size: 15px; line-height: 1.6; text-align: center;">
+                  To activate your account and access all features, please complete your subscription payment.
+                </p>
+                ${planName && planPrice ? `
+                <div style="background-color: rgba(255,255,255,0.7); border-radius: 8px; padding: 15px; margin-bottom: 20px;">
+                  <table style="width: 100%; border-collapse: collapse;">
+                    <tr>
+                      <td style='padding: 8px 0; color: #78350f; font-size: 14px; font-weight: 600;'>Selected Plan:</td>
+                      <td style='padding: 8px 0; color: #111827; font-size: 14px; font-weight: 600; text-align: right;'>${planName}</td>
+                    </tr>
+                    <tr>
+                      <td style='padding: 8px 0; color: #78350f; font-size: 14px; font-weight: 600;'>Price:</td>
+                      <td style='padding: 8px 0; color: #111827; font-size: 16px; font-weight: 700; text-align: right;'>${planPrice}</td>
+                    </tr>
+                  </table>
+                </div>
+                ` : ''}
+                <table cellpadding="0" cellspacing="0" border="0" align="center" style="margin: 0 auto 20px;">
+                  <tr>
+                    <td align="center" style="background-color: #059669; padding: 18px 44px; border-radius: 8px;">
+                      <a href="${paymentUrl}" style="color: #ffffff; text-decoration: none; font-weight: 700; font-size: 16px;">Pay Now &amp; Activate Account</a>
+                    </td>
+                  </tr>
+                </table>
+                <p style="margin: 15px 0 0; color: #92400e; font-size: 12px; text-align: center;">
+                  Your account will be activated immediately after payment
+                </p>
+              </div>
+            </td>
+          </tr>
+  ` : '';
+
   return `
 <!DOCTYPE html>
 <html>
@@ -630,10 +676,12 @@ function generateWelcomeEmailHTML(
             <td style="padding: 30px 40px 20px;">
               <p style="margin: 0 0 15px; color: #374151; font-size: 16px; line-height: 1.6;">Hello,</p>
               <p style="margin: 0 0 25px; color: #374151; font-size: 16px; line-height: 1.6;">
-                Your salon <strong>${businessName}</strong> has been successfully onboarded to BMS PRO PINK. You can now access your salon management dashboard using the login credentials below.
+                Your salon <strong>${businessName}</strong> has been successfully onboarded to BMS PRO PINK. ${paymentUrl ? '<strong>To activate your account, please complete your subscription payment below.</strong>' : 'You can now access your salon management dashboard using the login credentials below.'}
               </p>
             </td>
           </tr>
+          
+          ${paymentSection}
           
           <!-- Login Credentials Card -->
           <tr>
@@ -673,6 +721,7 @@ function generateWelcomeEmailHTML(
                   Next Steps
                 </h3>
                 <ol style="margin: 0; padding-left: 20px; color: #374151; font-size: 15px; line-height: 1.8;">
+                  ${paymentUrl ? '<li style="margin-bottom: 10px;"><strong>Complete your subscription payment</strong> using the button above</li>' : ''}
                   <li style="margin-bottom: 10px;">Log in to your dashboard using the credentials above</li>
                   <li style="margin-bottom: 10px;">Change your temporary password to a secure one</li>
                   <li style="margin-bottom: 10px;">Complete your salon profile and settings</li>
@@ -685,7 +734,7 @@ function generateWelcomeEmailHTML(
           <!-- Login Button -->
           <tr>
             <td style="padding: 0 40px 30px; text-align: center;">
-              <a href="https://pink.bmspros.com.au/" style="display: inline-block; padding: 14px 32px; background: linear-gradient(135deg, #ec4899 0%, #8b5cf6 100%); color: #ffffff; text-decoration: none; border-radius: 8px; font-weight: 600; font-size: 16px; box-shadow: 0 4px 6px rgba(236, 72, 153, 0.3);">
+              <a href="${loginUrl}/" style="display: inline-block; padding: 14px 32px; background: linear-gradient(135deg, #ec4899 0%, #8b5cf6 100%); color: #ffffff; text-decoration: none; border-radius: 8px; font-weight: 600; font-size: 16px; box-shadow: 0 4px 6px rgba(236, 72, 153, 0.3);">
                 Log in to Dashboard
               </a>
             </td>
@@ -723,12 +772,15 @@ function generateWelcomeEmailHTML(
 }
 
 /**
- * Send welcome email to salon owner with login credentials
+ * Send welcome email to salon owner with login credentials and optional payment link
  */
 export async function sendSalonOwnerWelcomeEmail(
   salonOwnerEmail: string,
   password: string,
-  businessName: string
+  businessName: string,
+  planName?: string,
+  planPrice?: string,
+  paymentUrl?: string
 ): Promise<{ success: boolean; error?: string }> {
   console.log(`[EMAIL] Attempting to send welcome email to salon owner: ${salonOwnerEmail}`);
   
@@ -752,8 +804,10 @@ export async function sendSalonOwnerWelcomeEmail(
   }
   
   try {
-    const html = generateWelcomeEmailHTML(email, password, businessName);
-    const subject = `Welcome to BMS PRO PINK - Your Account is Ready`;
+    const html = generateWelcomeEmailHTML(email, password, businessName, planName, planPrice, paymentUrl);
+    const subject = paymentUrl 
+      ? `Welcome to BMS PRO PINK - Complete Your Subscription`
+      : `Welcome to BMS PRO PINK - Your Account is Ready`;
     
     const msg = {
       to: email,
@@ -772,6 +826,8 @@ export async function sendSalonOwnerWelcomeEmail(
       from: ADMIN_FROM_EMAIL,
       subject: subject,
       businessName: businessName,
+      planName: planName,
+      hasPaymentUrl: !!paymentUrl,
       clickTracking: false,
     });
     

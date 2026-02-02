@@ -1,9 +1,9 @@
 "use client";
-import React, { useMemo, useState, useEffect } from "react";
+import React, { useMemo, useState, useEffect, useCallback } from "react";
 import Sidebar from "@/components/Sidebar";
 import { useRouter } from "next/navigation";
 import { auth, db } from "@/lib/firebase";
-import { collection, onSnapshot, orderBy, query, addDoc, serverTimestamp, doc, getDoc, where, updateDoc, deleteDoc, getDocs } from "firebase/firestore";
+import { collection, onSnapshot, orderBy, query, addDoc, serverTimestamp, doc, getDoc, where, updateDoc, deleteDoc, getDocs, setDoc } from "firebase/firestore";
 import { initializeApp, getApp } from "firebase/app";
 import { getAuth, createUserWithEmailAndPassword, signOut as signOutSecondary, onAuthStateChanged } from "firebase/auth";
 import { TIMEZONES } from "@/lib/timezone";
@@ -121,9 +121,9 @@ export default function TenantsPage() {
   const [mobileOpen, setMobileOpen] = useState(false);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [currentStep, setCurrentStep] = useState<1 | 2 | 3>(1);
-  const [selectedPlan, setSelectedPlan] = useState<"starter" | "pro" | "enterprise" | null>(
-    null
-  );
+  const [selectedPlan, setSelectedPlan] = useState<string | null>(null);
+  const [packages, setPackages] = useState<Array<{ id: string; name: string; price: number; priceLabel: string; branches: number; staff: number; features: string[]; popular?: boolean; color: string; image?: string; icon?: string; active?: boolean; stripePriceId?: string; trialDays?: number; plan_key?: string }>>([]);
+  const [packagesLoading, setPackagesLoading] = useState(true);
   // Onboarding form (minimal fields to persist)
   const [formBusinessName, setFormBusinessName] = useState("");
   const [formAbn, setFormAbn] = useState("");
@@ -163,10 +163,21 @@ export default function TenantsPage() {
 
   const stepIndicatorClass = (step: 1 | 2 | 3) => {
     const base =
-      "step-indicator w-10 h-10 rounded-full flex items-center justify-center font-semibold text-sm";
-    if (currentStep === step) return `${base} bg-pink-600 text-white`;
+      "w-8 h-8 rounded-full flex items-center justify-center font-semibold text-sm transition-all duration-300";
+    if (currentStep === step) return `${base} bg-gradient-to-r from-pink-500 to-pink-600 text-white shadow-lg shadow-pink-500/30`;
     if (currentStep > step) return `${base} bg-emerald-500 text-white`;
-    return `${base} bg-slate-200 text-slate-500`;
+    return `${base} bg-slate-100 text-slate-400 border border-slate-200`;
+  };
+  
+  const stepLabelClass = (step: 1 | 2 | 3) => {
+    if (currentStep === step) return "text-xs font-semibold text-pink-600";
+    if (currentStep > step) return "text-xs font-medium text-emerald-600";
+    return "text-xs font-medium text-slate-400";
+  };
+  
+  const stepLineClass = (step: 1 | 2) => {
+    if (currentStep > step) return "flex-1 h-0.5 bg-emerald-500 transition-all duration-300";
+    return "flex-1 h-0.5 bg-slate-200 transition-all duration-300";
   };
 
   const { totalTenants, activeProCount, suspendedCount, churnRate } = useMemo(() => {
@@ -196,6 +207,8 @@ export default function TenantsPage() {
     setIsModalOpen(true);
     setCurrentStep(1);
     setSelectedPlan(null);
+    // Always fetch packages when modal opens to ensure fresh data
+    fetchPackages();
   };
 
   const closeOnboardModal = () => {
@@ -208,19 +221,31 @@ export default function TenantsPage() {
     return emailRegex.test(email);
   };
 
+  // Sanitize email to remove hidden/unicode characters
+  const sanitizeEmail = (email: string): string => {
+    // Remove all types of whitespace and invisible characters
+    return email
+      .replace(/[\u200B-\u200D\uFEFF]/g, '') // Zero-width chars
+      .replace(/[\u00A0]/g, ' ') // Non-breaking space to regular space
+      .replace(/\s+/g, '') // Remove all whitespace
+      .toLowerCase();
+  };
+
   const goNext = async () => {
     if (currentStep < 3) {
       // Validate email before moving to next step if we're on step 2
       if (currentStep === 2) {
-        const trimmedEmail = formEmail.trim();
-        if (!trimmedEmail) {
+        const sanitizedEmail = sanitizeEmail(formEmail);
+        if (!sanitizedEmail) {
           setEmailError("Email is required.");
           return;
         }
-        if (!validateEmail(trimmedEmail)) {
+        if (!validateEmail(sanitizedEmail)) {
           setEmailError("Please enter a valid email address.");
           return;
         }
+        // Update the form with sanitized email
+        setFormEmail(sanitizedEmail);
         setEmailError("");
       }
       setCurrentStep((s) => ((s + 1) as 1 | 2 | 3));
@@ -230,31 +255,86 @@ export default function TenantsPage() {
     try {
       setCreating(true);
       if (!formBusinessName.trim()) throw new Error("Business name is required.");
-      const trimmedEmail = formEmail.trim();
+      const trimmedEmail = sanitizeEmail(formEmail);
       if (!trimmedEmail) throw new Error("Email is required.");
       if (!validateEmail(trimmedEmail)) throw new Error("Please enter a valid email address.");
+      
+      console.log("Creating tenant with email:", trimmedEmail, "Length:", trimmedEmail.length);
 
-      const planLabel =
-        selectedPlan === "pro" ? "Pro" : selectedPlan === "starter" ? "Starter" : selectedPlan === "enterprise" ? "Enterprise" : "";
-      const price =
-        selectedPlan === "pro" ? "AU$149/mo" : selectedPlan === "starter" ? "AU$99/mo" : selectedPlan === "enterprise" ? "AU$299/mo" : "";
+      // Get selected package data
+      const selectedPackage = packages.find(p => p.id === selectedPlan);
+      if (!selectedPackage) {
+        throw new Error("Please select a subscription plan");
+      }
+      
+      const planLabel = selectedPackage.name;
+      const price = selectedPackage.priceLabel;
 
-      // Save as a salon owner record inside users collection (invite style)
-      const newTenantRef = await addDoc(collection(db, "users"), {
+      // Provision Auth account FIRST to get the UID
+      if (!formOwnerPassword.trim() || formOwnerPassword.trim().length < 6) {
+        throw new Error("Owner password is required (min 6 characters).");
+      }
+      
+      let ownerUid: string;
+      try {
+        const options: any = getApp().options;
+        const secondaryName = `provision-${Date.now()}`;
+        const secondaryApp = initializeApp(options, secondaryName);
+        const secondaryAuth = getAuth(secondaryApp);
+        console.log("Creating Firebase Auth account for:", trimmedEmail);
+        const userCredential = await createUserWithEmailAndPassword(secondaryAuth, trimmedEmail, formOwnerPassword.trim());
+        ownerUid = userCredential.user.uid;
+        await signOutSecondary(secondaryAuth);
+        console.log("Firebase Auth account created with UID:", ownerUid);
+      } catch (e: any) {
+        console.error("Firebase Auth error:", e?.code, e?.message, "Email used:", trimmedEmail);
+        if (e?.code === "auth/email-already-in-use") {
+          throw new Error("This email is already registered. Please use a different email.");
+        } else if (e?.code === "auth/invalid-email") {
+          throw new Error(`Invalid email format: "${trimmedEmail}". Please check for special characters or spaces.`);
+        } else {
+          throw e;
+        }
+      }
+
+      // Get trial days from the plan (payment details required to start trial)
+      const trialDays = selectedPackage.trialDays ? parseInt(String(selectedPackage.trialDays), 10) : 0;
+      const hasFreeTrial = trialDays > 0;
+
+      // Create Firestore document with Auth UID as document ID
+      // User starts as pending - must enter payment details to activate (even for trial)
+      const newTenantRef = doc(db, "users", ownerUid);
+      await setDoc(newTenantRef, {
         // user identity fields
         email: trimmedEmail,
         displayName: "",
         role: "salon_owner",
         provider: "password",
+        uid: ownerUid,
         // business fields
         name: formBusinessName.trim(),
         abn: formAbn.trim() || null,
         state: formState || null,
-        timezone: formTimezone || "Australia/Sydney", // Salon owner's timezone
+        timezone: formTimezone || "Australia/Sydney",
         plan: planLabel,
         price: price || null,
-        status: formAbn.trim() ? "Active" : "Pending ABN",
-        locationText: formAddress ? `${formAddress}${formPostcode ? `, ${formPostcode}` : ""}` : null,
+        // subscription package details
+        planId: selectedPackage.id,
+        plan_key: selectedPackage.plan_key || null,
+        branchLimit: selectedPackage.branches,
+        currentBranchCount: 0,
+        branchNames: [],
+        staffLimit: selectedPackage.staff,
+        currentStaffCount: 0,
+        // Payment status - show free trial status if applicable
+        status: hasFreeTrial ? "Free Trial Pending" : "Pending Payment",
+        accountStatus: hasFreeTrial ? "free_trial_pending" : "pending_payment",
+        subscriptionStatus: "pending",
+        billing_status: "pending",
+        // Trial period info (actual trial starts after payment details entered)
+        trialDays: trialDays,
+        hasFreeTrial: hasFreeTrial,
+        locationText: formAddress ? `${formAddress}${formPostcode ? ` ${formPostcode}` : ""}` : null,
         contactPhone: formPhone.trim() || null,
         businessStructure: formStructure || null,
         gstRegistered: formGst,
@@ -262,28 +342,15 @@ export default function TenantsPage() {
         createdAt: serverTimestamp(),
         updatedAt: serverTimestamp(),
       });
+      console.log("Firestore document created with ID:", ownerUid);
 
-      // Provision Auth account for owner (password required)
-      if (!formOwnerPassword.trim() || formOwnerPassword.trim().length < 6) {
-        throw new Error("Owner password is required (min 6 characters).");
-      }
-      try {
-        const options: any = getApp().options;
-        const secondaryName = `provision-${Date.now()}`;
-        const secondaryApp = initializeApp(options, secondaryName);
-        const secondaryAuth = getAuth(secondaryApp);
-        await createUserWithEmailAndPassword(secondaryAuth, trimmedEmail, formOwnerPassword.trim());
-        await signOutSecondary(secondaryAuth);
-      } catch (e: any) {
-        if (e?.code !== "auth/email-already-in-use") {
-          console.warn("Owner auth provisioning failed:", e);
-          throw e;
-        }
-      }
-
-      // Send welcome email to salon owner with login credentials
+      // Send welcome email to salon owner with login credentials and payment link
       try {
         const idToken = await auth.currentUser?.getIdToken();
+        // Build payment URL - they'll be redirected to subscription page after login
+        const baseUrl = window.location.origin || "https://pink.bmspros.com.au";
+        const paymentUrl = `${baseUrl}/subscription`;
+        
         const response = await fetch("/api/salon-owner/welcome-email", {
           method: "POST",
           headers: {
@@ -294,6 +361,11 @@ export default function TenantsPage() {
             email: trimmedEmail,
             password: formOwnerPassword.trim(),
             businessName: formBusinessName.trim(),
+            planName: planLabel,
+            planPrice: price,
+            paymentUrl: paymentUrl, // Link to subscription page for payment
+            // Trial info (trial starts after entering payment details)
+            trialDays: trialDays,
           }),
         });
 
@@ -352,6 +424,80 @@ export default function TenantsPage() {
   const nextCtaLabel = useMemo(() => {
     return currentStep === 3 ? "Complete Onboarding" : "Next Step";
   }, [currentStep]);
+
+  // Fetch packages from API
+  const fetchPackages = useCallback(async () => {
+    try {
+      setPackagesLoading(true);
+      const currentUser = auth.currentUser;
+      
+      if (!currentUser) {
+        console.log("No current user, waiting for auth...");
+        setPackagesLoading(false);
+        return;
+      }
+
+      const token = await currentUser.getIdToken();
+      if (!token) {
+        console.error("No auth token available");
+        setPackagesLoading(false);
+        return;
+      }
+
+      console.log("Fetching packages...");
+      const response = await fetch("/api/packages", {
+        headers: {
+          "Authorization": `Bearer ${token}`,
+        },
+      });
+      
+      if (response.ok) {
+        const data = await response.json();
+        console.log("Packages response:", data);
+        if (data.success && data.plans) {
+          // Filter only active packages
+          const activePackages = data.plans.filter((p: any) => p.active !== false);
+          console.log("Active packages found:", activePackages.length, activePackages);
+          setPackages(activePackages);
+        } else {
+          console.error("API returned success=false or no plans:", data);
+          setPackages([]);
+        }
+      } else {
+        const errorText = await response.text();
+        console.error("Failed to fetch packages:", response.status, errorText);
+        setPackages([]);
+      }
+    } catch (error) {
+      console.error("Error fetching packages:", error);
+      setPackages([]);
+    } finally {
+      setPackagesLoading(false);
+    }
+  }, []);
+
+  // Fetch packages when auth is ready
+  useEffect(() => {
+    const unsub = onAuthStateChanged(auth, async (user) => {
+      if (user) {
+        // Auth is ready, fetch packages
+        fetchPackages();
+      }
+    });
+    return () => unsub();
+  }, [fetchPackages]);
+
+  // Fetch packages when modal opens or when step 3 is reached
+  useEffect(() => {
+    if (isModalOpen) {
+      if (currentStep === 3 && packages.length === 0 && !packagesLoading) {
+        fetchPackages();
+      } else if (currentStep === 1) {
+        // Pre-fetch when modal opens
+        fetchPackages();
+      }
+    }
+  }, [isModalOpen, currentStep, packages.length, packagesLoading, fetchPackages]);
 
   useEffect(() => {
     // Auth listener prevents early redirect flicker on reload
@@ -1567,13 +1713,13 @@ onClick={async () => {
       {isModalOpen && (
         <div className="fixed inset-0 z-50">
           <div className="absolute inset-0 bg-black/50" onClick={closeOnboardModal} />
-          <div className="relative flex items-start md:items-center justify-center min-h-screen p-4 overflow-y-auto">
-            <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[90vh] flex flex-col">
-              <div className="px-8 py-6 border-b border-slate-200">
+          <div className="relative flex items-center justify-center min-h-screen p-4">
+            <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg flex flex-col my-auto">
+              <div className="px-5 py-4 border-b border-slate-200 shrink-0">
                 <div className="flex items-center justify-between">
                   <div>
-                    <h2 className="text-2xl font-bold text-slate-900">Onboard New Salon</h2>
-                    <p className="text-sm text-slate-500 mt-1">
+                    <h2 className="text-xl font-bold text-slate-900">Onboard New Salon</h2>
+                    <p className="text-xs text-slate-500 mt-0.5">
                       Setup a new tenant with Australian compliance
                     </p>
                   </div>
@@ -1581,27 +1727,40 @@ onClick={async () => {
                     <i className="fas fa-times text-slate-400" />
                   </button>
                 </div>
-                <div className="flex items-center space-x-4 mt-6">
-                  <div className="flex items-center">
-                    <div className={stepIndicatorClass(1)}>1</div>
-                    <span className="ml-2 text-sm font-medium text-slate-900">Business Entity</span>
+                <div className="flex items-center mt-6">
+                  {/* Step 1 */}
+                  <div className="flex flex-col items-center">
+                    <div className={stepIndicatorClass(1)}>
+                      {currentStep > 1 ? <i className="fas fa-check text-xs" /> : "1"}
+                    </div>
+                    <span className={`mt-2 ${stepLabelClass(1)}`}>Business</span>
                   </div>
-                  <div className="flex-1 h-0.5 bg-slate-200" />
-                  <div className="flex items-center">
-                    <div className={stepIndicatorClass(2)}>2</div>
-                    <span className="ml-2 text-sm font-medium text-slate-500">Location & Contact</span>
+                  
+                  {/* Line 1-2 */}
+                  <div className={`${stepLineClass(1)} mx-4`} />
+                  
+                  {/* Step 2 */}
+                  <div className="flex flex-col items-center">
+                    <div className={stepIndicatorClass(2)}>
+                      {currentStep > 2 ? <i className="fas fa-check text-xs" /> : "2"}
+                    </div>
+                    <span className={`mt-2 ${stepLabelClass(2)}`}>Location</span>
                   </div>
-                  <div className="flex-1 h-0.5 bg-slate-200" />
-                  <div className="flex items-center">
+                  
+                  {/* Line 2-3 */}
+                  <div className={`${stepLineClass(2)} mx-4`} />
+                  
+                  {/* Step 3 */}
+                  <div className="flex flex-col items-center">
                     <div className={stepIndicatorClass(3)}>3</div>
-                    <span className="ml-2 text-sm font-medium text-slate-500">Subscription</span>
+                    <span className={`mt-2 ${stepLabelClass(3)}`}>Plan</span>
                   </div>
                 </div>
               </div>
 
-              <div className="px-8 py-6 overflow-y-auto flex-1">
+              <div className="px-5 py-4 overflow-y-auto flex-1 min-h-0 max-h-[60vh]">
                 {currentStep === 1 && (
-                  <div className="space-y-6">
+                  <div className="space-y-4">
                     <div>
                       <label className="block text-sm font-semibold text-slate-700 mb-2">
                         Business Name *
@@ -1670,7 +1829,7 @@ onClick={async () => {
                 )}
 
                 {currentStep === 2 && (
-                  <div className="space-y-6">
+                  <div className="space-y-4">
                     <div>
                       <label className="block text-sm font-semibold text-slate-700 mb-2">
                         Business Address *
@@ -1813,75 +1972,115 @@ onClick={async () => {
                 )}
 
                 {currentStep === 3 && (
-                  <div className="space-y-6">
-                    <p className="text-sm text-slate-600">
-                      Select a subscription plan for this tenant
+                  <div className="space-y-3">
+                    <p className="text-sm font-semibold text-slate-700">
+                      Select a subscription plan
                     </p>
-                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                      {[
-                        {
-                          key: "starter" as const,
-                          iconCls: "fa-star text-blue-600",
-                          iconWrapCls: "bg-blue-100",
-                          title: "Starter",
-                          price: "$99",
-                          features: ["Basic features", "1 location"],
-                        },
-                        {
-                          key: "pro" as const,
-                          iconCls: "fa-crown text-pink-600",
-                          iconWrapCls: "bg-pink-100",
-                          title: "Pro",
-                          price: "$149",
-                          features: ["All features", "3 locations"],
-                        },
-                        {
-                          key: "enterprise" as const,
-                          iconCls: "fa-building text-amber-600",
-                          iconWrapCls: "bg-amber-100",
-                          title: "Enterprise",
-                          price: "$299",
-                          features: ["Premium support", "Unlimited"],
-                        },
-                      ].map((p) => {
-                        const isSelected = selectedPlan === p.key;
-                        return (
-                          <button
-                            key={p.key}
-                            onClick={() => setSelectedPlan(p.key)}
-                            className={`text-left border-2 rounded-xl p-5 transition ${
-                              isSelected
-                                ? "border-pink-400 bg-pink-50"
-                                : "border-slate-200 hover:border-pink-300"
-                            }`}
-                          >
-                            <div className="text-center">
-                              <div
-                                className={`w-12 h-12 ${p.iconWrapCls} rounded-full flex items-center justify-center mx-auto mb-3`}
-                              >
-                                <i className={`fas ${p.iconCls}`} />
+                    {packagesLoading ? (
+                      <div className="flex items-center justify-center py-6">
+                        <div className="flex flex-col items-center gap-2">
+                          <i className="fas fa-circle-notch fa-spin text-2xl text-pink-500" />
+                          <p className="text-xs text-slate-500">Loading packages...</p>
+                        </div>
+                      </div>
+                    ) : packages.length === 0 ? (
+                      <div className="text-center py-6">
+                        <p className="text-sm text-slate-500">No packages available.</p>
+                      </div>
+                    ) : (
+                      <div className="space-y-3">
+                        {packages.map((pkg) => {
+                          const isSelected = selectedPlan === pkg.id;
+                          const colorClass = pkg.color === "blue" ? "bg-blue-500" 
+                            : pkg.color === "pink" ? "bg-pink-500" 
+                            : pkg.color === "purple" ? "bg-purple-500" 
+                            : pkg.color === "green" ? "bg-emerald-500"
+                            : pkg.color === "orange" ? "bg-orange-500"
+                            : pkg.color === "teal" ? "bg-teal-500"
+                            : "bg-slate-500";
+                          
+                          return (
+                            <button
+                              key={pkg.id}
+                              onClick={() => setSelectedPlan(pkg.id)}
+                              className={`w-full p-3 rounded-xl border-2 transition-all duration-200 text-left ${
+                                isSelected 
+                                  ? "border-pink-500 bg-pink-50/50" 
+                                  : "border-slate-200 bg-white hover:border-slate-300 hover:bg-slate-50"
+                              }`}
+                            >
+                              {/* Header row */}
+                              <div className="flex items-center gap-3">
+                                {/* Color indicator & image */}
+                                <div className={`w-10 h-10 rounded-lg ${colorClass} flex items-center justify-center overflow-hidden flex-shrink-0`}>
+                                  {pkg.image ? (
+                                    <img src={pkg.image} alt={pkg.name} className="w-full h-full object-cover" />
+                                  ) : (
+                                    <i className="fas fa-box text-white" />
+                                  )}
+                                </div>
+                                
+                                {/* Plan name & badges */}
+                                <div className="flex-1 min-w-0">
+                                  <div className="flex items-center gap-2">
+                                    <h4 className="font-semibold text-slate-900">{pkg.name}</h4>
+                                    {pkg.popular && (
+                                      <span className="text-[10px] font-bold bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded">
+                                        Popular
+                                      </span>
+                                    )}
+                                  </div>
+                                </div>
+                                
+                                {/* Price & selection */}
+                                <div className="text-right flex-shrink-0 flex items-center gap-2">
+                                  <div className="font-bold text-slate-900">{pkg.priceLabel}</div>
+                                  {isSelected ? (
+                                    <i className="fas fa-check-circle text-pink-500" />
+                                  ) : (
+                                    <div className="w-5 h-5 rounded-full border-2 border-slate-300" />
+                                  )}
+                                </div>
                               </div>
-                              <h4 className="font-bold text-slate-900 mb-2">{p.title}</h4>
-                              <div className="text-3xl font-bold text-slate-900 mb-1">
-                                {p.price}
+                              
+                              {/* Details row */}
+                              <div className="mt-2 pt-2 border-t border-slate-100">
+                                <div className="flex items-center gap-4 text-xs text-slate-600">
+                                  <span className="flex items-center gap-1">
+                                    <i className="fas fa-building text-slate-400" />
+                                    {pkg.branches === -1 ? "Unlimited" : pkg.branches} {pkg.branches === 1 ? "Branch" : "Branches"}
+                                  </span>
+                                  <span className="flex items-center gap-1">
+                                    <i className="fas fa-users text-slate-400" />
+                                    {pkg.staff === -1 ? "Unlimited" : pkg.staff} Staff
+                                  </span>
+                                </div>
+                                
+                                {/* Features - Line by line */}
+                                {pkg.features && pkg.features.length > 0 && (
+                                  <ul className="mt-2 space-y-1">
+                                    {pkg.features.slice(0, 5).map((feature, idx) => (
+                                      <li key={idx} className="flex items-center gap-2 text-xs text-slate-600">
+                                        <i className="fas fa-check text-emerald-500 text-[10px]" />
+                                        {feature}
+                                      </li>
+                                    ))}
+                                    {pkg.features.length > 5 && (
+                                      <li className="text-xs text-slate-400 pl-4">
+                                        +{pkg.features.length - 5} more features
+                                      </li>
+                                    )}
+                                  </ul>
+                                )}
                               </div>
-                              <p className="text-sm text-slate-500">per month</p>
-                              <ul className="mt-4 space-y-2 text-sm text-slate-600">
-                                {p.features.map((f) => (
-                                  <li key={f} className="flex items-center justify-center">
-                                    <i className="fas fa-check text-emerald-500 mr-2 text-xs" />
-                                    {f}
-                                  </li>
-                                ))}
-                              </ul>
-                            </div>
-                          </button>
-                        );
-                      })}
-                    </div>
-                    <div className="p-4 bg-amber-50 border border-amber-200 rounded-lg">
-                      <p className="text-sm text-amber-800">
-                        <i className="fas fa-info-circle mr-2" />
+                            </button>
+                          );
+                        })}
+                      </div>
+                    )}
+                    <div className="p-2.5 bg-amber-50 border border-amber-200 rounded-lg">
+                      <p className="text-xs text-amber-800">
+                        <i className="fas fa-info-circle mr-1.5" />
                         Invoice will be generated upon tenant activation
                       </p>
                     </div>
@@ -1889,38 +2088,48 @@ onClick={async () => {
                 )}
               </div>
 
-              <div className="px-8 py-6 border-t border-slate-200 flex items-center justify-between">
+              <div className="px-5 py-3 border-t border-slate-100 bg-slate-50/50 flex items-center justify-between shrink-0">
                 <button
                   onClick={goBack}
                   disabled={creating}
-                  className={`px-6 py-3 text-slate-700 font-semibold hover:bg-slate-100 rounded-lg transition disabled:opacity-60 ${
+                  className={`inline-flex items-center gap-2 px-4 py-2.5 text-slate-600 font-medium hover:bg-white hover:shadow-sm rounded-lg border border-transparent hover:border-slate-200 transition-all duration-200 disabled:opacity-60 ${
                     currentStep === 1 ? "invisible" : ""
                   }`}
                 >
-                  <i className="fas fa-arrow-left mr-2" />
+                  <i className="fas fa-chevron-left text-xs" />
                   Back
                 </button>
                 <div className="flex-1" />
                 <button
                   onClick={closeOnboardModal}
                   disabled={creating}
-                  className="px-6 py-3 text-slate-700 font-semibold hover:bg-slate-100 rounded-lg transition mr-3 disabled:opacity-60"
+                  className="px-4 py-2.5 text-slate-500 font-medium hover:text-slate-700 hover:bg-white rounded-lg transition-all duration-200 mr-2 disabled:opacity-60"
                 >
                   Cancel
                 </button>
                 <button
                   onClick={goNext}
-                  disabled={creating}
-                  className="px-6 py-3 bg-pink-600 text-white font-semibold rounded-lg hover:bg-pink-700 transition disabled:opacity-70 inline-flex items-center gap-2"
+                  disabled={creating || (currentStep === 3 && !selectedPlan)}
+                  className={`inline-flex items-center gap-2 px-5 py-2.5 font-semibold rounded-lg transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed ${
+                    currentStep === 3 
+                      ? "bg-gradient-to-r from-emerald-500 to-emerald-600 text-white shadow-lg shadow-emerald-500/25 hover:shadow-emerald-500/40 hover:from-emerald-600 hover:to-emerald-700" 
+                      : "bg-gradient-to-r from-pink-500 to-pink-600 text-white shadow-lg shadow-pink-500/25 hover:shadow-pink-500/40 hover:from-pink-600 hover:to-pink-700"
+                  }`}
                 >
                   {creating ? (
                     <>
-                      <i className="fas fa-circle-notch fa-spin" />
-                      Creating...
+                      <i className="fas fa-circle-notch fa-spin text-sm" />
+                      <span>Creating...</span>
+                    </>
+                  ) : currentStep === 3 ? (
+                    <>
+                      <i className="fas fa-check text-sm" />
+                      <span>Complete Onboarding</span>
                     </>
                   ) : (
                     <>
-                      {nextCtaLabel} <i className="fas fa-arrow-right ml-2" />
+                      <span>Continue</span>
+                      <i className="fas fa-chevron-right text-xs" />
                     </>
                   )}
                 </button>

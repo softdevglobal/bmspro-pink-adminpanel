@@ -2,22 +2,43 @@
 
 import { useEffect, useState } from "react";
 import { useRouter, usePathname } from "next/navigation";
-import { onAuthStateChanged } from "firebase/auth";
+import { onAuthStateChanged, signOut } from "firebase/auth";
 import { auth, db } from "@/lib/firebase";
 import { doc, getDoc } from "firebase/firestore";
+import PaymentRequiredModal from "./PaymentRequiredModal";
+import OwnerAccountInactiveModal from "./OwnerAccountInactiveModal";
 
 interface AuthGuardProps {
   children: React.ReactNode;
 }
 
 // Pages that super_admin is allowed to access
-const SUPER_ADMIN_ALLOWED_PAGES = ["/admin-dashboard", "/tenants", "/login", "/"];
+const SUPER_ADMIN_ALLOWED_PAGES = ["/admin-dashboard", "/tenants", "/login", "/", "/packages", "/super-admin-audit-logs"];
+
+// Pages that don't require payment check (allow access even if pending payment)
+const PAYMENT_EXEMPT_PAGES = ["/subscription", "/login", "/reset-password"];
+
+interface PaymentInfo {
+  required: boolean;
+  planName?: string;
+  planPrice?: string;
+  planId?: string;
+  trialDays?: number;
+}
+
+interface OwnerAccountBlockedInfo {
+  blocked: boolean;
+  reason: string;
+  ownerName?: string;
+}
 
 export default function AuthGuard({ children }: AuthGuardProps) {
   const router = useRouter();
   const pathname = usePathname();
   const [loading, setLoading] = useState(true);
   const [authorized, setAuthorized] = useState(false);
+  const [paymentInfo, setPaymentInfo] = useState<PaymentInfo>({ required: false });
+  const [ownerBlocked, setOwnerBlocked] = useState<OwnerAccountBlockedInfo>({ blocked: false, reason: "" });
 
   useEffect(() => {
     const checkAuth = async () => {
@@ -29,12 +50,16 @@ export default function AuthGuard({ children }: AuthGuardProps) {
         }
 
         try {
+          console.log("[AuthGuard] Checking user:", user.uid, user.email);
+          
           // Check super_admins collection first
           const superAdminDoc = await getDoc(doc(db, "super_admins", user.uid));
           let userRole: string;
+          let userData: any = null;
           
           if (superAdminDoc.exists()) {
             userRole = "super_admin";
+            console.log("[AuthGuard] User is super_admin");
             
             // Super admin route restriction: only allow admin-dashboard and tenants
             const isAllowedPage = pathname && SUPER_ADMIN_ALLOWED_PAGES.some(page => {
@@ -50,9 +75,13 @@ export default function AuthGuard({ children }: AuthGuardProps) {
             }
           } else {
             // Get user role from users collection
+            console.log("[AuthGuard] Looking up user document at: users/" + user.uid);
             const userDoc = await getDoc(doc(db, "users", user.uid));
-            const userData = userDoc.data();
+            console.log("[AuthGuard] User document exists:", userDoc.exists());
+            userData = userDoc.data();
+            console.log("[AuthGuard] User data:", userData);
             userRole = (userData?.role || "").toString().toLowerCase();
+            console.log("[AuthGuard] User role:", userRole);
           }
           
           // Check if user has admin role
@@ -64,6 +93,163 @@ export default function AuthGuard({ children }: AuthGuardProps) {
             router.replace("/login");
             setLoading(false);
             return;
+          }
+
+          // Check payment status for salon_owner
+          console.log("[AuthGuard] Checking payment status. Role:", userRole, "Has userData:", !!userData);
+          if (userRole === "salon_owner" && userData) {
+            const accountStatus = userData.accountStatus || "active";
+            const subscriptionStatus = userData.subscriptionStatus || "active";
+            console.log("[AuthGuard] Account status:", accountStatus, "Subscription status:", subscriptionStatus);
+            
+            // Check if user is in active trial (payment details already entered via Stripe)
+            const isActiveTrialing = subscriptionStatus === "trialing" && userData.stripeSubscriptionId;
+            
+            // Check trial expiry for active trials
+            let trialExpired = false;
+            if (isActiveTrialing && userData.trial_end) {
+              const trialEnd = userData.trial_end.toDate ? userData.trial_end.toDate() : new Date(userData.trial_end);
+              trialExpired = new Date() > trialEnd;
+            }
+            
+            // Check if payment details are required
+            // - pending_payment: needs to enter payment details
+            // - free_trial_pending: has trial, needs to enter payment details to start trial
+            // - suspended: account suspended
+            // - Active trial with Stripe subscription: allowed
+            const needsPayment = 
+              accountStatus === "pending_payment" || 
+              accountStatus === "free_trial_pending" ||
+              accountStatus === "suspended" ||
+              (subscriptionStatus === "pending" && !isActiveTrialing) ||
+              subscriptionStatus === "past_due" ||
+              subscriptionStatus === "unpaid" ||
+              trialExpired;
+            
+            console.log("[AuthGuard] Needs payment:", needsPayment, "Pathname:", pathname);
+            
+            if (needsPayment) {
+              // Check if current page is payment-exempt
+              const isPaymentExemptPage = pathname && PAYMENT_EXEMPT_PAGES.some(page => 
+                pathname === page || pathname.startsWith(page + "/")
+              );
+              
+              // If on subscription success page, don't show modal
+              const isSuccessPage = pathname?.includes("/subscription/success");
+              
+              console.log("[AuthGuard] Is payment exempt page:", isPaymentExemptPage, "Is success page:", isSuccessPage);
+              
+              if (!isPaymentExemptPage && !isSuccessPage) {
+                // Get trialDays from user data or fetch from plan
+                let trialDays = userData.trialDays || 0;
+                
+                // If trialDays not set on user, fetch from subscription plan
+                if (!trialDays && userData.planId) {
+                  try {
+                    const planDoc = await getDoc(doc(db, "subscription_plans", userData.planId));
+                    if (planDoc.exists()) {
+                      const planData = planDoc.data();
+                      trialDays = planData.trialDays ? parseInt(String(planData.trialDays), 10) : 0;
+                    }
+                  } catch (e) {
+                    console.error("[AuthGuard] Error fetching plan:", e);
+                  }
+                }
+                
+                console.log("[AuthGuard] SHOWING PAYMENT MODAL with planId:", userData.planId, "trialDays:", trialDays);
+                setPaymentInfo({
+                  required: true,
+                  planName: userData.plan || undefined,
+                  planPrice: userData.price || undefined,
+                  planId: userData.planId || undefined,
+                  trialDays: trialDays,
+                });
+              } else {
+                setPaymentInfo({ required: false });
+              }
+            } else {
+              setPaymentInfo({ required: false });
+            }
+            setOwnerBlocked({ blocked: false, reason: "" });
+          } else if (userRole === "salon_branch_admin" && userData) {
+            // For branch admins: Check the OWNER's account status
+            // If owner's account is not active (payment failed, suspended, etc.), block access
+            console.log("[AuthGuard] Branch admin - checking owner account status");
+            setPaymentInfo({ required: false });
+            
+            const ownerUid = userData.ownerUid;
+            if (ownerUid) {
+              try {
+                const ownerDoc = await getDoc(doc(db, "users", ownerUid));
+                if (ownerDoc.exists()) {
+                  const ownerData = ownerDoc.data();
+                  const ownerAccountStatus = ownerData?.accountStatus || "active";
+                  const ownerSubscriptionStatus = ownerData?.subscriptionStatus || "active";
+                  const ownerName = ownerData?.displayName || ownerData?.name || ownerData?.email || "Salon Owner";
+                  
+                  console.log("[AuthGuard] Owner account status:", ownerAccountStatus, "Subscription status:", ownerSubscriptionStatus);
+                  
+                  // Check if owner is in active trial
+                  const ownerIsActiveTrialing = ownerSubscriptionStatus === "trialing" && ownerData?.stripeSubscriptionId;
+                  
+                  // Check trial expiry for owner
+                  let ownerTrialExpired = false;
+                  if (ownerIsActiveTrialing && ownerData?.trial_end) {
+                    const trialEnd = ownerData.trial_end.toDate ? ownerData.trial_end.toDate() : new Date(ownerData.trial_end);
+                    ownerTrialExpired = new Date() > trialEnd;
+                  }
+                  
+                  // Determine if owner account is inactive
+                  const ownerAccountInactive = 
+                    ownerAccountStatus === "suspended" ||
+                    ownerAccountStatus === "cancelled" ||
+                    ownerSubscriptionStatus === "past_due" ||
+                    ownerSubscriptionStatus === "unpaid" ||
+                    ownerSubscriptionStatus === "canceled" ||
+                    ownerSubscriptionStatus === "cancelled" ||
+                    ownerTrialExpired;
+                  
+                  if (ownerAccountInactive) {
+                    // Determine the reason
+                    let reason = "The salon's subscription is currently inactive.";
+                    
+                    if (ownerAccountStatus === "suspended") {
+                      reason = "The salon's account has been suspended due to payment issues.";
+                    } else if (ownerAccountStatus === "cancelled" || ownerSubscriptionStatus === "canceled" || ownerSubscriptionStatus === "cancelled") {
+                      reason = "The salon's subscription has been cancelled.";
+                    } else if (ownerSubscriptionStatus === "past_due") {
+                      reason = "The salon's subscription payment is past due.";
+                    } else if (ownerSubscriptionStatus === "unpaid") {
+                      reason = "The salon's subscription payment has failed.";
+                    } else if (ownerTrialExpired) {
+                      reason = "The salon's free trial has expired.";
+                    }
+                    
+                    console.log("[AuthGuard] Owner account inactive - blocking branch admin. Reason:", reason);
+                    setOwnerBlocked({
+                      blocked: true,
+                      reason,
+                      ownerName,
+                    });
+                  } else {
+                    setOwnerBlocked({ blocked: false, reason: "" });
+                  }
+                } else {
+                  console.log("[AuthGuard] Owner document not found for ownerUid:", ownerUid);
+                  setOwnerBlocked({ blocked: false, reason: "" });
+                }
+              } catch (e) {
+                console.error("[AuthGuard] Error fetching owner data:", e);
+                setOwnerBlocked({ blocked: false, reason: "" });
+              }
+            } else {
+              console.log("[AuthGuard] No ownerUid found for branch admin");
+              setOwnerBlocked({ blocked: false, reason: "" });
+            }
+          } else {
+            console.log("[AuthGuard] Not showing payment modal - not salon_owner or no userData");
+            setPaymentInfo({ required: false });
+            setOwnerBlocked({ blocked: false, reason: "" });
           }
 
           // User is authorized
@@ -97,6 +283,32 @@ export default function AuthGuard({ children }: AuthGuardProps) {
     return null;
   }
 
-  return <>{children}</>;
+  // If owner account is blocked (for branch admins), show blocking modal only
+  if (ownerBlocked.blocked) {
+    return (
+      <OwnerAccountInactiveModal
+        isOpen={true}
+        reason={ownerBlocked.reason}
+        ownerName={ownerBlocked.ownerName}
+        onLogout={async () => {
+          await signOut(auth);
+          router.replace("/login");
+        }}
+      />
+    );
+  }
+
+  return (
+    <>
+      {children}
+      <PaymentRequiredModal
+        isOpen={paymentInfo.required}
+        planName={paymentInfo.planName}
+        planPrice={paymentInfo.planPrice}
+        planId={paymentInfo.planId}
+        trialDays={paymentInfo.trialDays}
+      />
+    </>
+  );
 }
 

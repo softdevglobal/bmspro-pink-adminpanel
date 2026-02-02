@@ -3,6 +3,7 @@ import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
 import React from "react";
 import NotificationProvider from "@/components/NotificationProvider";
+import AuthWrapper from "@/components/AuthWrapper";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -49,7 +50,9 @@ export default function RootLayout({
         className={`${geistSans.variable} ${geistMono.variable} antialiased`}
       >
         <NotificationProvider>
-          {children}
+          <AuthWrapper>
+            {children}
+          </AuthWrapper>
         </NotificationProvider>
       </body>
     </html>

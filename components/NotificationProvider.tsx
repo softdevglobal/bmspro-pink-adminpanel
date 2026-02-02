@@ -275,8 +275,15 @@ export default function NotificationProvider({ children }: NotificationProviderP
     let unsubBookings: (() => void) | undefined;
 
     (async () => {
-      const { db } = await import("@/lib/firebase");
+      const { db, auth } = await import("@/lib/firebase");
       const { doc, getDoc } = await import("firebase/firestore");
+      
+      // Ensure user is authenticated before setting up listeners
+      const user = auth.currentUser;
+      if (!user) {
+        console.warn("User not authenticated, skipping notification listeners");
+        return;
+      }
 
       // Subscribe to notifications collection for this owner
       // We need to listen for multiple notification types:
@@ -468,6 +475,13 @@ export default function NotificationProvider({ children }: NotificationProviderP
           await processSnapshot(snapshot, "main");
         },
         (error) => {
+          // Suppress permission-denied errors to prevent uncaught error logs
+          if (error.code === "permission-denied") {
+            console.warn("Permission denied for owner notifications. User may not have access.");
+            queryLoadedFlags.main = true;
+            processNotifications();
+            return; // Don't log as error, just handle gracefully
+          }
           console.error("Error listening to owner notifications:", error);
           queryLoadedFlags.main = true;
           processNotifications();
@@ -481,6 +495,13 @@ export default function NotificationProvider({ children }: NotificationProviderP
           await processSnapshot(snapshot, "targetOwner");
         },
         (error) => {
+          // Suppress permission-denied errors to prevent uncaught error logs
+          if (error.code === "permission-denied") {
+            console.warn("Permission denied for target owner notifications. User may not have access.");
+            queryLoadedFlags.targetOwner = true;
+            processNotifications();
+            return; // Don't log as error, just handle gracefully
+          }
           console.error("Error listening to target owner notifications:", error);
           queryLoadedFlags.targetOwner = true;
           processNotifications();
@@ -494,6 +515,13 @@ export default function NotificationProvider({ children }: NotificationProviderP
           await processSnapshot(snapshot, "targetAdmin");
         },
         (error) => {
+          // Suppress permission-denied errors to prevent uncaught error logs
+          if (error.code === "permission-denied") {
+            console.warn("Permission denied for target admin notifications. User may not have access.");
+            queryLoadedFlags.targetAdmin = true;
+            processNotifications();
+            return; // Don't log as error, just handle gracefully
+          }
           console.error("Error listening to target admin notifications:", error);
           queryLoadedFlags.targetAdmin = true;
           processNotifications();
@@ -548,7 +576,14 @@ export default function NotificationProvider({ children }: NotificationProviderP
           previousPendingIdsRef.current = currentPendingIds;
         },
         (error) => {
+          // Suppress permission-denied errors to prevent uncaught error logs
+          if (error.code === "permission-denied") {
+            console.warn("Permission denied for pending bookings query. User may not have access.");
+            setPendingBookings([]);
+            return; // Don't log as error, just handle gracefully
+          }
           console.error("Error listening to pending bookings:", error);
+          setPendingBookings([]);
         }
       );
     })();

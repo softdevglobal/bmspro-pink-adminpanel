@@ -4,8 +4,8 @@ import Sidebar from "@/components/Sidebar";
 import { useRouter } from "next/navigation";
 import { auth, db } from "@/lib/firebase";
 import { onAuthStateChanged } from "firebase/auth";
-import { doc, getDoc } from "firebase/firestore";
-import { BranchInput, BranchLocation, createBranchForOwner, subscribeBranchesForOwner } from "@/lib/branches";
+import { doc, getDoc, collection, query, where, getDocs } from "firebase/firestore";
+import { BranchInput, BranchLocation, createBranchForOwner, subscribeBranchesForOwner, syncOwnerBranchCount } from "@/lib/branches";
 import { subscribeSalonStaffForOwner } from "@/lib/salonStaff";
 import { subscribeServicesForOwner } from "@/lib/services";
 import { TIMEZONES } from "@/lib/timezone";
@@ -98,6 +98,14 @@ export default function BranchesPage() {
   // Location state for geofencing
   const [branchLocation, setBranchLocation] = useState<BranchLocation | null>(null);
   const [allowedCheckInRadius, setAllowedCheckInRadius] = useState(DEFAULT_CHECK_IN_RADIUS);
+  
+  // Branch limit state
+  const [ownerData, setOwnerData] = useState<{
+    branchLimit?: number;
+    plan?: string;
+  } | null>(null);
+  const [showBranchLimitModal, setShowBranchLimitModal] = useState(false);
+  const [pendingBranchData, setPendingBranchData] = useState<BranchInput | null>(null);
 
   // seed defaults (only used when no data in db; not persisted)
   const defaultBranches: Branch[] = useMemo(() => [], []);
@@ -128,8 +136,105 @@ export default function BranchesPage() {
         }
         if (r === "salon_owner") {
           setOwnerUid(user.uid);
+          // Store owner's subscription data for branch limit checking
+          // Always fetch from subscription plan to get the latest branch limit
+          let branchLimit: number | undefined;
+          
+          // Try to fetch from subscription plan by planId first
+          if (userData?.planId) {
+            try {
+              const planDoc = await getDoc(doc(db, "subscription_plans", userData.planId));
+              if (planDoc.exists()) {
+                const planData = planDoc.data();
+                branchLimit = planData?.branches;
+                console.log("Fetched plan data from planId:", { branchLimit, planName: planData?.name });
+              }
+            } catch (e) {
+              console.error("Error fetching plan data:", e);
+            }
+          }
+          
+          // If no planId or fetch failed, try to find plan by name
+          if (branchLimit === undefined && userData?.plan) {
+            try {
+              const plansQuery = query(
+                collection(db, "subscription_plans"),
+                where("name", "==", userData.plan)
+              );
+              const plansSnapshot = await getDocs(plansQuery);
+              if (!plansSnapshot.empty) {
+                const planData = plansSnapshot.docs[0].data();
+                branchLimit = planData?.branches;
+                console.log("Fetched plan data from plan name:", { branchLimit, planName: planData?.name });
+              }
+            } catch (e) {
+              console.error("Error fetching plan by name:", e);
+            }
+          }
+          
+          // Fallback to user's stored branchLimit or default to 1
+          if (branchLimit === undefined) {
+            branchLimit = userData?.branchLimit || 1;
+          }
+          
+          console.log("Final ownerData:", { branchLimit, plan: userData?.plan, planId: userData?.planId });
+          
+          setOwnerData({
+            branchLimit: branchLimit,
+            plan: userData?.plan,
+          });
         } else {
           setOwnerUid(userData?.ownerUid || null);
+          // Fetch owner's subscription data for branch admin
+          if (userData?.ownerUid) {
+            const ownerSnap = await getDoc(doc(db, "users", userData.ownerUid));
+            const ownerUserData = ownerSnap.data();
+            
+            // Always fetch from subscription plan to get the latest branch limit
+            let branchLimit: number | undefined;
+            
+            // Try to fetch from subscription plan by planId first
+            if (ownerUserData?.planId) {
+              try {
+                const planDoc = await getDoc(doc(db, "subscription_plans", ownerUserData.planId));
+                if (planDoc.exists()) {
+                  const planData = planDoc.data();
+                  branchLimit = planData?.branches;
+                  console.log("Fetched plan data from planId (branch admin):", { branchLimit, planName: planData?.name });
+                }
+              } catch (e) {
+                console.error("Error fetching plan data:", e);
+              }
+            }
+            
+            // If no planId or fetch failed, try to find plan by name
+            if (branchLimit === undefined && ownerUserData?.plan) {
+              try {
+                const plansQuery = query(
+                  collection(db, "subscription_plans"),
+                  where("name", "==", ownerUserData.plan)
+                );
+                const plansSnapshot = await getDocs(plansQuery);
+                if (!plansSnapshot.empty) {
+                  const planData = plansSnapshot.docs[0].data();
+                  branchLimit = planData?.branches;
+                  console.log("Fetched plan data from plan name (branch admin):", { branchLimit, planName: planData?.name });
+                }
+              } catch (e) {
+                console.error("Error fetching plan by name:", e);
+              }
+            }
+            
+            // Fallback to owner's stored branchLimit or default to 1
+            if (branchLimit === undefined) {
+              branchLimit = ownerUserData?.branchLimit || 1;
+            }
+            
+            setOwnerData({
+              branchLimit: branchLimit,
+              plan: ownerUserData?.plan,
+            });
+          }
         }
       } catch {
         router.replace("/login");
@@ -192,6 +297,36 @@ export default function BranchesPage() {
     return () => unsub();
   }, [ownerUid, defaultBranches, role, router, currentUserUid]);
 
+  // Sync branch count if it doesn't match (for existing users with incorrect counts)
+  useEffect(() => {
+    if (!ownerUid || role !== "salon_owner") return;
+    
+    // Use a timeout to ensure branches are loaded
+    const timeoutId = setTimeout(() => {
+      const syncCount = async () => {
+        try {
+          const userDoc = await getDoc(doc(db, "users", ownerUid));
+          const userData = userDoc.data();
+          const storedCount = userData?.currentBranchCount ?? 0;
+          const actualCount = branches.length;
+          
+          if (storedCount !== actualCount) {
+            // Count is incorrect, sync it
+            console.log(`Branch count mismatch detected: stored=${storedCount}, actual=${actualCount}. Syncing...`);
+            await syncOwnerBranchCount(ownerUid);
+            console.log(`✅ Synced branch count for ${ownerUid}: ${storedCount} → ${actualCount}`);
+          }
+        } catch (e) {
+          console.error("Failed to sync branch count:", e);
+        }
+      };
+      
+      syncCount();
+    }, 1000); // Wait 1 second for branches to load
+    
+    return () => clearTimeout(timeoutId);
+  }, [ownerUid, role, branches.length]);
+
   // Real-time services and staff lists for assignment checklists
   useEffect(() => {
     if (!ownerUid) return;
@@ -223,6 +358,17 @@ export default function BranchesPage() {
   const saveData = (next: Branch[]) => setBranches(next);
 
   const openModal = () => {
+    // Check branch limit before opening modal
+    const branchLimit = ownerData?.branchLimit || 1;
+    const currentBranchCount = branches.length;
+
+    // If at or exceeding limit, show upgrade modal
+    if (currentBranchCount >= branchLimit && branchLimit !== -1) {
+      setShowBranchLimitModal(true);
+      return;
+    }
+
+    // Otherwise, open the branch creation modal directly
     setEditingId(null);
     setName("");
     setAddress("");
@@ -288,50 +434,92 @@ export default function BranchesPage() {
     setIsModalOpen(true);
   };
 
-  const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
-    e.preventDefault();
-    if (!name.trim() || !address.trim() || !ownerUid) return;
+  // Helper to build branch payload
+  const buildBranchPayload = (): BranchInput => {
+    let derivedManager: string | undefined = undefined;
+    let derivedEmail: string | undefined = undefined;
+    if (adminStaffId) {
+      const st = staffOptions.find((s) => s.id === adminStaffId);
+      if (st) {
+        derivedManager = st.name;
+        derivedEmail = st.email;
+      }
+    }
+
+    return {
+      name: name.trim(),
+      address: branchLocation?.formattedAddress || address.trim(),
+      phone: phone.trim() || undefined,
+      email: derivedEmail,
+      timezone: timezone || "Australia/Sydney",
+      staffIds: Object.keys(selectedStaffIds).filter((id) => selectedStaffIds[id]),
+      serviceIds: Object.keys(selectedServiceIds).filter((id) => selectedServiceIds[id]),
+      hours: hoursObj,
+      capacity: typeof capacity === "number" ? capacity : capacity === "" ? undefined : Number(capacity),
+      manager: derivedManager,
+      adminStaffId: adminStaffId || null,
+      status,
+      location: branchLocation || undefined,
+      allowedCheckInRadius: allowedCheckInRadius,
+    };
+  };
+
+  // Execute branch creation (after limit check or confirmation)
+  const executeBranchCreation = async (payload: BranchInput, managerName?: string) => {
+    if (!ownerUid) return;
     setSaving(true);
     try {
-      // Derive manager and email from adminStaffId if present
-      let derivedManager: string | undefined = undefined;
-      let derivedEmail: string | undefined = undefined;
-      if (adminStaffId) {
-        const st = staffOptions.find((s) => s.id === adminStaffId);
-        if (st) {
-          derivedManager = st.name;
-          derivedEmail = st.email;
-        }
-      }
-
-      const payload: BranchInput = {
-        name: name.trim(),
-        address: branchLocation?.formattedAddress || address.trim(),
-        phone: phone.trim() || undefined,
-        email: derivedEmail,
-        timezone: timezone || "Australia/Sydney", // Include timezone
-        staffIds: Object.keys(selectedStaffIds).filter((id) => selectedStaffIds[id]),
-        serviceIds: Object.keys(selectedServiceIds).filter((id) => selectedServiceIds[id]),
-        hours: hoursObj,
-        capacity: typeof capacity === "number" ? capacity : capacity === "" ? undefined : Number(capacity),
-        manager: derivedManager,
-        adminStaffId: adminStaffId || null,
-        status,
-        // Geolocation data for staff check-in
-        location: branchLocation || undefined,
-        allowedCheckInRadius: allowedCheckInRadius,
-      };
-      if (editingId) {
-        await (await import("@/lib/branches")).updateBranch(editingId, payload, derivedManager);
-      } else {
-        await createBranchForOwner(ownerUid, payload, derivedManager);
-      }
+      await createBranchForOwner(ownerUid, payload, managerName);
       setIsModalOpen(false);
+      setShowBranchLimitModal(false);
+      setPendingBranchData(null);
     } catch (err) {
       console.error("Failed to create branch", err);
     } finally {
       setSaving(false);
     }
+  };
+
+  const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
+    if (!name.trim() || !address.trim() || !ownerUid) return;
+    
+    const payload = buildBranchPayload();
+    const managerName = adminStaffId ? staffOptions.find((s) => s.id === adminStaffId)?.name : undefined;
+
+    if (editingId) {
+      // Editing existing branch - no limit check needed
+      setSaving(true);
+      try {
+        await (await import("@/lib/branches")).updateBranch(editingId, payload, managerName);
+        setIsModalOpen(false);
+      } catch (err) {
+        console.error("Failed to update branch", err);
+      } finally {
+        setSaving(false);
+      }
+    } else {
+      // Creating new branch - check branch limit
+      const branchLimit = ownerData?.branchLimit || 1;
+      const currentBranchCount = branches.length;
+
+      // Check if exceeding branch limit
+      if (currentBranchCount >= branchLimit && branchLimit !== -1) {
+        // Show upgrade modal
+        setShowBranchLimitModal(true);
+        return;
+      }
+      
+      // Within limit - proceed directly
+      await executeBranchCreation(payload, managerName);
+    }
+  };
+
+  // Navigate to subscription page to upgrade package
+  const handleUpgradePackage = () => {
+    setShowBranchLimitModal(false);
+    setPendingBranchData(null);
+    router.push("/subscription");
   };
 
   return (
@@ -388,73 +576,118 @@ export default function BranchesPage() {
               )}
             </div>
 
+            {/* Branch Limit Info Banner */}
+            {role === "salon_owner" && ownerData && (
+              <div className="mb-6 bg-gradient-to-r from-pink-50 to-purple-50 border border-pink-200 rounded-xl p-4">
+                <div className="flex items-start gap-3">
+                  <div className="w-10 h-10 rounded-lg bg-pink-100 flex items-center justify-center flex-shrink-0">
+                    <i className="fas fa-info-circle text-pink-600" />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <h3 className="font-semibold text-slate-900 mb-2">Branch Limit Information</h3>
+                    <div className="text-sm text-slate-700 space-y-2">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span>
+                          Your <span className="font-semibold text-pink-600">{ownerData.plan || "current plan"}</span> includes{" "}
+                          <span className="font-semibold">{ownerData.branchLimit === -1 ? "unlimited" : `${ownerData.branchLimit || 1}`} branch{(ownerData.branchLimit || 1) > 1 || ownerData.branchLimit === -1 ? "es" : ""}</span>.
+                        </span>
+                        {ownerData.branchLimit !== -1 && (
+                          <span className="px-2 py-1 rounded-full bg-white border border-pink-200 text-xs font-medium">
+                            {branches.length} / {ownerData.branchLimit || 1} used
+                          </span>
+                        )}
+                      </div>
+                      {ownerData.branchLimit !== -1 && branches.length >= (ownerData.branchLimit || 1) && (
+                        <p className="text-slate-600">
+                          <i className="fas fa-arrow-up text-pink-500 mr-1" />
+                          Need more branches? <button onClick={handleUpgradePackage} className="font-semibold text-pink-600 hover:text-pink-700 underline">Upgrade your package</button>
+                        </p>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+
                 <div id="branch-grid" className="grid grid-cols-1 lg:grid-cols-2 gap-6">
               {branches.map((b) => {
                 return (
-                  <div key={b.id} className="bg-white rounded-2xl border border-slate-200 shadow-sm p-6">
-                    <div className="flex items-start justify-between mb-6">
-                      <div className="flex items-center gap-4">
-                        <div className="w-12 h-12 bg-purple-100 text-purple-600 rounded-xl flex items-center justify-center text-xl">
+                  <div key={b.id} className="bg-white rounded-2xl border border-slate-200 shadow-sm p-6 overflow-hidden">
+                    <div className="flex items-start justify-between gap-3 mb-4">
+                      <div className="flex items-center gap-4 min-w-0 flex-1">
+                        <div className="w-12 h-12 bg-purple-100 text-purple-600 rounded-xl flex items-center justify-center text-xl flex-shrink-0">
                           <i className="fas fa-building" />
                         </div>
-                        <div className="min-w-0">
+                        <div className="min-w-0 flex-1">
                           <h3 className="font-bold text-lg text-slate-900 truncate">{b.name}</h3>
-                          <p className="text-sm text-slate-500 truncate">{b.address}</p>
-                          <div className="mt-1 flex items-center gap-2 text-xs text-slate-500">
-                            {b.manager && <span className="inline-flex items-center gap-1"><i className="fas fa-user-tie" /> {b.manager}</span>}
+                          <p className="text-sm text-slate-500 truncate max-w-full" title={b.address}>{b.address}</p>
+                          <div className="mt-1 flex items-center gap-2 text-xs text-slate-500 flex-wrap">
+                            {b.manager && <span className="inline-flex items-center gap-1 truncate"><i className="fas fa-user-tie" /> {b.manager}</span>}
                             {b.status && (
-                              <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full ${b.status === "Active" ? "bg-emerald-50 text-emerald-700" : b.status === "Pending" ? "bg-amber-50 text-amber-700" : "bg-rose-50 text-rose-700"}`}>
-                                <i className="fas fa-circle" />
+                              <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full flex-shrink-0 ${b.status === "Active" ? "bg-emerald-50 text-emerald-700" : b.status === "Pending" ? "bg-amber-50 text-amber-700" : "bg-rose-50 text-rose-700"}`}>
+                                <i className="fas fa-circle text-[6px]" />
                                 {b.status}
                               </span>
                             )}
                           </div>
                         </div>
                       </div>
-                      <div className="flex items-center gap-3 text-slate-400">
-                        <button onClick={() => router.push(`/branches/${b.id}`)} title="Preview" className="hover:text-slate-600">
+                      <div className="flex items-center gap-2 text-slate-400 flex-shrink-0">
+                        <button onClick={() => router.push(`/branches/${b.id}`)} title="Preview" className="w-8 h-8 rounded-lg hover:bg-slate-100 hover:text-slate-600 flex items-center justify-center transition-colors">
                           <i className="fas fa-eye" />
                         </button>
                         {role === "salon_owner" && (
-                          <button onClick={() => openEditModal(b)} title="Edit" className="hover:text-blue-600">
+                          <button onClick={() => openEditModal(b)} title="Edit" className="w-8 h-8 rounded-lg hover:bg-blue-50 hover:text-blue-600 flex items-center justify-center transition-colors">
                             <i className="fas fa-pen" />
                           </button>
                         )}
                         {role === "salon_owner" && (
-                          <button onClick={() => setDeleteTarget(b)} title="Delete" className="hover:text-rose-600">
+                          <button onClick={() => setDeleteTarget(b)} title="Delete" className="w-8 h-8 rounded-lg hover:bg-rose-50 hover:text-rose-600 flex items-center justify-center transition-colors">
                             <i className="fas fa-trash" />
                           </button>
                         )}
                       </div>
                     </div>
-                        {/* Location & Contact Info */}
-                        <div className="mt-4 pt-4 border-t border-slate-100">
-                          <div className="flex flex-wrap items-center gap-2 text-xs">
-                            {/* Geofencing Status */}
-                            {b.location?.latitude && b.location?.longitude ? (
-                              <span className="inline-flex items-center gap-1 px-2 py-1 rounded-full bg-emerald-50 text-emerald-700">
-                                <i className="fas fa-map-marker-alt" />
-                                Geofencing: {b.allowedCheckInRadius || 100}m
-                              </span>
-                            ) : (
-                              <span className="inline-flex items-center gap-1 px-2 py-1 rounded-full bg-amber-50 text-amber-700">
-                                <i className="fas fa-map-marker-alt" />
-                                No location set
-                              </span>
-                            )}
-                            {b.phone && (
-                              <span className="inline-flex items-center gap-1 text-slate-500">
-                                <i className="fas fa-phone" /> {b.phone}
-                              </span>
-                            )}
-                          </div>
-                        </div>
+                    {/* Location & Contact Info */}
+                    <div className="pt-4 border-t border-slate-100">
+                      <div className="flex flex-wrap items-center gap-2 text-xs">
+                        {/* Geofencing Status */}
+                        {b.location?.latitude && b.location?.longitude ? (
+                          <span className="inline-flex items-center gap-1 px-2 py-1 rounded-full bg-emerald-50 text-emerald-700">
+                            <i className="fas fa-map-marker-alt" />
+                            Geofencing: {b.allowedCheckInRadius || 100}m
+                          </span>
+                        ) : (
+                          <span className="inline-flex items-center gap-1 px-2 py-1 rounded-full bg-amber-50 text-amber-700">
+                            <i className="fas fa-map-marker-alt" />
+                            No location set
+                          </span>
+                        )}
+                        {b.phone && (
+                          <span className="inline-flex items-center gap-1 text-slate-500">
+                            <i className="fas fa-phone" /> {b.phone}
+                          </span>
+                        )}
+                      </div>
+                    </div>
                   </div>
                 );
               })}
               {branches.length === 0 && (
-                <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-6 text-slate-500">
-                  No branches yet. Use “Add Branch” to create one.
+                <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-8 text-center">
+                  <div className="w-16 h-16 bg-slate-100 rounded-full flex items-center justify-center mx-auto mb-4">
+                    <i className="fas fa-store text-3xl text-slate-400" />
+                  </div>
+                  <h3 className="text-lg font-semibold text-slate-900 mb-2">No branches yet</h3>
+                  <p className="text-slate-600 mb-4">Use "Add Branch" to create your first branch.</p>
+                  {role === "salon_owner" && ownerData && (
+                    <div className="mt-4 pt-4 border-t border-slate-200">
+                      <p className="text-sm text-slate-500 mb-2">
+                        Your <span className="font-semibold text-pink-600">{ownerData.plan || "current plan"}</span> includes{" "}
+                        <span className="font-semibold">{ownerData.branchLimit === -1 ? "unlimited" : `${ownerData.branchLimit || 1}`} branch{(ownerData.branchLimit || 1) > 1 || ownerData.branchLimit === -1 ? "es" : ""}</span>.
+                      </p>
+                    </div>
+                  )}
                 </div>
               )}
             </div>
@@ -971,6 +1204,98 @@ export default function BranchesPage() {
                   ) : (
                     "Delete"
                   )}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Upgrade Package Modal */}
+      {showBranchLimitModal && (
+        <div className="fixed inset-0 z-50">
+          <div className="absolute inset-0 bg-black/50" onClick={() => {
+            setShowBranchLimitModal(false);
+            setPendingBranchData(null);
+          }} />
+          <div className="relative flex items-center justify-center min-h-screen p-4">
+            <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden">
+              {/* Header */}
+              <div className="p-5 border-b border-slate-100 bg-gradient-to-r from-purple-500 to-indigo-600">
+                <div className="flex items-center gap-3">
+                  <div className="w-12 h-12 rounded-full bg-white/20 flex items-center justify-center">
+                    <i className="fa-solid fa-arrow-up-right-dots text-white text-xl" />
+                  </div>
+                  <div>
+                    <h3 className="font-bold text-white text-lg">Upgrade Your Package</h3>
+                    <p className="text-purple-100 text-sm">Unlock more branches for your business</p>
+                  </div>
+                </div>
+              </div>
+
+              {/* Content */}
+              <div className="p-5">
+                <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 mb-4">
+                  <div className="flex items-start gap-3">
+                    <div className="w-8 h-8 rounded-full bg-amber-100 flex items-center justify-center flex-shrink-0">
+                      <i className="fa-solid fa-exclamation-triangle text-amber-600" />
+                    </div>
+                    <div>
+                      <p className="text-sm text-amber-800 font-medium">Branch Limit Reached</p>
+                      <p className="text-sm text-amber-700 mt-1">
+                        You currently have <span className="font-semibold">{branches.length} branch{branches.length > 1 ? 'es' : ''}</span>, which is the maximum included in your <span className="font-semibold">{ownerData?.plan || 'current'}</span> plan.
+                      </p>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="bg-gradient-to-br from-purple-50 to-indigo-50 rounded-xl p-4 border border-purple-200">
+                  <div className="flex items-center gap-3 mb-3">
+                    <div className="w-10 h-10 rounded-lg bg-purple-100 flex items-center justify-center">
+                      <i className="fa-solid fa-crown text-purple-600" />
+                    </div>
+                    <div>
+                      <p className="font-semibold text-slate-900">Need More Branches?</p>
+                      <p className="text-xs text-slate-500">Upgrade to a higher tier package</p>
+                    </div>
+                  </div>
+                  <ul className="space-y-2 text-sm text-slate-600">
+                    <li className="flex items-center gap-2">
+                      <i className="fa-solid fa-check text-purple-500 text-xs" />
+                      <span>More branch locations</span>
+                    </li>
+                    <li className="flex items-center gap-2">
+                      <i className="fa-solid fa-check text-purple-500 text-xs" />
+                      <span>Additional staff members</span>
+                    </li>
+                    <li className="flex items-center gap-2">
+                      <i className="fa-solid fa-check text-purple-500 text-xs" />
+                      <span>Premium features included</span>
+                    </li>
+                  </ul>
+                </div>
+              </div>
+
+              {/* Actions */}
+              <div className="px-5 pb-5 flex items-center gap-3">
+                <button
+                  onClick={() => {
+                    setShowBranchLimitModal(false);
+                    setPendingBranchData(null);
+                  }}
+                  disabled={saving}
+                  className="flex-1 px-4 py-2.5 rounded-xl border border-slate-300 text-slate-700 font-medium hover:bg-slate-50 disabled:opacity-60 transition-colors"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={handleUpgradePackage}
+                  disabled={saving}
+                  className="flex-1 px-4 py-2.5 rounded-xl bg-gradient-to-r from-purple-500 to-indigo-600 text-white font-medium hover:from-purple-600 hover:to-indigo-700 disabled:opacity-60 transition-all shadow-lg shadow-purple-500/25 whitespace-nowrap"
+                >
+                  <span className="inline-flex items-center justify-center gap-2">
+                    <i className="fa-solid fa-arrow-up" /> <span>View Upgrade Options</span>
+                  </span>
                 </button>
               </div>
             </div>

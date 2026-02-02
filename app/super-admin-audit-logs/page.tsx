@@ -654,6 +654,36 @@ export default function SuperAdminAuditLogsPage() {
                   </div>
                 )}
 
+                {/* Metadata - Salon/Branch Info */}
+                {previewLog.metadata && (previewLog.metadata.salonName || previewLog.metadata.branchName || previewLog.metadata.originalEntityType) && (
+                  <div className="bg-pink-50 rounded-xl p-4 border-2 border-pink-200">
+                    <h5 className="font-semibold text-sm text-slate-900 mb-3 flex items-center gap-2">
+                      <i className="fas fa-store text-pink-600" />
+                      Salon Activity Details
+                    </h5>
+                    <div className="space-y-2 text-sm">
+                      {previewLog.metadata.salonName && (
+                        <div className="flex justify-between">
+                          <span className="text-slate-500">Salon Name</span>
+                          <span className="font-medium text-pink-700">{previewLog.metadata.salonName}</span>
+                        </div>
+                      )}
+                      {previewLog.metadata.originalEntityType && (
+                        <div className="flex justify-between">
+                          <span className="text-slate-500">Activity Type</span>
+                          <span className="font-medium text-slate-900 capitalize">{previewLog.metadata.originalEntityType}</span>
+                        </div>
+                      )}
+                      {previewLog.metadata.branchName && (
+                        <div className="flex justify-between">
+                          <span className="text-slate-500">Branch</span>
+                          <span className="font-medium text-slate-900">{previewLog.metadata.branchName}</span>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
+
               </div>
 
               {/* Footer */}
