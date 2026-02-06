@@ -6,6 +6,7 @@ import { createUserWithEmailAndPassword } from "firebase/auth";
 import { doc, setDoc, serverTimestamp } from "firebase/firestore";
 import { auth, db } from "@/lib/firebase";
 import { TIMEZONES } from "@/lib/timezone";
+import { generateUniqueSlug } from "@/lib/slug";
 
 interface Package {
   id: string;
@@ -239,6 +240,11 @@ export default function SignupPage() {
       const trialStart = hasFreeTrial ? now : null;
       const trialEnd = hasFreeTrial ? new Date(now.getTime() + trialDays * 24 * 60 * 60 * 1000) : null;
 
+      // Generate unique slug for booking engine URL
+      const slug = await generateUniqueSlug(formBusinessName.trim());
+      const bookingEngineBaseUrl = process.env.NEXT_PUBLIC_BOOKING_ENGINE_URL || "https://pink.bmspros.com.au/book-now";
+      const bookingEngineUrl = `${bookingEngineBaseUrl}/${slug}`;
+
       // Create Firestore document (user is now authenticated)
       const newTenantRef = doc(db, "users", ownerUid);
       await setDoc(newTenantRef, {
@@ -250,6 +256,8 @@ export default function SignupPage() {
         uid: ownerUid,
         // Business fields
         name: formBusinessName.trim(),
+        slug, // URL-friendly name for booking engine (e.g., "abc-salon")
+        bookingEngineUrl, // Full booking engine link (e.g., "https://pink.bmspros.com.au/book-now/abc-salon")
         businessType: formBusinessType || null,
         abn: formAbn.replace(/\s/g, '').trim() || null,
         businessStructure: formStructure || null,
@@ -305,6 +313,7 @@ export default function SignupPage() {
             planPrice: selectedPackage.priceLabel,
             paymentUrl: paymentUrl,
             trialDays: trialDays,
+            bookingEngineUrl: bookingEngineUrl, // Booking engine link for the email
             // Additional fields for admin notification
             businessType: businessTypeLabel,
             state: formState || undefined,

@@ -14,6 +14,7 @@ export async function POST(req: NextRequest) {
       planPrice, 
       paymentUrl, 
       trialDays,
+      bookingEngineUrl,
       // Additional fields for admin notification
       businessType,
       state,
@@ -38,7 +39,8 @@ export async function POST(req: NextRequest) {
       planName,
       planPrice,
       paymentUrl,
-      trialDays
+      trialDays,
+      bookingEngineUrl
     );
     
     if (!result.success) {

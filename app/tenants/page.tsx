@@ -7,6 +7,7 @@ import { collection, onSnapshot, orderBy, query, addDoc, serverTimestamp, doc, g
 import { initializeApp, getApp } from "firebase/app";
 import { getAuth, createUserWithEmailAndPassword, signOut as signOutSecondary, onAuthStateChanged } from "firebase/auth";
 import { TIMEZONES } from "@/lib/timezone";
+import { generateUniqueSlug } from "@/lib/slug";
 import { 
   logTenantOnboarded, 
   logTenantDetailsUpdated, 
@@ -112,6 +113,8 @@ type TenantDoc = {
   contactPhone?: string;
   businessStructure?: string;
   gstRegistered?: boolean;
+  slug?: string;
+  bookingEngineUrl?: string;
   createdAt?: any;
   updatedAt?: any;
 };
@@ -307,6 +310,11 @@ export default function TenantsPage() {
       const trialStart = hasFreeTrial ? now : null;
       const trialEnd = hasFreeTrial ? new Date(now.getTime() + trialDays * 24 * 60 * 60 * 1000) : null;
 
+      // Generate unique slug for booking engine URL
+      const slug = await generateUniqueSlug(formBusinessName.trim());
+      const bookingEngineBaseUrl = process.env.NEXT_PUBLIC_BOOKING_ENGINE_URL || "https://pink.bmspros.com.au/book-now";
+      const bookingEngineUrl = `${bookingEngineBaseUrl}/${slug}`;
+
       // Create Firestore document with Auth UID as document ID
       // If free trial: user starts active and can use system without card details
       // If no trial: user must enter payment details to activate
@@ -320,6 +328,8 @@ export default function TenantsPage() {
         uid: ownerUid,
         // business fields
         name: formBusinessName.trim(),
+        slug, // URL-friendly name for booking engine (e.g., "abc-salon")
+        bookingEngineUrl, // Full booking engine link (e.g., "https://pink.bmspros.com.au/book-now/abc-salon")
         abn: formAbn.trim() || null,
         state: formState || null,
         timezone: formTimezone || "Australia/Sydney",
@@ -374,8 +384,8 @@ export default function TenantsPage() {
             planName: planLabel,
             planPrice: price,
             paymentUrl: paymentUrl, // Link to subscription page for payment
-            // Trial info (trial starts after entering payment details)
             trialDays: trialDays,
+            bookingEngineUrl: bookingEngineUrl, // Booking engine link for the email
           }),
         });
 
@@ -1019,6 +1029,41 @@ export default function TenantsPage() {
                     </div>
                   </div>
                 </div>
+
+                {/* Booking Engine Link */}
+                {previewTenant.data.bookingEngineUrl && (
+                  <div className="bg-gradient-to-r from-purple-50 to-indigo-50 border border-purple-200 rounded-xl p-4 shadow-sm">
+                    <div className="flex items-center gap-3">
+                      <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-purple-500 to-indigo-600 flex items-center justify-center shadow-lg shadow-purple-500/20">
+                        <i className="fas fa-globe text-white" />
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <div className="text-xs text-purple-600 font-semibold mb-0.5">
+                          Booking Engine URL
+                        </div>
+                        <a
+                          href={previewTenant.data.bookingEngineUrl}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="text-indigo-700 font-medium text-sm hover:text-indigo-900 underline truncate block"
+                        >
+                          {previewTenant.data.bookingEngineUrl}
+                        </a>
+                      </div>
+                      <button
+                        className="flex-shrink-0 px-3 py-1.5 bg-purple-600 hover:bg-purple-700 text-white text-xs font-semibold rounded-lg shadow-sm transition-colors"
+                        onClick={() => {
+                          navigator.clipboard.writeText(previewTenant.data.bookingEngineUrl || "");
+                          alert("Booking link copied to clipboard!");
+                        }}
+                        title="Copy link"
+                      >
+                        <i className="fas fa-copy mr-1" />
+                        Copy
+                      </button>
+                    </div>
+                  </div>
+                )}
 
                 {/* Business Details */}
                 <div>

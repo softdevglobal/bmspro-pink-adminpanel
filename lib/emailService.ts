@@ -603,7 +603,8 @@ function generateWelcomeEmailHTML(
   planName?: string,
   planPrice?: string,
   paymentUrl?: string,
-  trialDays?: number
+  trialDays?: number,
+  bookingEngineUrl?: string
 ): string {
   const loginUrl = process.env.NEXT_PUBLIC_APP_URL || "https://pink.bmspros.com.au";
   const hasFreeTrial = trialDays && trialDays > 0;
@@ -758,6 +759,36 @@ function generateWelcomeEmailHTML(
             </td>
           </tr>
           
+          ${bookingEngineUrl ? `
+          <!-- Booking Engine Link -->
+          <tr>
+            <td style="padding: 0 40px 30px;">
+              <div style="background: linear-gradient(135deg, #ede9fe 0%, #ddd6fe 100%); border: 2px solid #7c3aed; border-radius: 10px; padding: 25px; text-align: center;">
+                <div style="font-size: 40px; margin-bottom: 12px; line-height: 1;">🌐</div>
+                <h3 style="margin: 0 0 10px; color: #4c1d95; font-size: 18px; font-weight: 700;">Your Online Booking Page is Live!</h3>
+                <p style="margin: 0 0 20px; color: #5b21b6; font-size: 14px; line-height: 1.6;">
+                  Share this link with your clients so they can book appointments 24/7
+                </p>
+                <table cellpadding="0" cellspacing="0" border="0" align="center" style="margin: 0 auto 15px;">
+                  <tr>
+                    <td align="center" style="background: linear-gradient(135deg, #7c3aed 0%, #6d28d9 100%); padding: 14px 36px; border-radius: 8px;">
+                      <a href="${bookingEngineUrl}" style="color: #ffffff; text-decoration: none; font-weight: 700; font-size: 15px;">Open Booking Page</a>
+                    </td>
+                  </tr>
+                </table>
+                <p style="margin: 0; color: #6d28d9; font-size: 13px; word-break: break-all;">
+                  <a href="${bookingEngineUrl}" style="color: #6d28d9; text-decoration: underline;">${bookingEngineUrl}</a>
+                </p>
+                <div style="background-color: rgba(255,255,255,0.6); border-radius: 8px; padding: 12px 16px; margin-top: 15px;">
+                  <p style="margin: 0; color: #5b21b6; font-size: 12px; line-height: 1.5;">
+                    <strong>Tip:</strong> Add this link to your Instagram bio, Facebook page, Google Business listing, and business cards to get more bookings!
+                  </p>
+                </div>
+              </div>
+            </td>
+          </tr>
+          ` : ''}
+
           <!-- Next Steps -->
           <tr>
             <td style="padding: 0 40px 30px;">
@@ -829,7 +860,8 @@ export async function sendSalonOwnerWelcomeEmail(
   planName?: string,
   planPrice?: string,
   paymentUrl?: string,
-  trialDays?: number
+  trialDays?: number,
+  bookingEngineUrl?: string
 ): Promise<{ success: boolean; error?: string }> {
   console.log(`[EMAIL] Attempting to send welcome email to salon owner: ${salonOwnerEmail}`);
   
@@ -853,7 +885,7 @@ export async function sendSalonOwnerWelcomeEmail(
   }
   
   try {
-    const html = generateWelcomeEmailHTML(email, password, businessName, planName, planPrice, paymentUrl, trialDays);
+    const html = generateWelcomeEmailHTML(email, password, businessName, planName, planPrice, paymentUrl, trialDays, bookingEngineUrl);
     const hasFreeTrial = trialDays && trialDays > 0;
     const subject = hasFreeTrial
       ? `Welcome to BMS PRO PINK - Your ${trialDays}-Day Free Trial is Active!`
