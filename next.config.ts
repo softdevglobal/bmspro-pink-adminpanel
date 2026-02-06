@@ -48,6 +48,18 @@ const nextConfig: NextConfig = {
   },
   // Add empty turbopack config to allow webpack usage
   turbopack: {},
+  // Rewrite /book-now/* to the Booking Engine app (same domain strategy)
+  // Local dev: booking engine on localhost:3002
+  // Production: set BOOKING_ENGINE_URL env var to the booking engine deployment URL
+  async rewrites() {
+    const bookingEngineUrl = process.env.BOOKING_ENGINE_URL || "http://localhost:3002";
+    return [
+      {
+        source: "/book-now/:slug*",
+        destination: `${bookingEngineUrl}/:slug*`,
+      },
+    ];
+  },
   // Security headers are now handled in middleware.ts with full CSP support
   // This section provides fallback headers for static assets
   async headers() {
