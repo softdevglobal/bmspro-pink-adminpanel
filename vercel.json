@@ -1,4 +1,10 @@
 {
+  "rewrites": [
+    {
+      "source": "/book-now/:path*",
+      "destination": "https://bmspro-pink-booking-engine.vercel.app/book-now/:path*"
+    }
+  ],
   "crons": [
     {
       "path": "/api/trial/check-expiration",
