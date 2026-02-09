@@ -25,6 +25,7 @@ interface PaymentInfo {
   planPrice?: string;
   planId?: string;
   trialDays?: number;
+  accountStatus?: string;
 }
 
 interface OwnerAccountBlockedInfo {
@@ -171,13 +172,14 @@ export default function AuthGuard({ children }: AuthGuardProps) {
                   }
                 }
                 
-                console.log("[AuthGuard] SHOWING PAYMENT MODAL with planId:", userData.planId, "trialDays:", trialDays);
+                console.log("[AuthGuard] SHOWING PAYMENT MODAL with planId:", userData.planId, "trialDays:", trialDays, "accountStatus:", accountStatus);
                 setPaymentInfo({
                   required: true,
                   planName: userData.plan || undefined,
                   planPrice: userData.price || undefined,
                   planId: userData.planId || undefined,
                   trialDays: trialDays,
+                  accountStatus: accountStatus,
                 });
               } else {
                 setPaymentInfo({ required: false });
@@ -334,6 +336,7 @@ export default function AuthGuard({ children }: AuthGuardProps) {
         planPrice={paymentInfo.planPrice}
         planId={paymentInfo.planId}
         trialDays={paymentInfo.trialDays}
+        accountStatus={paymentInfo.accountStatus}
       />
     </>
   );

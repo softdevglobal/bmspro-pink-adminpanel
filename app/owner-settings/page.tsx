@@ -29,6 +29,15 @@ type UserData = {
   termsAndConditions?: string;
 };
 
+// Format ABN as XX XXX XXX XXX
+const formatAbn = (value: string) => {
+  const digits = value.replace(/\D/g, '').slice(0, 11);
+  if (digits.length <= 2) return digits;
+  if (digits.length <= 5) return `${digits.slice(0, 2)} ${digits.slice(2)}`;
+  if (digits.length <= 8) return `${digits.slice(0, 2)} ${digits.slice(2, 5)} ${digits.slice(5)}`;
+  return `${digits.slice(0, 2)} ${digits.slice(2, 5)} ${digits.slice(5, 8)} ${digits.slice(8)}`;
+};
+
 export default function OwnerSettingsPage() {
   const router = useRouter();
   const [mobileOpen, setMobileOpen] = useState(false);
@@ -116,7 +125,7 @@ export default function OwnerSettingsPage() {
         
         // Initialize form fields - use locationText for address and contactPhone for phone
         setSalonName(userData.name);
-        setAbn(userData.abn || "");
+        setAbn(formatAbn(userData.abn || ""));
         setAddress(userData.locationText || userData.address || "");
         setPhone(userData.contactPhone || userData.phone || "");
         setTimezone(userData.timezone || "Australia/Sydney");
@@ -140,13 +149,13 @@ export default function OwnerSettingsPage() {
       await updateDoc(doc(db, "users", userData.uid), {
         name: salonName,
         displayName: salonName,
-        abn: abn,
+        abn: abn.replace(/\s/g, '').trim() || null,
         locationText: address,
         contactPhone: phone,
         timezone: timezone,
         updatedAt: serverTimestamp(),
       });
-      setUserData({ ...userData, name: salonName, abn, address, locationText: address, phone, contactPhone: phone, timezone });
+      setUserData({ ...userData, name: salonName, abn: abn.replace(/\s/g, '').trim() || "", address, locationText: address, phone, contactPhone: phone, timezone });
       showToast("Profile saved successfully!");
     } catch (error) {
       console.error("Error saving profile:", error);
@@ -487,10 +496,11 @@ export default function OwnerSettingsPage() {
                       <div>
                         <label className="block text-sm font-medium text-slate-700 mb-2">ABN</label>
                         <input 
-                          className="w-full px-4 py-3 border border-slate-300 rounded-lg focus:ring-2 focus:ring-pink-500 focus:border-transparent" 
+                          className="w-full px-4 py-3 border border-slate-300 rounded-lg focus:ring-2 focus:ring-pink-500 focus:border-transparent font-mono tracking-wide" 
                           placeholder="00 000 000 000"
+                          maxLength={14}
                           value={abn}
-                          onChange={(e) => setAbn(e.target.value)}
+                          onChange={(e) => setAbn(formatAbn(e.target.value))}
                         />
                       </div>
                       <div>

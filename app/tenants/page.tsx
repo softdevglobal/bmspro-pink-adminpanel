@@ -119,6 +119,15 @@ type TenantDoc = {
   updatedAt?: any;
 };
 
+// Format ABN as XX XXX XXX XXX
+const formatAbn = (value: string) => {
+  const digits = value.replace(/\D/g, '').slice(0, 11);
+  if (digits.length <= 2) return digits;
+  if (digits.length <= 5) return `${digits.slice(0, 2)} ${digits.slice(2)}`;
+  if (digits.length <= 8) return `${digits.slice(0, 2)} ${digits.slice(2, 5)} ${digits.slice(5)}`;
+  return `${digits.slice(0, 2)} ${digits.slice(2, 5)} ${digits.slice(5, 8)} ${digits.slice(8)}`;
+};
+
 export default function TenantsPage() {
   const router = useRouter();
   const [mobileOpen, setMobileOpen] = useState(false);
@@ -330,7 +339,7 @@ export default function TenantsPage() {
         name: formBusinessName.trim(),
         slug, // URL-friendly name for booking engine (e.g., "abc-salon")
         bookingEngineUrl, // Full booking engine link (e.g., "https://pink.bmspros.com.au/book-now/abc-salon")
-        abn: formAbn.trim() || null,
+        abn: formAbn.replace(/\s/g, '').trim() || null,
         state: formState || null,
         timezone: formTimezone || "Australia/Sydney",
         plan: planLabel,
@@ -753,44 +762,49 @@ export default function TenantsPage() {
               </div>
             </div>
             <div className="overflow-x-auto">
-              <table className="w-full">
+              <table className="w-full table-fixed min-w-[1080px]">
                 <thead className="bg-slate-50 border-b border-slate-200">
                   <tr>
-                    <th className="px-6 py-4 text-left text-xs font-semibold text-slate-600 uppercase tracking-wider">
+                    <th className="w-[22%] px-4 py-3 text-left text-xs font-semibold text-slate-600 uppercase tracking-wider">
                       Business Name
                     </th>
-                    <th className="px-6 py-4 text-left text-xs font-semibold text-slate-600 uppercase tracking-wider">
+                    <th className="w-[12%] px-4 py-3 text-left text-xs font-semibold text-slate-600 uppercase tracking-wider">
                       ABN
                     </th>
-                    <th className="px-6 py-4 text-left text-xs font-semibold text-slate-600 uppercase tracking-wider">
-                      Location
+                    <th className="w-[7%] px-4 py-3 text-center text-xs font-semibold text-slate-600 uppercase tracking-wider">
+                      State
                     </th>
-                    <th className="px-6 py-4 text-left text-xs font-semibold text-slate-600 uppercase tracking-wider">
+                    <th className="w-[14%] px-4 py-3 text-left text-xs font-semibold text-slate-600 uppercase tracking-wider">
                       Plan
                     </th>
-                    <th className="px-6 py-4 text-left text-xs font-semibold text-slate-600 uppercase tracking-wider">
+                    <th className="w-[7%] px-4 py-3 text-center text-xs font-semibold text-slate-600 uppercase tracking-wider">
                       Staff
                     </th>
-                    <th className="px-6 py-4 text-left text-xs font-semibold text-slate-600 uppercase tracking-wider">
+                    <th className="w-[8%] px-4 py-3 text-center text-xs font-semibold text-slate-600 uppercase tracking-wider">
                       Branches
                     </th>
-                    <th className="px-6 py-4 text-left text-xs font-semibold text-slate-600 uppercase tracking-wider">
+                    <th className="w-[18%] px-4 py-3 text-left text-xs font-semibold text-slate-600 uppercase tracking-wider">
                       Status
                     </th>
-                    <th className="px-6 py-4 text-right text-xs font-semibold text-slate-600 uppercase tracking-wider">
+                    <th className="w-[12%] px-4 py-3 text-center text-xs font-semibold text-slate-600 uppercase tracking-wider">
                       Actions
                     </th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-slate-200">
+                <tbody className="divide-y divide-slate-100">
                   {loadingTenants && (
                     <tr>
-                      <td className="px-6 py-6 text-slate-500" colSpan={8}>Loading tenants…</td>
+                      <td className="px-4 py-8 text-center text-slate-500" colSpan={8}>
+                        <div className="flex items-center justify-center gap-2">
+                          <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-pink-500" />
+                          <span>Loading tenants…</span>
+                        </div>
+                      </td>
                     </tr>
                   )}
                   {!loadingTenants && tenants.length === 0 && (
                     <tr>
-                      <td className="px-6 py-6 text-slate-500" colSpan={8}>No tenants yet.</td>
+                      <td className="px-4 py-8 text-center text-slate-500" colSpan={8}>No tenants yet.</td>
                     </tr>
                   )}
                   {tenants.map(({ id, data }) => {
@@ -806,99 +820,130 @@ export default function TenantsPage() {
                     const state = (data.state || "").trim();
 
                     const statusLower = statusLabel.toLowerCase();
-                    const statusCls =
-                      statusLower.includes("suspend")
-                        ? "bg-rose-50 text-rose-700"
-                        : statusLower.includes("active")
-                        ? "bg-emerald-50 text-emerald-700"
-                        : statusLower.includes("pending")
-                        ? "bg-amber-50 text-amber-700"
-                        : "bg-slate-100 text-slate-700";
+                    let statusCls = "bg-slate-100 text-slate-600";
+                    let statusIcon = "fa-circle text-slate-400";
+                    let statusDot = "bg-slate-400";
+
+                    if (statusLower.includes("expired") || statusLower.includes("payment required")) {
+                      statusCls = "bg-rose-50 text-rose-700 border border-rose-200";
+                      statusIcon = "fa-exclamation-circle text-rose-500";
+                      statusDot = "bg-rose-500";
+                    } else if (statusLower.includes("suspend")) {
+                      statusCls = "bg-red-50 text-red-700 border border-red-200";
+                      statusIcon = "fa-ban text-red-500";
+                      statusDot = "bg-red-500";
+                    } else if (statusLower.includes("active") || statusLower.includes("trial active")) {
+                      statusCls = "bg-emerald-50 text-emerald-700 border border-emerald-200";
+                      statusIcon = "fa-check-circle text-emerald-500";
+                      statusDot = "bg-emerald-500";
+                    } else if (statusLower.includes("pending")) {
+                      statusCls = "bg-amber-50 text-amber-700 border border-amber-200";
+                      statusIcon = "fa-clock text-amber-500";
+                      statusDot = "bg-amber-500";
+                    }
+
+                    // Shorten long status labels for the badge
+                    let shortStatus = statusLabel;
+                    if (statusLower.includes("trial expired") && statusLower.includes("payment")) {
+                      shortStatus = "Trial Expired";
+                    } else if (statusLower.includes("free trial active")) {
+                      shortStatus = "Free Trial";
+                    }
 
                     return (
-                      <tr key={id} className="hover:bg-slate-50 transition">
-                        <td className="px-6 py-4">
-                          <div className="flex items-center space-x-3">
-                            <div className="w-10 h-10 bg-gradient-to-br from-pink-400 to-pink-600 rounded-lg flex items-center justify-center">
-                              <span className="text-white font-semibold text-sm">{initials}</span>
+                      <tr key={id} className="hover:bg-slate-50/80 transition group">
+                        {/* Business Name */}
+                        <td className="px-4 py-3">
+                          <div className="flex items-center gap-3 min-w-0">
+                            <div className="w-9 h-9 bg-gradient-to-br from-pink-400 to-pink-600 rounded-lg flex items-center justify-center flex-shrink-0">
+                              <span className="text-white font-semibold text-xs">{initials}</span>
                             </div>
-                            <div>
-                              <p className="font-medium text-slate-900">{data.name}</p>
-                              <p className="text-xs text-slate-500">{data.locationText || ""}</p>
+                            <div className="min-w-0">
+                              <p className="font-semibold text-sm text-slate-900 truncate">{data.name}</p>
+                              {data.locationText && (
+                                <p className="text-xs text-slate-400 truncate">{data.locationText}</p>
+                              )}
                             </div>
                           </div>
                         </td>
-                        <td className="px-6 py-4">
-                          <div className={`font-mono text-sm ${data.abn ? "text-slate-700" : "text-amber-600"}`}>
-                            {data.abn || "Pending Verification"}
-                          </div>
+                        {/* ABN */}
+                        <td className="px-4 py-3">
+                          <span className={`font-mono text-xs ${data.abn ? "text-slate-600" : "text-amber-500 italic"}`}>
+                            {data.abn || "Pending"}
+                          </span>
                         </td>
-                        <td className="px-6 py-4">
+                        {/* State */}
+                        <td className="px-4 py-3 text-center">
                           {state ? (
-                            <span className={`px-2 py-1 rounded-lg text-sm font-medium ${state === "NSW"
-                                ? "bg-blue-50 text-blue-700"
-                                : state === "VIC"
-                                ? "bg-purple-50 text-purple-700"
-                                : state === "QLD"
-                                ? "bg-orange-50 text-orange-700"
-                                : state === "WA"
-                                ? "bg-indigo-50 text-indigo-700"
-                                : "bg-slate-100 text-slate-700"
-                              }`}>
+                            <span className={`inline-flex px-2.5 py-0.5 rounded-full text-xs font-semibold ${
+                              state === "NSW" ? "bg-blue-50 text-blue-600"
+                              : state === "VIC" ? "bg-purple-50 text-purple-600"
+                              : state === "QLD" ? "bg-orange-50 text-orange-600"
+                              : state === "WA" ? "bg-indigo-50 text-indigo-600"
+                              : state === "SA" ? "bg-cyan-50 text-cyan-600"
+                              : state === "TAS" ? "bg-teal-50 text-teal-600"
+                              : state === "NT" ? "bg-yellow-50 text-yellow-600"
+                              : state === "ACT" ? "bg-lime-50 text-lime-600"
+                              : "bg-slate-100 text-slate-600"
+                            }`}>
                               {state}
                             </span>
                           ) : (
-                            <span className="text-sm text-slate-500">—</span>
+                            <span className="text-xs text-slate-400">—</span>
                           )}
                         </td>
-                        <td className="px-6 py-4">
-                          <div className="flex items-center space-x-2">
-                            <span className="px-3 py-1 bg-pink-50 text-pink-700 rounded-lg text-sm font-semibold">
+                        {/* Plan */}
+                        <td className="px-4 py-3">
+                          <div className="flex flex-col">
+                            <span className="inline-flex items-center gap-1 px-2.5 py-0.5 bg-pink-50 text-pink-700 rounded-full text-xs font-semibold w-fit">
+                              <i className="fas fa-crown text-[10px]" />
                               {planLabel}
                             </span>
-                            <span className="text-sm text-slate-500">{data.price || ""}</span>
+                            {data.price && (
+                              <span className="text-xs text-slate-400 mt-0.5">{data.price}</span>
+                            )}
                           </div>
                         </td>
-                        <td className="px-6 py-4">
-                          <div className="flex items-center gap-2">
-                            <div className="w-8 h-8 bg-blue-50 rounded-lg flex items-center justify-center">
-                              <i className="fas fa-users text-blue-500 text-xs" />
-                            </div>
-                            <span className="font-semibold text-slate-900">{tenantStats[id]?.staffCount ?? 0}</span>
+                        {/* Staff */}
+                        <td className="px-4 py-3 text-center">
+                          <div className="inline-flex items-center gap-1.5">
+                            <i className="fas fa-users text-blue-400 text-[10px]" />
+                            <span className="text-sm font-semibold text-slate-700">{tenantStats[id]?.staffCount ?? 0}</span>
                           </div>
                         </td>
-                        <td className="px-6 py-4">
-                          <div className="flex items-center gap-2">
-                            <div className="w-8 h-8 bg-teal-50 rounded-lg flex items-center justify-center">
-                              <i className="fas fa-store text-teal-500 text-xs" />
-                            </div>
-                            <span className="font-semibold text-slate-900">{tenantStats[id]?.branchCount ?? 0}</span>
+                        {/* Branches */}
+                        <td className="px-4 py-3 text-center">
+                          <div className="inline-flex items-center gap-1.5">
+                            <i className="fas fa-store text-teal-400 text-[10px]" />
+                            <span className="text-sm font-semibold text-slate-700">{tenantStats[id]?.branchCount ?? 0}</span>
                           </div>
                         </td>
-                        <td className="px-6 py-4">
-                          <span className={`px-3 py-1 ${statusCls} rounded-lg text-sm font-medium flex items-center w-fit`}>
-                            <i className={`fas ${statusLabel.toLowerCase().includes("active") ? "fa-check-circle" : statusLabel.toLowerCase().includes("pending") ? "fa-clock" : "fa-circle-info"} text-xs mr-1.5`} />
-                            {statusLabel}
+                        {/* Status */}
+                        <td className="px-4 py-3">
+                          <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold whitespace-nowrap ${statusCls}`}>
+                            <span className={`w-1.5 h-1.5 rounded-full ${statusDot} flex-shrink-0`} />
+                            {shortStatus}
                           </span>
                         </td>
-                        <td className="px-6 py-4 text-right">
-                          <div className="flex items-center justify-end space-x-2">
+                        {/* Actions */}
+                        <td className="px-4 py-3">
+                          <div className="flex items-center justify-center gap-1">
                             <button
-                              className="p-2 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-lg transition"
+                              className="w-8 h-8 flex items-center justify-center text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition"
                               onClick={() => {
                                 setPreviewTenant({ id, data });
                                 setPreviewOpen(true);
                               }}
                               title="Preview"
                             >
-                              <i className="fas fa-eye text-sm" />
+                              <i className="fas fa-eye text-xs" />
                             </button>
                             <button
-                              className="p-2 text-slate-400 hover:text-pink-600 hover:bg-pink-50 rounded-lg transition"
+                              className="w-8 h-8 flex items-center justify-center text-slate-400 hover:text-pink-600 hover:bg-pink-50 rounded-lg transition"
                               onClick={() => {
                                 setEditTenantId(id);
                                 setEditName(data.name || "");
-                                setEditAbn(data.abn || "");
+                                setEditAbn(formatAbn(data.abn || ""));
                                 setEditState(data.state || "");
                                 setEditPlan(data.plan || "");
                                 setEditPrice(data.price || "");
@@ -910,14 +955,14 @@ export default function TenantsPage() {
                               }}
                               title="Edit"
                             >
-                              <i className="fas fa-edit text-sm" />
+                              <i className="fas fa-pen text-xs" />
                             </button>
                             <button
-                              className="p-2 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition"
+                              className="w-8 h-8 flex items-center justify-center text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition"
                               onClick={() => setDeleteId(id)}
                               title="Delete"
                             >
-                              <i className="fas fa-trash text-sm" />
+                              <i className="fas fa-trash-alt text-xs" />
                             </button>
                           </div>
                         </td>
@@ -1219,7 +1264,7 @@ export default function TenantsPage() {
                         setEditTenantId(previewTenant.id);
                         const d = previewTenant.data;
                         setEditName(d.name || "");
-                        setEditAbn(d.abn || "");
+                        setEditAbn(formatAbn(d.abn || ""));
                         setEditState(d.state || "");
                         setEditPlan(d.plan || "");
                         setEditPrice(d.price || "");
@@ -1334,7 +1379,7 @@ export default function TenantsPage() {
                       <i className="fas fa-hashtag text-indigo-500" />
                       ABN
                     </label>
-                    <input className="w-full px-4 py-3 border border-slate-300 rounded-lg focus:ring-2 focus:ring-pink-500 focus:border-transparent font-mono" value={editAbn} onChange={(e) => setEditAbn(e.target.value)} placeholder="XX XXX XXX XXX" />
+                    <input className="w-full px-4 py-3 border border-slate-300 rounded-lg focus:ring-2 focus:ring-pink-500 focus:border-transparent font-mono tracking-wide" value={editAbn} onChange={(e) => setEditAbn(formatAbn(e.target.value))} placeholder="XX XXX XXX XXX" maxLength={14} />
                   </div>
                   <div>
                     <label className="block text-sm font-semibold text-slate-700 mb-1.5 flex items-center gap-2">
@@ -1553,7 +1598,7 @@ onClick={async () => {
                                       const tenantData = tenants.find(t => t.id === editTenantId)?.data;
                                       await updateDoc(doc(db, "users", editTenantId), {
                                         name: editName.trim(),
-                                        abn: editAbn.trim() || null,
+                                        abn: editAbn.replace(/\s/g, '').trim() || null,
                                         state: editState || null,
                                         timezone: editTimezone || "Australia/Sydney",
                                         plan: editPlan || null,
@@ -1837,8 +1882,8 @@ onClick={async () => {
                           placeholder="12 345 678 901"
                           maxLength={14}
                           value={formAbn}
-                          onChange={(e) => setFormAbn(e.target.value)}
-                          className="flex-1 px-4 py-3 border border-slate-300 rounded-lg focus:ring-2 focus:ring-pink-500 focus:border-transparent font-mono"
+                          onChange={(e) => setFormAbn(formatAbn(e.target.value))}
+                          className="flex-1 px-4 py-3 border border-slate-300 rounded-lg focus:ring-2 focus:ring-pink-500 focus:border-transparent font-mono tracking-wide"
                         />
                       </div>
                     </div>
