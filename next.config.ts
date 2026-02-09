@@ -53,7 +53,8 @@ const nextConfig: NextConfig = {
   // Local dev: booking engine on localhost:3002
   // Production: set BOOKING_ENGINE_URL env var to the booking engine deployment URL
   async rewrites() {
-    const bookingEngineUrl = process.env.BOOKING_ENGINE_URL || "http://localhost:3002";
+    // Remove trailing slash to prevent double-slash in destination URL
+    const bookingEngineUrl = (process.env.BOOKING_ENGINE_URL || "http://localhost:3002").replace(/\/+$/, "");
     return [
       {
         source: "/book-now/:path*",
