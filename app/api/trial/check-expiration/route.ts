@@ -146,13 +146,28 @@ export async function POST(req: NextRequest) {
 /**
  * GET /api/trial/check-expiration
  * 
- * Returns trial status for the current user
+ * Two modes:
+ * 1. Vercel Cron (no auth header) → runs the batch trial expiry check (same as POST)
+ * 2. Authenticated user (Bearer token) → returns trial status for that user
  */
 export async function GET(req: NextRequest) {
   try {
     const authHeader = req.headers.get("authorization");
-    if (!authHeader?.startsWith("Bearer ")) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+
+    // If no auth header, this is a Vercel Cron call → run batch check
+    if (!authHeader || !authHeader.startsWith("Bearer ")) {
+      // Vercel Cron verification (optional extra security)
+      const cronSecret = req.headers.get("x-cron-secret");
+      const expectedSecret = process.env.CRON_SECRET;
+      if (expectedSecret && cronSecret !== expectedSecret) {
+        // Also allow Vercel's built-in cron calls (they don't send custom headers)
+        const isVercelCron = req.headers.get("user-agent")?.includes("vercel-cron");
+        if (!isVercelCron) {
+          return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+        }
+      }
+      // Run the batch trial expiry check
+      return POST(req);
     }
 
     // Verify token and get user

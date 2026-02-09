@@ -1,0 +1,12 @@
+{
+  "crons": [
+    {
+      "path": "/api/trial/check-expiration",
+      "schedule": "0 0 * * *"
+    },
+    {
+      "path": "/api/cron/suspend-overdue",
+      "schedule": "0 */6 * * *"
+    }
+  ]
+}

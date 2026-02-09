@@ -161,6 +161,17 @@ export async function verifyAdminAuth(
         };
       }
 
+      // Block trial_expired accounts (except billing/subscription routes)
+      if ((billingStatus === "trial_expired" || userData.accountStatus === "trial_expired") && !isBillingRoute(pathname)) {
+        return {
+          success: false,
+          error: "Your free trial has expired. Please subscribe to continue using the platform.",
+          status: 403,
+          billingBlocked: true,
+          redirectTo: "/subscription",
+        };
+      }
+
       // Allow past_due accounts but they'll see banners in UI
       // (We don't block them, just show warnings)
     }
