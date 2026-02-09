@@ -458,35 +458,51 @@ function BookingsPageContent() {
         // Use centralized helper to ensure consistency
         // NOTE: When a booking is cancelled, its status changes to "Canceled" and shouldBlockSlots returns false,
         // so it's automatically excluded from relevantBookings, making the slot available again in real-time
-        const relevantBookings = this.data.bookings.filter((b: any) => {
+        const allDateBookings = this.data.bookings.filter((b: any) => {
           return b.date === date && shouldBlockSlots(b.status);
         });
         
         // Helper to check if a staff ID represents "any staff"
-        const isAnyStaff = (staffId: any): boolean => {
-          if (!staffId) return true; // null, undefined
-          const str = String(staffId).trim();
+        const isAnyStaff = (sid: any): boolean => {
+          if (!sid) return true; // null, undefined
+          const str = String(sid).trim();
           return str === "" || str === "any" || str === "null" || str.toLowerCase() === "any available" || str.toLowerCase() === "any staff";
         };
         
-        // Helper function to check if a booking involves the selected staff
-        const bookingInvolvesStaff = (booking: any, targetStaffId: string): boolean => {
-          // If targetStaffId is "any staff", only check bookings with "any staff"
-          if (isAnyStaff(targetStaffId)) {
-            // Check if booking has "any staff"
-            if (Array.isArray(booking.services) && booking.services.length > 0) {
-              // For multi-service, check if any service has "any staff"
-              for (const svc of booking.services) {
-                const svcStaffId = (svc.staffId !== undefined && svc.staffId !== null) ? svc.staffId : (booking.staffId || null);
-                if (isAnyStaff(svcStaffId)) return true;
-              }
-              return false; // All services have specific staff
-            } else {
-              return isAnyStaff(booking.staffId);
-            }
-          }
+        const isAnyStaffSelected = isAnyStaff(staffId);
+        
+        // Get selected service ID for eligible staff computation
+        const selectedServiceId = serviceSelect?.value || "";
+        
+        // For "Any Staff" bookings, get all eligible staff IDs for this service+branch
+        const eligibleStaffIds: string[] = (() => {
+          if (!isAnyStaffSelected || !selectedServiceId) return [];
           
-          // Specific staff selected - check if booking involves this staff
+          const serviceData = this.data.services.find((s: any) => String(s.id) === String(selectedServiceId));
+          const svcStaffIds: string[] = (serviceData?.staffIds ?? []).map(String);
+          const svcHasStaffAssigned = svcStaffIds.length > 0;
+          
+          const selBranchName = selectedBranch?.name;
+          
+          return (this.data.staff || []).filter((st: any) => {
+            if (st.status && st.status !== "Active") return false;
+            if (svcHasStaffAssigned && !svcStaffIds.includes(String(st.id))) return false;
+            // Check branch assignment
+            if (branchId) {
+              if (dayOfWeek && st.weeklySchedule && typeof st.weeklySchedule === 'object') {
+                const daySchedule = st.weeklySchedule[dayOfWeek];
+                if (!daySchedule) return false;
+                if (daySchedule.branchId !== branchId && daySchedule.branchName !== selBranchName) return false;
+              } else {
+                if (String(st.branchId || "") !== branchId && String(st.branch || "") !== selBranchName) return false;
+              }
+            }
+            return true;
+          }).map((st: any) => st.id);
+        })();
+        
+        // Helper function to check if a booking involves a specific staff member
+        const bookingInvolvesStaff = (booking: any, targetStaffId: string): boolean => {
           // Check root-level staffId
           if (booking.staffId === targetStaffId) return true;
           
@@ -499,44 +515,80 @@ function BookingsPageContent() {
             }
           }
           
-          // If booking has "any staff", it blocks all staff (including this one)
-          if (isAnyStaff(booking.staffId)) {
-            return true;
+          return false;
+        };
+        
+        // Filter bookings to only those relevant
+        const relevantBookings = (() => {
+          if (isAnyStaffSelected) {
+            if (eligibleStaffIds.length === 0) return allDateBookings;
+            return allDateBookings.filter((b: any) =>
+              eligibleStaffIds.some((sid: string) => bookingInvolvesStaff(b, sid))
+            );
           }
+          if (!staffId) return [];
+          return allDateBookings.filter((b: any) => bookingInvolvesStaff(b, staffId));
+        })();
+        
+        // Helper: Check if a specific staff member has a conflicting booking at a given time slot
+        const ttm = this.timeToMinutes.bind(this);
+        const isStaffOccupiedAtSlot = (slotStartMin: number, targetStaffId: string): boolean => {
+          const newServiceEndMin = slotStartMin + duration;
           
+          for (const booking of relevantBookings) {
+            if (Array.isArray(booking.services) && booking.services.length > 0) {
+              for (const svc of booking.services) {
+                if (svc && svc.staffId === targetStaffId && svc.time) {
+                  const svcStartMin = ttm(svc.time);
+                  const svcDuration = svc.duration || 60;
+                  const svcEndMin = svcStartMin + svcDuration;
+                  if (slotStartMin < svcEndMin && svcStartMin < newServiceEndMin) {
+                    return true;
+                  }
+                }
+              }
+            } else {
+              if (booking.staffId === targetStaffId && booking.time) {
+                const bStartMin = ttm(booking.time);
+                const bEndMin = bStartMin + (booking.duration || 60);
+                if (slotStartMin < bEndMin && bStartMin < newServiceEndMin) {
+                  return true;
+                }
+              }
+            }
+          }
           return false;
         };
         
         // Helper to check if a slot time is occupied by any booking for this staff
         const isSlotOccupied = (slotMinutes: number): boolean => {
-          // If "Any" staff is selected, don't block any slots
-          // The server-side validation will prevent conflicts when the booking is actually created
-          // This matches the booking engine behavior - when "any" is selected, all slots are available
-          if (isAnyStaff(staffId)) {
-            return false; // Don't block any slots when "Any" is selected
+          if (isAnyStaffSelected) {
+            // "Any Staff" mode: slot is occupied only if ALL eligible staff members are booked
+            if (eligibleStaffIds.length === 0) return false;
+            return eligibleStaffIds.every((sid: string) => isStaffOccupiedAtSlot(slotMinutes, sid));
           }
           
           // Specific staff selected - check bookings involving this staff
+          if (!staffId) return false;
+          const newServiceEndMin = slotMinutes + duration;
+          
           for (const booking of relevantBookings) {
-            // Only check bookings that involve this staff
-            if (!bookingInvolvesStaff(booking, staffId)) continue;
-            
             // Check if booking has individual services (multi-service booking)
             if (Array.isArray(booking.services) && booking.services.length > 0) {
               for (const svc of booking.services) {
                 if (!svc || !svc.time) continue;
                 
-                // Check if this service involves our staff (or is "any staff")
+                // Check if this service involves our staff
                 const svcStaffId = svc.staffId || booking.staffId || null;
-                if (svcStaffId && svcStaffId !== "any" && svcStaffId !== "" && svcStaffId !== staffId && staffId !== "any" && staffId !== "") {
+                if (svcStaffId && svcStaffId !== "any" && svcStaffId !== "" && svcStaffId !== staffId) {
                   continue; // Different staff, skip
                 }
                 
-                const svcStartMin = this.timeToMinutes(svc.time);
+                const svcStartMin = ttm(svc.time);
                 const svcDuration = svc.duration || booking.duration || 60;
                 const svcEndMin = svcStartMin + svcDuration;
-                // Check if slot time falls within this service's period
-                if (slotMinutes >= svcStartMin && slotMinutes < svcEndMin) {
+                // Check for overlap
+                if (slotMinutes < svcEndMin && svcStartMin < newServiceEndMin) {
                   return true;
                 }
               }
@@ -545,16 +597,15 @@ function BookingsPageContent() {
               if (!booking.time) continue;
               
               const bookingStaffId = booking.staffId || null;
-              // Check if booking involves this staff (or is "any staff")
-              if (bookingStaffId && bookingStaffId !== "any" && bookingStaffId !== "" && bookingStaffId !== staffId && staffId !== "any" && staffId !== "") {
+              if (bookingStaffId && bookingStaffId !== "any" && bookingStaffId !== "" && bookingStaffId !== staffId) {
                 continue; // Different staff, skip
               }
               
-              const bStartMin = this.timeToMinutes(booking.time);
+              const bStartMin = ttm(booking.time);
               const bDuration = booking.duration || 60;
               const bEndMin = bStartMin + bDuration;
-              // Check if slot time falls within this booking's period
-              if (slotMinutes >= bStartMin && slotMinutes < bEndMin) {
+              // Check for overlap
+              if (slotMinutes < bEndMin && bStartMin < newServiceEndMin) {
                 return true;
               }
             }
@@ -1405,23 +1456,53 @@ function BookingsPageContent() {
     
     // Get the staff member selected for this service
     const staffIdForService = forServiceId ? bkServiceStaff[String(forServiceId)] : null;
+    const isAnyStaffSelected = !staffIdForService || staffIdForService === "any";
     const dateStr = formatLocalYmd(bkDate);
+    
+    // For "Any Staff" bookings, get all eligible staff IDs for this service+branch.
+    // A slot is only blocked when ALL eligible staff are occupied at that time.
+    const eligibleStaffIds: string[] = (() => {
+      if (!isAnyStaffSelected || !forServiceId) return [];
+      
+      const service = servicesList.find((s) => String(s.id) === String(forServiceId)) ||
+        (app ? app.data.services.find((s: any) => String(s.id) === String(forServiceId)) : null);
+      const svcStaffIds: string[] = ((service as any)?.staffIds ?? []).map(String);
+      const svcHasStaffAssigned = svcStaffIds.length > 0;
+      
+      const selBranch = branches.find((b: any) => b.id === bkBranchId) || app?.data.branches?.find((b: any) => b.id === bkBranchId);
+      const selBranchName = selBranch?.name;
+      const days = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+      const selDayName = bkDate ? days[bkDate.getDay()] : null;
+      
+      return staffList.filter(st => {
+        // Filter out suspended staff
+        if (st.status === "Suspended" || st.status === "suspended") return false;
+        // If service has specific staff assigned, ONLY include those
+        if (svcHasStaffAssigned && !svcStaffIds.includes(String(st.id))) return false;
+        // Check branch assignment
+        if (bkBranchId) {
+          if (selDayName && st.weeklySchedule) {
+            const daySchedule = st.weeklySchedule[selDayName];
+            if (!daySchedule) return false; // Staff is off this day
+            if (daySchedule.branchId !== bkBranchId && daySchedule.branchName !== selBranchName) return false;
+          } else {
+            if (String(st.branchId || "") !== bkBranchId && String((st as any).branch || "") !== selBranchName) return false;
+          }
+        }
+        return true;
+      }).map(st => st.id);
+    })();
     
     // Get all bookings for this date (excluding cancelled, completed, rejected)
     // Use centralized helper to ensure consistency
     // NOTE: When a booking is cancelled, its status changes to "Canceled" and shouldBlockSlots returns false,
     // so it's automatically excluded from relevantBookings, making the slot available again in real-time
-    const relevantBookings = app ? app.data.bookings.filter((b: any) => {
+    const allDateBookings = app ? app.data.bookings.filter((b: any) => {
       return b.date === dateStr && shouldBlockSlots(b.status);
     }) : [];
     
-    // Helper function to check if a booking involves the selected staff
-    const bookingInvolvesStaff = (booking: any, targetStaffId: string | null): boolean => {
-      // If targetStaffId is "any" or empty, check all bookings
-      if (!targetStaffId || targetStaffId === "any" || targetStaffId === "") {
-        return true;
-      }
-      
+    // Helper function to check if a booking involves a specific staff member
+    const bookingInvolvesStaff = (booking: any, targetStaffId: string): boolean => {
       // Check root-level staffId
       if (booking.staffId === targetStaffId) return true;
       
@@ -1434,46 +1515,84 @@ function BookingsPageContent() {
         }
       }
       
-      // If booking has "any staff" (null or "any"), it blocks all staff
-      if (!booking.staffId || booking.staffId === "any" || booking.staffId === "") {
-        return true;
+      return false;
+    };
+    
+    // Filter bookings to only those relevant to the selected staff (or all eligible staff for "Any Staff")
+    const relevantBookings = (() => {
+      if (isAnyStaffSelected) {
+        // "Any Staff" mode: get ALL active bookings involving ANY eligible staff member
+        // so we can check if all staff are occupied at a given time
+        if (eligibleStaffIds.length === 0) return allDateBookings; // fallback: use all bookings
+        return allDateBookings.filter((b: any) =>
+          eligibleStaffIds.some(sid => bookingInvolvesStaff(b, sid))
+        );
+      }
+      // Specific staff mode: only bookings involving the selected staff
+      if (!staffIdForService) return [];
+      return allDateBookings.filter((b: any) => bookingInvolvesStaff(b, staffIdForService));
+    })();
+    
+    // Helper: Check if a specific staff member has a conflicting booking at a given time slot
+    const isStaffOccupiedAtSlot = (slotStartMin: number, targetStaffId: string): boolean => {
+      const newServiceEndMin = slotStartMin + serviceDuration;
+      
+      for (const booking of relevantBookings) {
+        if (Array.isArray(booking.services) && booking.services.length > 0) {
+          for (const svc of booking.services) {
+            if (svc && svc.staffId === targetStaffId && svc.time) {
+              const svcStartMin = timeToMinutes(svc.time);
+              const svcDuration = svc.duration || 60;
+              const svcEndMin = svcStartMin + svcDuration;
+              if (slotStartMin < svcEndMin && svcStartMin < newServiceEndMin) {
+                return true;
+              }
+            }
+          }
+        } else {
+          if (booking.staffId === targetStaffId && booking.time) {
+            const bStartMin = timeToMinutes(booking.time);
+            const bEndMin = bStartMin + (booking.duration || 60);
+            if (slotStartMin < bEndMin && bStartMin < newServiceEndMin) {
+              return true;
+            }
+          }
+        }
       }
       
       return false;
     };
     
-    // Helper to check if a staff ID represents "any staff"
-    const isAnyStaff = (staffId: any): boolean => {
-      if (!staffId) return true; // null, undefined
-      const str = String(staffId).trim();
-      return str === "" || str === "any" || str === "null" || str.toLowerCase() === "any available" || str.toLowerCase() === "any staff";
-    };
-    
     // Check if a specific slot time is occupied by any booking for the selected staff
     // Also checks if the NEW service would OVERLAP with any existing booking
     const isSlotOccupied = (slotMinutes: number): { occupied: boolean; reason?: string } => {
-      // If "Any" staff is selected, don't block any slots
-      // The server-side validation will prevent conflicts when the booking is actually created
-      // This matches the booking engine behavior - when "any" is selected, all slots are available
-      if (isAnyStaff(staffIdForService)) {
-        return { occupied: false }; // Don't block any slots when "Any" is selected
+      if (isAnyStaffSelected) {
+        // "Any Staff" mode: slot is occupied only if ALL eligible staff members are booked
+        // If at least one staff member is free, the slot remains available
+        if (eligibleStaffIds.length === 0) return { occupied: false };
+        
+        const allStaffOccupied = eligibleStaffIds.every(sid => isStaffOccupiedAtSlot(slotMinutes, sid));
+        if (allStaffOccupied) {
+          return { occupied: true, reason: 'all_staff_booked' };
+        }
+        return { occupied: false };
       }
+      
+      // Specific staff mode (existing logic)
+      if (!staffIdForService) return { occupied: false };
       
       // Calculate when this new service would END
       const newServiceEndMin = slotMinutes + serviceDuration;
       
       for (const booking of relevantBookings) {
-        // Only check bookings that involve this staff
-        if (!bookingInvolvesStaff(booking, staffIdForService)) continue;
-        
         // Check if booking has individual services (multi-service booking)
         if (Array.isArray(booking.services) && booking.services.length > 0) {
           for (const svc of booking.services) {
             if (!svc || !svc.time) continue;
             
-            // Check if this service involves our staff (or is "any staff")
+            // Check if this service involves our staff
             const svcStaffId = svc.staffId || booking.staffId || null;
-            if (svcStaffId && svcStaffId !== "any" && svcStaffId !== "" && svcStaffId !== staffIdForService && staffIdForService !== "any" && staffIdForService !== "") {
+            if (svcStaffId && svcStaffId !== "any" && svcStaffId !== "" && svcStaffId !== staffIdForService) {
               continue; // Different staff, skip
             }
             
@@ -1482,23 +1601,20 @@ function BookingsPageContent() {
             const svcEndMin = svcStartMin + svcDuration;
             
             // Check for ANY overlap between the new service and existing service
-            // Overlap occurs if: newStart < existingEnd AND existingStart < newEnd
             if (slotMinutes < svcEndMin && svcStartMin < newServiceEndMin) {
-              // Determine the reason for the conflict
               if (slotMinutes >= svcStartMin && slotMinutes < svcEndMin) {
-                return { occupied: true, reason: 'booked' }; // Slot starts during existing booking
+                return { occupied: true, reason: 'booked' };
               } else {
-                return { occupied: true, reason: 'insufficient_time' }; // Service would extend into existing booking
+                return { occupied: true, reason: 'insufficient_time' };
               }
             }
           }
         } else {
-          // Single service booking - check main staffId
+          // Single service booking
           if (!booking.time) continue;
           
           const bookingStaffId = booking.staffId || null;
-          // Check if booking involves this staff (or is "any staff")
-          if (bookingStaffId && bookingStaffId !== "any" && bookingStaffId !== "" && bookingStaffId !== staffIdForService && staffIdForService !== "any" && staffIdForService !== "") {
+          if (bookingStaffId && bookingStaffId !== "any" && bookingStaffId !== "" && bookingStaffId !== staffIdForService) {
             continue; // Different staff, skip
           }
           
@@ -1506,14 +1622,11 @@ function BookingsPageContent() {
           const bDuration = booking.duration || 60;
           const bEndMin = bStartMin + bDuration;
           
-          // Check for ANY overlap between the new service and existing booking
-          // Overlap occurs if: newStart < existingEnd AND existingStart < newEnd
           if (slotMinutes < bEndMin && bStartMin < newServiceEndMin) {
-            // Determine the reason for the conflict
             if (slotMinutes >= bStartMin && slotMinutes < bEndMin) {
-              return { occupied: true, reason: 'booked' }; // Slot starts during existing booking
+              return { occupied: true, reason: 'booked' };
             } else {
-              return { occupied: true, reason: 'insufficient_time' }; // Service would extend into existing booking
+              return { occupied: true, reason: 'insufficient_time' };
             }
           }
         }
@@ -1524,7 +1637,60 @@ function BookingsPageContent() {
     // Check if a slot is blocked by OTHER services in the CURRENT booking session (same staff)
     // Also checks if the NEW service would OVERLAP with other selected services
     const isSlotBlockedByCurrentSelection = (slotMinutes: number): { blocked: boolean; reason?: string } => {
-      if (!staffIdForService || !forServiceId) return { blocked: false };
+      if (!forServiceId) return { blocked: false };
+      
+      if (isAnyStaffSelected) {
+        // "Any Staff" mode: check if enough free staff remain after accounting for
+        // existing bookings AND other services selected in the current booking session
+        if (eligibleStaffIds.length === 0) return { blocked: false };
+        
+        const newServiceEndMin = slotMinutes + serviceDuration;
+        
+        // Count how many eligible staff are already occupied by existing bookings
+        const occupiedByExisting = eligibleStaffIds.filter(sid => isStaffOccupiedAtSlot(slotMinutes, sid)).length;
+        
+        // Count how many other services in this session overlap with this slot
+        // and could consume from the same staff pool
+        let overlappingCurrentServices = 0;
+        for (const otherServiceId of bkSelectedServices) {
+          if (String(otherServiceId) === String(forServiceId)) continue;
+          
+          const otherTime = bkServiceTimes[String(otherServiceId)];
+          if (!otherTime) continue;
+          
+          const otherStaffId = bkServiceStaff[String(otherServiceId)];
+          const otherIsAnyStaff = !otherStaffId || otherStaffId === "any";
+          
+          // Only count if the other service competes for the same staff pool
+          if (!otherIsAnyStaff && !eligibleStaffIds.includes(otherStaffId)) continue;
+          
+          const otherService = servicesList.find((s) => String(s.id) === String(otherServiceId)) ||
+            (app ? app.data.services.find((s: any) => String(s.id) === String(otherServiceId)) : null);
+          const otherDuration = Number((otherService as any)?.duration) || 60;
+          
+          const otherStartMin = timeToMinutes(otherTime);
+          const otherEndMin = otherStartMin + otherDuration;
+          
+          // Check for overlap
+          if (slotMinutes < otherEndMin && otherStartMin < newServiceEndMin) {
+            overlappingCurrentServices++;
+          }
+        }
+        
+        // Free staff = total eligible - occupied by existing bookings
+        const freeStaff = eligibleStaffIds.length - occupiedByExisting;
+        
+        // We need at least one free staff for this service
+        // (overlappingCurrentServices already consume free staff slots)
+        if (freeStaff <= overlappingCurrentServices) {
+          return { blocked: true, reason: 'all_staff_booked' };
+        }
+        
+        return { blocked: false };
+      }
+      
+      // Specific staff mode (existing logic)
+      if (!staffIdForService) return { blocked: false };
       
       // Calculate when this new service would END
       const newServiceEndMin = slotMinutes + serviceDuration;
@@ -1546,13 +1712,11 @@ function BookingsPageContent() {
         const otherEndMin = otherStartMin + otherDuration;
         
         // Check for ANY overlap between the new service and the other selected service
-        // Overlap occurs if: newStart < otherEnd AND otherStart < newEnd
         if (slotMinutes < otherEndMin && otherStartMin < newServiceEndMin) {
-          // Determine the reason for the conflict
           if (slotMinutes >= otherStartMin && slotMinutes < otherEndMin) {
-            return { blocked: true, reason: 'selected' }; // Slot starts during other selected service
+            return { blocked: true, reason: 'selected' };
           } else {
-            return { blocked: true, reason: 'insufficient_time_selected' }; // Would extend into other service
+            return { blocked: true, reason: 'insufficient_time_selected' };
           }
         }
       }
