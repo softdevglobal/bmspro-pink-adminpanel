@@ -390,6 +390,53 @@ export async function POST(req: NextRequest) {
             staffId: body.staffId || null
           }];
 
+      // ----- Pre-fetch eligible staff for "Any Staff" services -----
+      const hasAnyStaffService = servicesToCheck.some((s: any) => isAnyStaff(s.staffId || body.staffId));
+      let eligibleStaffByService: Record<string, string[]> = {};
+
+      if (hasAnyStaffService) {
+        const [staffSnapshot, servicesSnapshot] = await Promise.all([
+          db.collection("users")
+            .where("ownerUid", "==", ownerUid)
+            .get()
+            .catch(() => ({ docs: [] as any[] })),
+          db.collection("services")
+            .where("ownerUid", "==", ownerUid)
+            .get()
+            .catch(() => ({ docs: [] as any[] })),
+        ]);
+
+        const allStaff = (staffSnapshot.docs || []).map((d: any) => ({ id: d.id, ...d.data() }));
+        const allServicesData = (servicesSnapshot.docs || []).map((d: any) => ({ id: d.id, ...d.data() }));
+
+        for (const svc of servicesToCheck) {
+          const svcStaffId = svc.staffId || body.staffId;
+          if (!isAnyStaff(svcStaffId)) continue; // Skip specific staff services
+
+          const serviceId = svc.id || svc.serviceId || body.serviceId;
+          const serviceData = allServicesData.find((s: any) => String(s.id) === String(serviceId));
+
+          const eligible = allStaff.filter((st: any) => {
+            const role = (st.role || "").toString().toLowerCase();
+            if (role !== "salon_staff" && role !== "salon_branch_admin") return false;
+            if (st.status && st.status !== "Active") return false;
+
+            // Check service capability
+            if (serviceData?.staffIds && serviceData.staffIds.length > 0) {
+              const canPerform = serviceData.staffIds.some((id: string) =>
+                String(id) === st.id || String(id) === (st.uid || st.id)
+              );
+              if (!canPerform) return false;
+            }
+
+            // Check branch assignment
+            return st.branchId === String(body.branchId);
+          });
+
+          eligibleStaffByService[String(serviceId)] = eligible.map((s: any) => s.id);
+        }
+      }
+
       for (const newService of servicesToCheck) {
         const newServiceTime = newService.time || body.time;
         const newServiceDuration = newService.duration || body.duration;
@@ -399,8 +446,80 @@ export async function POST(req: NextRequest) {
 
         const newStartMinutes = timeToMinutes(newServiceTime);
         const newEndMinutes = newStartMinutes + newServiceDuration;
+        const newIsAnyStaff = isAnyStaff(newServiceStaffId);
 
-        // Check against all existing bookings
+        if (newIsAnyStaff) {
+          // ── "Any Staff" mode ──
+          // Only block if ALL eligible staff are occupied at this time.
+          const serviceId = newService.id || newService.serviceId || body.serviceId;
+          const eligibleIds = eligibleStaffByService[String(serviceId)] || [];
+
+          if (eligibleIds.length === 0) {
+            // No eligible staff data available – skip validation
+            continue;
+          }
+
+          const bookedStaffIds = new Set<string>();
+          let anyStaffBookingsOverlapping = 0;
+
+          for (const existingBooking of allExistingBookings) {
+            if (!isActiveStatus(existingBooking.status)) continue;
+
+            if (existingBooking.services && Array.isArray(existingBooking.services) && existingBooking.services.length > 0) {
+              for (const existingService of existingBooking.services) {
+                if (!existingService.time) continue;
+                const existingServiceStaffId = existingService.staffId || existingBooking.staffId || null;
+                const existingStartMinutes = timeToMinutes(existingService.time);
+                const existingDuration = existingService.duration || existingBooking.duration || 60;
+                const existingEndMinutes = existingStartMinutes + existingDuration;
+
+                if (!timeRangesOverlap(newStartMinutes, newEndMinutes, existingStartMinutes, existingEndMinutes)) continue;
+
+                if (!isAnyStaff(existingServiceStaffId)) {
+                  if (eligibleIds.includes(existingServiceStaffId!)) {
+                    bookedStaffIds.add(existingServiceStaffId!);
+                  }
+                } else {
+                  anyStaffBookingsOverlapping++;
+                }
+              }
+            } else {
+              if (!existingBooking.time) continue;
+              const existingStaffId = existingBooking.staffId || null;
+              const existingStartMinutes = timeToMinutes(existingBooking.time);
+              const existingDuration = existingBooking.duration || 60;
+              const existingEndMinutes = existingStartMinutes + existingDuration;
+
+              if (!timeRangesOverlap(newStartMinutes, newEndMinutes, existingStartMinutes, existingEndMinutes)) continue;
+
+              if (!isAnyStaff(existingStaffId)) {
+                if (eligibleIds.includes(existingStaffId!)) {
+                  bookedStaffIds.add(existingStaffId!);
+                }
+              } else {
+                anyStaffBookingsOverlapping++;
+              }
+            }
+          }
+
+          const freeStaff = eligibleIds.length - bookedStaffIds.size - anyStaffBookingsOverlapping;
+          if (freeStaff <= 0) {
+            console.log(`[BOOKING CONFLICT] All ${eligibleIds.length} eligible staff are booked at ${newServiceTime} (${bookedStaffIds.size} specific + ${anyStaffBookingsOverlapping} any-staff)`);
+            return NextResponse.json(
+              {
+                error: "Time slot fully booked",
+                details: `All available staff members are booked at ${newServiceTime}. Please choose a different time.`,
+              },
+              { status: 409 }
+            );
+          }
+
+          // This "Any Staff" service passed — at least one staff member is free
+          continue;
+        }
+
+        // ── Specific staff mode ──
+        // Check against all existing bookings for the same specific staff
         for (const existingBooking of allExistingBookings) {
           // Skip if booking is not active
           if (!isActiveStatus(existingBooking.status)) continue;
@@ -413,13 +532,8 @@ export async function POST(req: NextRequest) {
               
               const existingServiceStaffId = existingService.staffId || existingBooking.staffId || null;
               
-              // Only check if same staff (or both are "any staff")
-              if (newServiceStaffId && existingServiceStaffId) {
-                if (newServiceStaffId !== existingServiceStaffId) continue;
-              } else if (newServiceStaffId || existingServiceStaffId) {
-                // If one has staff and other doesn't, they might conflict
-                // For safety, we'll check them
-              }
+              // Only conflict if same specific staff, or existing is "any staff" (could be assigned to our staff)
+              if (!isAnyStaff(existingServiceStaffId) && newServiceStaffId !== existingServiceStaffId) continue;
 
               const existingStartMinutes = timeToMinutes(existingService.time);
               const existingDuration = existingService.duration || existingBooking.duration || 60;
@@ -442,13 +556,8 @@ export async function POST(req: NextRequest) {
 
             const existingStaffId = existingBooking.staffId || null;
             
-            // Only check if same staff (or both are "any staff")
-            if (newServiceStaffId && existingStaffId) {
-              if (newServiceStaffId !== existingStaffId) continue;
-            } else if (newServiceStaffId || existingStaffId) {
-              // If one has staff and other doesn't, they might conflict
-              // For safety, we'll check them
-            }
+            // Only conflict if same specific staff, or existing is "any staff"
+            if (!isAnyStaff(existingStaffId) && newServiceStaffId !== existingStaffId) continue;
 
             const existingStartMinutes = timeToMinutes(existingBooking.time);
             const existingDuration = existingBooking.duration || 60;
