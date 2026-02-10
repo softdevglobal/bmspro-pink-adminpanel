@@ -501,6 +501,15 @@ function BookingsPageContent() {
           }).map((st: any) => st.id);
         })();
         
+        // Helper: detect "Any Staff" staffId values (null, empty, "any", etc.)
+        const isAnyStaffValue = (sid: string | null | undefined): boolean => {
+          if (!sid) return true;
+          const s = sid.toString().toLowerCase().trim();
+          if (s === "" || s === "null") return true;
+          if (s.includes("any")) return true;
+          return false;
+        };
+
         // Helper function to check if a booking involves a specific staff member
         const bookingInvolvesStaff = (booking: any, targetStaffId: string): boolean => {
           // Check root-level staffId
@@ -518,13 +527,24 @@ function BookingsPageContent() {
           return false;
         };
         
+        // Helper: check if a booking has any "Any Staff" service entries
+        const bookingHasAnyStaffService = (booking: any): boolean => {
+          if (Array.isArray(booking.services) && booking.services.length > 0) {
+            return booking.services.some((svc: any) => svc && isAnyStaffValue(svc.staffId));
+          }
+          return isAnyStaffValue(booking.staffId);
+        };
+        
         // Filter bookings to only those relevant
         const relevantBookings = (() => {
           if (isAnyStaffSelected) {
             if (eligibleStaffIds.length === 0) return allDateBookings;
-            return allDateBookings.filter((b: any) =>
-              eligibleStaffIds.some((sid: string) => bookingInvolvesStaff(b, sid))
-            );
+            return allDateBookings.filter((b: any) => {
+              // Include if any eligible staff is specifically assigned
+              if (eligibleStaffIds.some((sid: string) => bookingInvolvesStaff(b, sid))) return true;
+              // Also include "any staff" bookings — each one consumes a staff slot from the pool
+              return bookingHasAnyStaffService(b);
+            });
           }
           if (!staffId) return [];
           return allDateBookings.filter((b: any) => bookingInvolvesStaff(b, staffId));
@@ -560,12 +580,62 @@ function BookingsPageContent() {
           return false;
         };
         
+        // Helper: Count how many eligible staff slots are consumed at a given time
+        // by existing bookings (both specific-staff and any-staff bookings).
+        const countConsumedStaffAtSlot = (slotStartMin: number): { bookedStaffIds: Set<string>; anyStaffCount: number } => {
+          const newServiceEndMin = slotStartMin + duration;
+          const bookedStaffIds = new Set<string>();
+          let anyStaffCount = 0;
+          
+          for (const booking of relevantBookings) {
+            if (Array.isArray(booking.services) && booking.services.length > 0) {
+              for (const svc of booking.services) {
+                if (!svc || !svc.time) continue;
+                const svcStartMin = ttm(svc.time);
+                const svcDuration = svc.duration || booking.duration || 60;
+                const svcEndMin = svcStartMin + svcDuration;
+                
+                if (!(slotStartMin < svcEndMin && svcStartMin < newServiceEndMin)) continue;
+                
+                const svcStaffId = svc.staffId || null;
+                if (!isAnyStaffValue(svcStaffId)) {
+                  if (eligibleStaffIds.includes(svcStaffId!)) {
+                    bookedStaffIds.add(svcStaffId!);
+                  }
+                } else {
+                  anyStaffCount++;
+                }
+              }
+            } else {
+              if (!booking.time) continue;
+              const bStartMin = ttm(booking.time);
+              const bEndMin = bStartMin + (booking.duration || 60);
+              
+              if (!(slotStartMin < bEndMin && bStartMin < newServiceEndMin)) continue;
+              
+              const bStaffId = booking.staffId || null;
+              if (!isAnyStaffValue(bStaffId)) {
+                if (eligibleStaffIds.includes(bStaffId!)) {
+                  bookedStaffIds.add(bStaffId!);
+                }
+              } else {
+                anyStaffCount++;
+              }
+            }
+          }
+          
+          return { bookedStaffIds, anyStaffCount };
+        };
+
         // Helper to check if a slot time is occupied by any booking for this staff
         const isSlotOccupied = (slotMinutes: number): boolean => {
           if (isAnyStaffSelected) {
-            // "Any Staff" mode: slot is occupied only if ALL eligible staff members are booked
+            // "Any Staff" mode: slot is occupied only if ALL eligible staff slots are consumed.
+            // Count both specific-staff bookings AND "any staff" bookings that consume from the pool.
             if (eligibleStaffIds.length === 0) return false;
-            return eligibleStaffIds.every((sid: string) => isStaffOccupiedAtSlot(slotMinutes, sid));
+            const { bookedStaffIds, anyStaffCount } = countConsumedStaffAtSlot(slotMinutes);
+            const freeStaff = eligibleStaffIds.length - bookedStaffIds.size - anyStaffCount;
+            return freeStaff <= 0;
           }
           
           // Specific staff selected - check bookings involving this staff
