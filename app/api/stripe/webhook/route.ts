@@ -198,23 +198,35 @@ async function handleCheckoutCompleted(
   const now = Math.floor(Date.now() / 1000);
   const hasTrialEnd = sub.trial_end && sub.trial_end > now;
   const isTrialing = sub.status === "trialing" || hasTrialEnd;
+  const isActive = sub.status === "active";
   
-  console.log("[WEBHOOK] Subscription status:", sub.status, "trial_end:", sub.trial_end, "isTrialing:", isTrialing);
+  console.log("[WEBHOOK] Subscription status:", sub.status, "trial_end:", sub.trial_end, "isTrialing:", isTrialing, "isActive:", isActive);
 
+  // Determine billing/account status:
+  // - If trialing: set as trialing (user can access during trial)
+  // - If active: subscription paid immediately (post-trial or no-trial plan), set as active
+  // - Otherwise: pending payment
   const updateData: any = {
     stripeCustomerId: customerId,
     stripeSubscriptionId: subscriptionId,
     stripePriceId: priceId,
     subscriptionStatus: sub.status,
-    billing_status: isTrialing ? "trialing" : "pending", // Will become active when invoice paid
-    // Activate account for trialing users (they can access dashboard during trial)
-    accountStatus: isTrialing ? "active" : "pending_payment",
-    status: isTrialing ? "Trial" : "Pending Payment",
+    billing_status: isTrialing ? "trialing" : (isActive ? "active" : "pending"),
+    accountStatus: isTrialing || isActive ? "active" : "pending_payment",
+    status: isTrialing ? "Trial" : (isActive ? "Active" : "Pending Payment"),
     currentPeriodStart: new Date(sub.current_period_start * 1000),
     currentPeriodEnd: new Date(sub.current_period_end * 1000),
     cancelAtPeriodEnd: sub.cancel_at_period_end || false,
     updatedAt: new Date(),
   };
+
+  // If subscription is active (paid immediately), clear any trial/suspension flags
+  if (isActive) {
+    updateData.trial_end = null;
+    updateData.grace_until = null;
+    updateData.suspendedReason = null;
+    updateData.suspendedAt = null;
+  }
 
   // Set trial end if subscription has trial period
   if (sub.trial_end) {
