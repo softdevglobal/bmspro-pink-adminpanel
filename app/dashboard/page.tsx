@@ -30,6 +30,14 @@ export default function DashboardPage() {
   const [logoUrl, setLogoUrl] = useState<string>("");
   const [authLoading, setAuthLoading] = useState<boolean>(true);
   
+  // Billing status for subscription info
+  const [billingInfo, setBillingInfo] = useState<{
+    plan?: string;
+    billing_status?: string;
+    next_billing_date?: string;
+    trial_ends_at?: string;
+  } | null>(null);
+  
   // Today's Schedule state
   const [todayBookings, setTodayBookings] = useState<any[]>([]);
   const [allBranches, setAllBranches] = useState<string[]>([]);
@@ -96,6 +104,23 @@ export default function DashboardPage() {
           setSalonName(userData?.name || userData?.displayName || userData?.branchName || "");
           setLogoUrl(userData?.logoUrl || "");
           setAuthLoading(false);
+          
+          // Fetch billing status for salon owners
+          if (role === "salon_owner") {
+            try {
+              const billingRes = await fetch("/api/billing/status", {
+                headers: { Authorization: `Bearer ${token}` },
+              });
+              if (billingRes.ok) {
+                const billingData = await billingRes.json();
+                if (billingData.success && billingData.billing) {
+                  setBillingInfo(billingData.billing);
+                }
+              }
+            } catch (e) {
+              console.error("Error fetching billing status:", e);
+            }
+          }
         } catch {
           router.replace("/login");
         }
@@ -930,8 +955,40 @@ export default function DashboardPage() {
                   </div>
                 </div>
 
-                {/* Right side - Notification icon */}
-                <div className="flex items-center gap-3">
+                {/* Right side - Billing info badges + Notification icon */}
+                <div className="flex items-center gap-3 flex-wrap">
+                  {/* Next Payment Date badge - salon owners only */}
+                  {billingInfo?.next_billing_date && !isSuperAdmin && !isBranchAdmin && (
+                    <div className="flex items-center gap-2 bg-white/20 backdrop-blur px-4 py-2 rounded-xl text-sm">
+                      <i className="fas fa-calendar-alt" />
+                      <span className="font-medium">
+                        Next Payment: {new Date(billingInfo.next_billing_date).toLocaleDateString("en-AU", {
+                          day: "numeric",
+                          month: "short",
+                          year: "numeric",
+                        })}
+                        <span className="text-white/70 ml-1.5">
+                          ({(() => {
+                            const d = Math.ceil((new Date(billingInfo.next_billing_date!).getTime() - Date.now()) / 86400000);
+                            return d <= 0 ? "Due" : d === 1 ? "Tomorrow" : `${d} days`;
+                          })()})
+                        </span>
+                      </span>
+                    </div>
+                  )}
+                  {/* Trial End badge - salon owners trialing only */}
+                  {billingInfo?.trial_ends_at && !billingInfo?.next_billing_date && !isSuperAdmin && !isBranchAdmin && (
+                    <div className="flex items-center gap-2 bg-white/20 backdrop-blur px-4 py-2 rounded-xl text-sm">
+                      <i className="fas fa-gift" />
+                      <span className="font-medium">
+                        Trial Ends: {new Date(billingInfo.trial_ends_at).toLocaleDateString("en-AU", {
+                          day: "numeric",
+                          month: "short",
+                          year: "numeric",
+                        })}
+                      </span>
+                    </div>
+                  )}
                   <button 
                     onClick={() => setNotificationPanelOpen(!notificationPanelOpen)}
                     className={`relative w-12 h-12 rounded-xl flex items-center justify-center transition-all backdrop-blur-sm group ${
@@ -952,6 +1009,101 @@ export default function DashboardPage() {
               <div className="absolute top-0 right-0 -mr-10 -mt-10 w-64 h-64 rounded-full bg-white opacity-10 blur-2xl" />
             </div>
           </div>
+          {/* Subscription Info Bar - Only for salon owners */}
+          {billingInfo && !isSuperAdmin && !isBranchAdmin && (
+            <div className="mb-6 bg-white rounded-xl border border-slate-200 shadow-sm px-5 py-3">
+              <div className="flex items-center justify-between flex-wrap gap-3">
+                <div className="flex items-center gap-4 flex-wrap">
+                  {/* Plan */}
+                  <div className="flex items-center gap-2">
+                    <div className="w-8 h-8 bg-pink-50 rounded-lg flex items-center justify-center">
+                      <i className="fas fa-crown text-pink-500 text-sm" />
+                    </div>
+                    <div>
+                      <div className="text-xs text-slate-400">Plan</div>
+                      <div className="text-sm font-semibold text-slate-900">{billingInfo.plan || "—"}</div>
+                    </div>
+                  </div>
+
+                  <div className="w-px h-8 bg-slate-200 hidden sm:block" />
+
+                  {/* Status */}
+                  <div className="flex items-center gap-2">
+                    <div className={`w-2 h-2 rounded-full ${
+                      billingInfo.billing_status === "active" ? "bg-emerald-500" 
+                      : billingInfo.billing_status === "trialing" ? "bg-blue-500"
+                      : billingInfo.billing_status === "past_due" ? "bg-amber-500"
+                      : "bg-slate-400"
+                    }`} />
+                    <span className={`text-sm font-medium capitalize ${
+                      billingInfo.billing_status === "active" ? "text-emerald-600" 
+                      : billingInfo.billing_status === "trialing" ? "text-blue-600"
+                      : billingInfo.billing_status === "past_due" ? "text-amber-600"
+                      : "text-slate-600"
+                    }`}>
+                      {(billingInfo.billing_status || "unknown").replace("_", " ")}
+                    </span>
+                  </div>
+
+                  <div className="w-px h-8 bg-slate-200 hidden sm:block" />
+
+                  {/* Next Payment Date */}
+                  {billingInfo.next_billing_date && (
+                    <div className="flex items-center gap-2">
+                      <div className="w-8 h-8 bg-indigo-50 rounded-lg flex items-center justify-center">
+                        <i className="fas fa-calendar-alt text-indigo-500 text-sm" />
+                      </div>
+                      <div>
+                        <div className="text-xs text-slate-400">Next Payment</div>
+                        <div className="text-sm font-semibold text-slate-900">
+                          {new Date(billingInfo.next_billing_date).toLocaleDateString("en-AU", {
+                            day: "numeric",
+                            month: "short",
+                            year: "numeric",
+                          })}
+                          <span className="text-xs text-slate-400 ml-1.5">
+                            ({(() => {
+                              const d = Math.ceil((new Date(billingInfo.next_billing_date!).getTime() - Date.now()) / 86400000);
+                              return d <= 0 ? "Due" : d === 1 ? "Tomorrow" : `${d} days`;
+                            })()})
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Trial End (if trialing and no next_billing_date) */}
+                  {billingInfo.trial_ends_at && !billingInfo.next_billing_date && (
+                    <div className="flex items-center gap-2">
+                      <div className="w-8 h-8 bg-emerald-50 rounded-lg flex items-center justify-center">
+                        <i className="fas fa-gift text-emerald-500 text-sm" />
+                      </div>
+                      <div>
+                        <div className="text-xs text-slate-400">Trial Ends</div>
+                        <div className="text-sm font-semibold text-slate-900">
+                          {new Date(billingInfo.trial_ends_at).toLocaleDateString("en-AU", {
+                            day: "numeric",
+                            month: "short",
+                            year: "numeric",
+                          })}
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                {/* Manage button */}
+                <button
+                  onClick={() => router.push("/subscription")}
+                  className="text-sm text-pink-600 hover:text-pink-700 font-medium flex items-center gap-1.5 hover:underline"
+                >
+                  Manage
+                  <i className="fas fa-chevron-right text-xs" />
+                </button>
+              </div>
+            </div>
+          )}
+
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
             <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm min-w-0">
               <div className="flex items-center justify-between mb-3">

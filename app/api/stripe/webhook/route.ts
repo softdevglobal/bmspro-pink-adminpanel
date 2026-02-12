@@ -192,7 +192,11 @@ async function handleCheckoutCompleted(
   // Get subscription details from Stripe
   const subscription = await stripe.subscriptions.retrieve(subscriptionId);
   const sub = subscription as any;
-  const priceId = sub.items?.data[0]?.price?.id;
+  const firstItem = sub.items?.data?.[0];
+  const priceId = firstItem?.price?.id;
+  // In Stripe API 2025-12-15.clover, current_period_end/start moved to subscription item level
+  const subPeriodStart = firstItem?.current_period_start || sub.current_period_start;
+  const subPeriodEnd = firstItem?.current_period_end || sub.current_period_end;
   
   // Check if subscription has a trial period (trial_end exists and is in the future)
   const now = Math.floor(Date.now() / 1000);
@@ -201,6 +205,7 @@ async function handleCheckoutCompleted(
   const isActive = sub.status === "active";
   
   console.log("[WEBHOOK] Subscription status:", sub.status, "trial_end:", sub.trial_end, "isTrialing:", isTrialing, "isActive:", isActive);
+  console.log("[WEBHOOK] Period start:", subPeriodStart, "Period end:", subPeriodEnd);
 
   // Determine billing/account status:
   // - If trialing: set as trialing (user can access during trial)
@@ -214,8 +219,8 @@ async function handleCheckoutCompleted(
     billing_status: isTrialing ? "trialing" : (isActive ? "active" : "pending"),
     accountStatus: isTrialing || isActive ? "active" : "pending_payment",
     status: isTrialing ? "Trial" : (isActive ? "Active" : "Pending Payment"),
-    currentPeriodStart: new Date(sub.current_period_start * 1000),
-    currentPeriodEnd: new Date(sub.current_period_end * 1000),
+    currentPeriodStart: subPeriodStart ? new Date(Math.floor(Number(subPeriodStart)) * 1000) : new Date(),
+    currentPeriodEnd: subPeriodEnd ? new Date(Math.floor(Number(subPeriodEnd)) * 1000) : new Date(),
     cancelAtPeriodEnd: sub.cancel_at_period_end || false,
     updatedAt: new Date(),
   };
@@ -230,7 +235,7 @@ async function handleCheckoutCompleted(
 
   // Set trial end if subscription has trial period
   if (sub.trial_end) {
-    updateData.trial_end = new Date(sub.trial_end * 1000);
+    updateData.trial_end = new Date(Math.floor(Number(sub.trial_end)) * 1000);
   }
 
   // Get plan details from subscription_plans if priceId matches
@@ -295,14 +300,18 @@ async function handlePaymentSucceeded(
   // Get subscription to get current price
   const subscription = await stripe.subscriptions.retrieve(inv.subscription as string);
   const sub = subscription as any;
-  const priceId = sub.items?.data[0]?.price?.id;
+  const payFirstItem = sub.items?.data?.[0];
+  const priceId = payFirstItem?.price?.id;
+  // In Stripe API 2025-12-15.clover, current_period_end/start moved to subscription item level
+  const payPeriodStart = payFirstItem?.current_period_start || sub.current_period_start;
+  const payPeriodEnd = payFirstItem?.current_period_end || sub.current_period_end;
 
   const updateData: any = {
     billing_status: "active",
     subscriptionStatus: sub.status,
     stripePriceId: priceId,
-    currentPeriodStart: new Date(sub.current_period_start * 1000),
-    currentPeriodEnd: new Date(sub.current_period_end * 1000),
+    currentPeriodStart: payPeriodStart ? new Date(Math.floor(Number(payPeriodStart)) * 1000) : new Date(),
+    currentPeriodEnd: payPeriodEnd ? new Date(Math.floor(Number(payPeriodEnd)) * 1000) : new Date(),
     last_invoice_id: inv.id,
     lastPaymentDate: new Date(),
     lastPaymentAmount: inv.amount_paid / 100, // Convert from cents
@@ -405,19 +414,23 @@ async function updateUserSubscription(
   subscription: Stripe.Subscription
 ) {
   const sub = subscription as any;
+  const updItem = sub.items?.data?.[0];
+  // In Stripe API 2025-12-15.clover, current_period_end/start moved to subscription item level
+  const updPeriodStart = updItem?.current_period_start || sub.current_period_start;
+  const updPeriodEnd = updItem?.current_period_end || sub.current_period_end;
   const updateData: any = {
     stripeSubscriptionId: sub.id,
-    stripePriceId: sub.items?.data[0]?.price?.id || null,
+    stripePriceId: updItem?.price?.id || null,
     subscriptionStatus: sub.status,
-    currentPeriodStart: new Date(sub.current_period_start * 1000),
-    currentPeriodEnd: new Date(sub.current_period_end * 1000),
+    currentPeriodStart: updPeriodStart ? new Date(Math.floor(Number(updPeriodStart)) * 1000) : new Date(),
+    currentPeriodEnd: updPeriodEnd ? new Date(Math.floor(Number(updPeriodEnd)) * 1000) : new Date(),
     cancelAtPeriodEnd: sub.cancel_at_period_end,
     updatedAt: new Date(),
   };
 
   // Update trial_end if exists
   if (sub.trial_end) {
-    updateData.trial_end = new Date(sub.trial_end * 1000);
+    updateData.trial_end = new Date(Math.floor(Number(sub.trial_end)) * 1000);
   }
 
   // Update billing_status based on subscription status

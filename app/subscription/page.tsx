@@ -92,6 +92,11 @@ export default function SubscriptionPage() {
     showWarning: false,
   });
   
+  // Upgrade/Downgrade modal state
+  const [showUpgradeModal, setShowUpgradeModal] = useState(false);
+  const [upgradePkg, setUpgradePkg] = useState<Package | null>(null);
+  const [upgradeAction, setUpgradeAction] = useState<"upgrade" | "downgrade">("upgrade");
+  
   // Cancel modal state
   const [showCancelModal, setShowCancelModal] = useState(false);
   const [cancelReason, setCancelReason] = useState("");
@@ -336,9 +341,16 @@ export default function SubscriptionPage() {
     }
   };
 
-  // Upgrade subscription
-  const handleUpgrade = async (newPlanId: string) => {
-    if (!auth.currentUser || !confirm("Upgrades start a new 28-day cycle today and charge immediately. Continue?")) return;
+  // Open upgrade/downgrade confirmation modal
+  const openUpgradeModal = (pkg: Package, action: "upgrade" | "downgrade") => {
+    setUpgradePkg(pkg);
+    setUpgradeAction(action);
+    setShowUpgradeModal(true);
+  };
+
+  // Confirm upgrade subscription
+  const confirmUpgrade = async () => {
+    if (!auth.currentUser || !upgradePkg) return;
     
     try {
       setUpgradeLoading(true);
@@ -350,7 +362,7 @@ export default function SubscriptionPage() {
           "Content-Type": "application/json",
           "Authorization": `Bearer ${token}`,
         },
-        body: JSON.stringify({ newPlanId }),
+        body: JSON.stringify({ newPlanId: upgradePkg.id }),
       });
       
       const data = await response.json();
@@ -359,7 +371,7 @@ export default function SubscriptionPage() {
         throw new Error(data.error || "Failed to upgrade subscription");
       }
       
-      alert("Upgrade initiated! Payment will be processed immediately.");
+      setShowUpgradeModal(false);
       fetchBillingStatus();
       // Refresh page to show updated status
       window.location.reload();
@@ -371,9 +383,9 @@ export default function SubscriptionPage() {
     }
   };
 
-  // Downgrade subscription
-  const handleDowngrade = async (newPlanId: string) => {
-    if (!auth.currentUser || !confirm("Downgrade applies at the end of your current 28-day cycle. Continue?")) return;
+  // Confirm downgrade subscription
+  const confirmDowngrade = async () => {
+    if (!auth.currentUser || !upgradePkg) return;
     
     try {
       setDowngradeLoading(true);
@@ -385,7 +397,7 @@ export default function SubscriptionPage() {
           "Content-Type": "application/json",
           "Authorization": `Bearer ${token}`,
         },
-        body: JSON.stringify({ newPlanId }),
+        body: JSON.stringify({ newPlanId: upgradePkg.id }),
       });
       
       const data = await response.json();
@@ -394,8 +406,10 @@ export default function SubscriptionPage() {
         throw new Error(data.error || "Failed to schedule downgrade");
       }
       
-      alert("Downgrade scheduled! Your plan will change at the end of your current billing cycle.");
+      setShowUpgradeModal(false);
       fetchBillingStatus();
+      // Refresh page to show updated status
+      window.location.reload();
     } catch (error: any) {
       console.error("Error downgrading:", error);
       alert(error.message || "Failed to schedule downgrade. Please try again.");
@@ -527,6 +541,18 @@ export default function SubscriptionPage() {
                             }`} />
                             <span className="font-medium capitalize">
                               {billingStatus.billing_status.replace("_", " ")}
+                            </span>
+                          </div>
+                        )}
+                        {billingStatus?.next_billing_date && (
+                          <div className="flex items-center gap-2 bg-white/20 backdrop-blur px-4 py-2 rounded-xl">
+                            <i className="fas fa-calendar-alt" />
+                            <span className="font-medium">
+                              Next Payment: {new Date(billingStatus.next_billing_date).toLocaleDateString("en-AU", {
+                                day: "numeric",
+                                month: "short",
+                                year: "numeric",
+                              })}
                             </span>
                           </div>
                         )}
@@ -684,25 +710,56 @@ export default function SubscriptionPage() {
                 {userData.stripeSubscriptionId && userData.plan && (
                   <div className="mb-8 bg-white rounded-2xl border border-slate-200 shadow-sm p-6">
                     <h2 className="text-xl font-bold text-slate-900 mb-4">Current Plan</h2>
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
                       <div>
                         <div className="text-sm text-slate-500 mb-1">Plan</div>
                         <div className="text-lg font-semibold text-slate-900">{userData.plan}</div>
-                        {billingStatus?.next_billing_date && (
-                          <>
-                            <div className="text-sm text-slate-500 mt-3 mb-1">Next Billing Date</div>
-                            <div className="text-sm text-slate-700">
-                              {new Date(billingStatus.next_billing_date).toLocaleDateString()}
-                            </div>
-                          </>
+                        {userData.price && (
+                          <div className="text-sm text-pink-600 font-medium mt-1">{userData.price}</div>
                         )}
-                        {billingStatus?.trial_ends_at && (
-                          <>
-                            <div className="text-sm text-slate-500 mt-3 mb-1">Trial Ends</div>
-                            <div className="text-sm text-slate-700">
-                              {new Date(billingStatus.trial_ends_at).toLocaleDateString()}
+                      </div>
+                      <div>
+                        {billingStatus?.next_billing_date && (
+                          <div>
+                            <div className="text-sm text-slate-500 mb-1">
+                              <i className="fas fa-calendar-alt mr-1.5 text-pink-400" />
+                              Next Payment Date
                             </div>
-                          </>
+                            <div className="text-lg font-semibold text-slate-900">
+                              {new Date(billingStatus.next_billing_date).toLocaleDateString("en-AU", {
+                                weekday: "short",
+                                day: "numeric",
+                                month: "short",
+                                year: "numeric",
+                              })}
+                            </div>
+                            <div className="text-xs text-slate-400 mt-1">
+                              {(() => {
+                                const nextDate = new Date(billingStatus.next_billing_date);
+                                const now = new Date();
+                                const diffDays = Math.ceil((nextDate.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
+                                if (diffDays <= 0) return "Payment due";
+                                if (diffDays === 1) return "Due tomorrow";
+                                return `In ${diffDays} days`;
+                              })()}
+                            </div>
+                          </div>
+                        )}
+                        {billingStatus?.trial_ends_at && !billingStatus?.next_billing_date && (
+                          <div>
+                            <div className="text-sm text-slate-500 mb-1">
+                              <i className="fas fa-gift mr-1.5 text-emerald-400" />
+                              Trial Ends
+                            </div>
+                            <div className="text-lg font-semibold text-slate-900">
+                              {new Date(billingStatus.trial_ends_at).toLocaleDateString("en-AU", {
+                                weekday: "short",
+                                day: "numeric",
+                                month: "short",
+                                year: "numeric",
+                              })}
+                            </div>
+                          </div>
                         )}
                       </div>
                       <div className="flex flex-col gap-3">
@@ -890,39 +947,19 @@ export default function SubscriptionPage() {
                                 <>
                                   {pkg.price > (parseFloat(userData.price?.replace(/[^0-9.]/g, "") || "0")) ? (
                                     <button
-                                      onClick={() => handleUpgrade(pkg.id)}
-                                      disabled={upgradeLoading}
-                                      className={`w-full py-3 px-4 rounded-xl font-semibold text-sm transition-all duration-200 bg-gradient-to-r ${gradientClass} text-white hover:shadow-lg hover:scale-[1.02] disabled:opacity-50`}
+                                      onClick={() => openUpgradeModal(pkg, "upgrade")}
+                                      className={`w-full py-3 px-4 rounded-xl font-semibold text-sm transition-all duration-200 bg-gradient-to-r ${gradientClass} text-white hover:shadow-lg hover:scale-[1.02]`}
                                     >
-                                      {upgradeLoading ? (
-                                        <>
-                                          <i className="fas fa-circle-notch fa-spin mr-1.5" />
-                                          Upgrading...
-                                        </>
-                                      ) : (
-                                        <>
-                                          <i className="fas fa-arrow-up mr-1.5" />
-                                          Upgrade Now
-                                        </>
-                                      )}
+                                      <i className="fas fa-arrow-up mr-1.5" />
+                                      Upgrade Now
                                     </button>
                                   ) : (
                                     <button
-                                      onClick={() => handleDowngrade(pkg.id)}
-                                      disabled={downgradeLoading}
-                                      className={`w-full py-3 px-4 rounded-xl font-semibold text-sm transition-all duration-200 bg-gradient-to-r ${gradientClass} text-white hover:shadow-lg hover:scale-[1.02] disabled:opacity-50`}
+                                      onClick={() => openUpgradeModal(pkg, "downgrade")}
+                                      className={`w-full py-3 px-4 rounded-xl font-semibold text-sm transition-all duration-200 bg-gradient-to-r ${gradientClass} text-white hover:shadow-lg hover:scale-[1.02]`}
                                     >
-                                      {downgradeLoading ? (
-                                        <>
-                                          <i className="fas fa-circle-notch fa-spin mr-1.5" />
-                                          Scheduling...
-                                        </>
-                                      ) : (
-                                        <>
-                                          <i className="fas fa-arrow-down mr-1.5" />
-                                          Downgrade
-                                        </>
-                                      )}
+                                      <i className="fas fa-arrow-down mr-1.5" />
+                                      Downgrade
                                     </button>
                                   )}
                                 </>
@@ -1064,6 +1101,143 @@ export default function SubscriptionPage() {
                       <>
                         <i className="fas fa-credit-card mr-2" />
                         Subscribe & Pay
+                      </>
+                    )}
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Upgrade/Downgrade Confirmation Modal */}
+      {showUpgradeModal && upgradePkg && (
+        <div className="fixed inset-0 z-50">
+          <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" onClick={() => !(upgradeLoading || downgradeLoading) && setShowUpgradeModal(false)} />
+          <div className="relative flex items-center justify-center min-h-screen p-4">
+            <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden">
+              {/* Header */}
+              <div className={`bg-gradient-to-r ${
+                upgradeAction === "upgrade"
+                  ? "from-emerald-500 to-teal-500"
+                  : "from-amber-500 to-orange-500"
+              } p-6 text-white relative`}>
+                <button
+                  onClick={() => !(upgradeLoading || downgradeLoading) && setShowUpgradeModal(false)}
+                  className="absolute top-4 right-4 w-8 h-8 rounded-full bg-white/20 hover:bg-white/30 flex items-center justify-center transition-colors"
+                >
+                  <i className="fas fa-times text-sm" />
+                </button>
+                <div className="flex items-center gap-4">
+                  <div className="w-14 h-14 rounded-xl bg-white/20 backdrop-blur flex items-center justify-center">
+                    <i className={`fas ${upgradeAction === "upgrade" ? "fa-arrow-up" : "fa-arrow-down"} text-2xl`} />
+                  </div>
+                  <div>
+                    <h3 className="text-xl font-bold">
+                      {upgradeAction === "upgrade" ? "Upgrade Plan" : "Downgrade Plan"}
+                    </h3>
+                    <p className="text-white/80 text-sm">
+                      {upgradeAction === "upgrade"
+                        ? "Your new plan starts immediately"
+                        : "Changes at end of current cycle"}
+                    </p>
+                  </div>
+                </div>
+              </div>
+              
+              {/* Content */}
+              <div className="p-6">
+                {/* Plan Change Summary */}
+                <div className="flex items-center justify-center gap-4 mb-6">
+                  <div className="text-center">
+                    <div className="text-xs text-slate-400 mb-1">Current</div>
+                    <div className="font-bold text-slate-900">{userData?.plan}</div>
+                    <div className="text-sm text-slate-500">{userData?.price}</div>
+                  </div>
+                  <div className={`w-10 h-10 rounded-full flex items-center justify-center ${
+                    upgradeAction === "upgrade" ? "bg-emerald-100 text-emerald-600" : "bg-amber-100 text-amber-600"
+                  }`}>
+                    <i className="fas fa-arrow-right" />
+                  </div>
+                  <div className="text-center">
+                    <div className="text-xs text-slate-400 mb-1">New</div>
+                    <div className="font-bold text-slate-900">{upgradePkg.name}</div>
+                    <div className="text-sm text-pink-600 font-semibold">{upgradePkg.priceLabel}</div>
+                  </div>
+                </div>
+
+                {/* Info Box */}
+                <div className={`rounded-xl p-4 mb-6 ${
+                  upgradeAction === "upgrade"
+                    ? "bg-emerald-50 border border-emerald-200"
+                    : "bg-amber-50 border border-amber-200"
+                }`}>
+                  <div className="flex items-start gap-3">
+                    <i className={`fas fa-info-circle mt-0.5 ${
+                      upgradeAction === "upgrade" ? "text-emerald-500" : "text-amber-500"
+                    }`} />
+                    <div className={`text-sm ${
+                      upgradeAction === "upgrade" ? "text-emerald-800" : "text-amber-800"
+                    }`}>
+                      {upgradeAction === "upgrade" ? (
+                        <>
+                          <p className="font-medium mb-1">Immediate upgrade</p>
+                          <p>A new 28-day billing cycle starts today. Payment will be charged immediately.</p>
+                        </>
+                      ) : (
+                        <>
+                          <p className="font-medium mb-1">Scheduled downgrade</p>
+                          <p>Your current plan stays active until the end of this billing cycle. The new plan takes effect at your next billing date.</p>
+                        </>
+                      )}
+                    </div>
+                  </div>
+                </div>
+
+                {/* Plan Details */}
+                <div className="bg-slate-50 rounded-xl p-4 mb-6">
+                  <div className="flex items-center justify-between text-sm mb-2">
+                    <span className="text-slate-500">Branches</span>
+                    <span className="font-medium text-slate-700">
+                      {upgradePkg.branches === -1 ? "Unlimited" : upgradePkg.branches}
+                    </span>
+                  </div>
+                  <div className="flex items-center justify-between text-sm">
+                    <span className="text-slate-500">Staff</span>
+                    <span className="font-medium text-slate-700">
+                      {upgradePkg.staff === -1 ? "Unlimited" : upgradePkg.staff}
+                    </span>
+                  </div>
+                </div>
+                
+                {/* Buttons */}
+                <div className="flex gap-3">
+                  <button
+                    onClick={() => setShowUpgradeModal(false)}
+                    disabled={upgradeLoading || downgradeLoading}
+                    className="flex-1 py-3 px-4 rounded-xl border border-slate-200 text-slate-700 font-medium hover:bg-slate-50 transition-colors disabled:opacity-50"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    onClick={upgradeAction === "upgrade" ? confirmUpgrade : confirmDowngrade}
+                    disabled={upgradeLoading || downgradeLoading}
+                    className={`flex-1 py-3 px-4 rounded-xl text-white font-semibold transition-all disabled:opacity-70 bg-gradient-to-r ${
+                      upgradeAction === "upgrade"
+                        ? "from-emerald-500 to-teal-500 hover:from-emerald-600 hover:to-teal-600"
+                        : "from-amber-500 to-orange-500 hover:from-amber-600 hover:to-orange-600"
+                    } hover:shadow-lg`}
+                  >
+                    {(upgradeLoading || downgradeLoading) ? (
+                      <>
+                        <i className="fas fa-circle-notch fa-spin mr-2" />
+                        Processing...
+                      </>
+                    ) : (
+                      <>
+                        <i className={`fas ${upgradeAction === "upgrade" ? "fa-arrow-up" : "fa-arrow-down"} mr-2`} />
+                        {upgradeAction === "upgrade" ? "Confirm Upgrade" : "Confirm Downgrade"}
                       </>
                     )}
                   </button>

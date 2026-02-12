@@ -17,8 +17,8 @@ const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, {
  * 
  * Behavior:
  * - Creates/updates Subscription Schedule
- * - Phase 1: Current price until current_period_end
- * - Phase 2: New price starting at current_period_end
+ * - Phase 1: Current price with end_date = current_period_end
+ * - Phase 2: New price (last phase, released after)
  * - No immediate charge or change
  */
 export async function POST(req: NextRequest) {
@@ -83,12 +83,25 @@ export async function POST(req: NextRequest) {
 
     // Get current subscription from Stripe
     const subscription = await stripe.subscriptions.retrieve(subscriptionId);
-    const currentPriceId = (subscription as any).items.data[0]?.price?.id;
-    const currentPeriodEnd = (subscription as any).current_period_end;
+    const sub = subscription as any;
+    const firstItem = sub.items?.data?.[0];
+    const currentPriceId = firstItem?.price?.id;
+    // In Stripe API 2025-12-15.clover, current_period_end/start moved to subscription item level
+    const currentPeriodEnd = firstItem?.current_period_end || sub.current_period_end;
+    const currentPeriodStart = firstItem?.current_period_start || sub.current_period_start;
+
+    console.log(`[BILLING DOWNGRADE] Subscription item current_period_end: ${currentPeriodEnd}, current_period_start: ${currentPeriodStart}`);
 
     if (!currentPriceId) {
       return NextResponse.json(
         { error: "Subscription price not found" },
+        { status: 400 }
+      );
+    }
+
+    if (!currentPeriodEnd) {
+      return NextResponse.json(
+        { error: "Cannot determine current billing period" },
         { status: 400 }
       );
     }
@@ -114,56 +127,100 @@ export async function POST(req: NextRequest) {
       },
     });
 
+    // Calculate duration in days for phase 0 (current plan until period end)
+    const nowUnix = Math.floor(Date.now() / 1000);
+    const durationSeconds = Math.max(currentPeriodEnd - nowUnix, 86400); // At least 1 day
+    const durationDays = Math.ceil(durationSeconds / 86400);
+
+    console.log(`[BILLING DOWNGRADE] Current period end: ${new Date(currentPeriodEnd * 1000).toISOString()}, duration: ${durationDays} days`);
+
     // Check if subscription already has a schedule
+    // First check Firestore, then check the Stripe subscription object itself
     let scheduleId = userData_db.stripeScheduleId;
+
+    // Also check if the subscription has a schedule attached in Stripe (may not be in Firestore)
+    const stripeAttachedScheduleId = sub.schedule 
+      ? (typeof sub.schedule === "string" ? sub.schedule : sub.schedule.id) 
+      : null;
+
+    if (!scheduleId && stripeAttachedScheduleId) {
+      console.log(`[BILLING DOWNGRADE] Found schedule ${stripeAttachedScheduleId} attached to subscription (not in Firestore)`);
+      scheduleId = stripeAttachedScheduleId;
+    }
 
     if (scheduleId) {
       try {
         // Try to update existing schedule
         const schedule = await stripe.subscriptionSchedules.retrieve(scheduleId);
         
-        await stripe.subscriptionSchedules.update(scheduleId, {
-          phases: [
-            {
-              items: [{ price: currentPriceId, quantity: 1 }],
-              start_date: (subscription as any).current_period_start,
-              end_date: currentPeriodEnd,
+        // Check schedule is still active
+        if (schedule.status === "active" || schedule.status === "not_started") {
+          console.log(`[BILLING DOWNGRADE] Updating existing schedule ${scheduleId}`);
+          await stripe.subscriptionSchedules.update(scheduleId, {
+            phases: [
+              {
+                items: [{ price: currentPriceId, quantity: 1 }],
+                start_date: currentPeriodStart, // Anchor point for end_date
+                end_date: currentPeriodEnd,
+              },
+              {
+                items: [{ price: newPrice.id, quantity: 1 }],
+                start_date: currentPeriodEnd,
+                // Last phase with end_behavior: release - no end_date needed
+              },
+            ],
+            end_behavior: "release",
+            metadata: {
+              ...schedule.metadata,
+              downgraded_at: new Date().toISOString(),
+              new_plan_id: newPlanId,
             },
-            {
-              items: [{ price: newPrice.id, quantity: 1 }],
-              start_date: currentPeriodEnd,
-            },
-          ],
-          metadata: {
-            ...schedule.metadata,
-            downgraded_at: new Date().toISOString(),
-            new_plan_id: newPlanId,
-          },
-        });
+          });
+        } else {
+          // Schedule is completed/canceled — release it first, then create new one
+          console.log(`[BILLING DOWNGRADE] Schedule ${scheduleId} status is ${schedule.status}, releasing and creating new`);
+          try {
+            await stripe.subscriptionSchedules.release(scheduleId);
+          } catch (releaseErr) {
+            console.log("[BILLING DOWNGRADE] Could not release schedule (may already be released):", releaseErr);
+          }
+          scheduleId = null;
+        }
       } catch (e) {
-        // Schedule doesn't exist or is invalid, create new one
+        console.error("[BILLING DOWNGRADE] Error updating existing schedule:", e);
+        // Try to release the stale schedule before creating a new one
+        try {
+          await stripe.subscriptionSchedules.release(scheduleId);
+          console.log(`[BILLING DOWNGRADE] Released stale schedule ${scheduleId}`);
+        } catch (releaseErr) {
+          console.log("[BILLING DOWNGRADE] Could not release stale schedule:", releaseErr);
+        }
         scheduleId = null;
       }
     }
     
     if (!scheduleId) {
+      console.log(`[BILLING DOWNGRADE] Creating new schedule from subscription ${subscriptionId}`);
       // Create new schedule from the subscription
       const schedule = await stripe.subscriptionSchedules.create({
         from_subscription: subscriptionId,
       });
 
       // Update the schedule with phases
+      // Phase 0: keep current price until current_period_end (needs start_date as anchor)
+      // Phase 1: switch to new price (last phase, end_behavior=release handles it)
       await stripe.subscriptionSchedules.update(schedule.id, {
         end_behavior: "release",
         phases: [
           {
             items: [{ price: currentPriceId, quantity: 1 }],
-            start_date: (subscription as any).current_period_start,
+            start_date: currentPeriodStart, // Anchor point for end_date
             end_date: currentPeriodEnd,
           },
           {
             items: [{ price: newPrice.id, quantity: 1 }],
             start_date: currentPeriodEnd,
+            // Last phase - no end_date needed with end_behavior: release
           },
         ],
         metadata: {
@@ -177,12 +234,16 @@ export async function POST(req: NextRequest) {
     }
 
     // Update Firestore - store scheduled downgrade info including future limits
-    const updateData: any = {
+    const effectiveDate = currentPeriodEnd 
+      ? new Date(Math.floor(Number(currentPeriodEnd)) * 1000) 
+      : new Date();
+
+    const updateData: Record<string, any> = {
       stripeScheduleId: scheduleId,
       downgradeScheduled: true,
       downgradePlanId: newPlanId,
       downgradePriceId: newPrice.id,
-      downgradeEffectiveDate: new Date(currentPeriodEnd * 1000),
+      downgradeEffectiveDate: effectiveDate,
       downgradePlanKey: newPlanData.plan_key || newPlanId,
       downgradePlanName: newPlanData.name,
       downgradePlanPrice: newPlanData.priceLabel || `AU$${newPlanData.price}/mo`,
@@ -200,14 +261,14 @@ export async function POST(req: NextRequest) {
       await db.collection("owners").doc(userId).update(updateData);
     }
 
-    console.log(`[BILLING] User ${userId} scheduled downgrade to plan ${newPlanId} at ${new Date(currentPeriodEnd * 1000).toISOString()}`);
+    console.log(`[BILLING] User ${userId} scheduled downgrade to plan ${newPlanId} at ${effectiveDate.toISOString()}`);
 
     return NextResponse.json({
       success: true,
       message: "Downgrade scheduled. Plan will change at the end of your current billing cycle.",
       schedule: {
         id: scheduleId,
-        effectiveDate: new Date(currentPeriodEnd * 1000).toISOString(),
+        effectiveDate: effectiveDate.toISOString(),
         newPlan: newPlanData.name,
       },
     });
