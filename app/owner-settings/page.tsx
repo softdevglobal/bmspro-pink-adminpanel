@@ -27,6 +27,8 @@ type UserData = {
   role: string;
   logoUrl?: string;
   termsAndConditions?: string;
+  bookingEngineUrl?: string;
+  slug?: string;
 };
 
 // Format ABN as XX XXX XXX XXX
@@ -58,6 +60,9 @@ export default function OwnerSettingsPage() {
   const [showRemoveLogoModal, setShowRemoveLogoModal] = useState(false);
   const logoInputRef = useRef<HTMLInputElement>(null);
   
+  // Booking engine link copy state
+  const [linkCopied, setLinkCopied] = useState(false);
+
   // Password change states
   const [currentPassword, setCurrentPassword] = useState("");
   const [newPassword, setNewPassword] = useState("");
@@ -119,6 +124,8 @@ export default function OwnerSettingsPage() {
           role: role,
           logoUrl: data?.logoUrl || "",
           termsAndConditions: data?.termsAndConditions || "",
+          bookingEngineUrl: data?.bookingEngineUrl || "",
+          slug: data?.slug || "",
         };
         
         setUserData(userData);
@@ -881,6 +888,64 @@ Example:
                       )}
                     </div>
                   </div>
+
+                  {/* Booking Engine Link */}
+                  {userData.bookingEngineUrl && (
+                    <div className="bg-white border border-slate-200 rounded-2xl p-6">
+                      <div className="flex items-center gap-3 mb-4">
+                        <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-emerald-500 to-teal-600 text-white flex items-center justify-center">
+                          <i className="fas fa-link" />
+                        </div>
+                        <div>
+                          <h3 className="text-base font-semibold text-slate-900">Booking Engine Link</h3>
+                          <p className="text-xs text-slate-500">Share this link with your customers</p>
+                        </div>
+                      </div>
+                      <div className="bg-slate-50 border border-slate-200 rounded-xl p-3">
+                        <p className="text-sm text-slate-700 break-all font-mono">{userData.bookingEngineUrl}</p>
+                      </div>
+                      <div className="mt-3 flex gap-2">
+                        <button
+                          onClick={async () => {
+                            try {
+                              await navigator.clipboard.writeText(userData.bookingEngineUrl || "");
+                              setLinkCopied(true);
+                              showToast("Booking link copied to clipboard!");
+                              setTimeout(() => setLinkCopied(false), 2000);
+                            } catch {
+                              // Fallback for older browsers
+                              const textArea = document.createElement("textarea");
+                              textArea.value = userData.bookingEngineUrl || "";
+                              document.body.appendChild(textArea);
+                              textArea.select();
+                              document.execCommand("copy");
+                              document.body.removeChild(textArea);
+                              setLinkCopied(true);
+                              showToast("Booking link copied to clipboard!");
+                              setTimeout(() => setLinkCopied(false), 2000);
+                            }
+                          }}
+                          className={`flex-1 px-4 py-2.5 rounded-lg text-sm font-semibold transition flex items-center justify-center gap-2 ${
+                            linkCopied
+                              ? "bg-emerald-600 text-white"
+                              : "bg-pink-600 text-white hover:bg-pink-700"
+                          }`}
+                        >
+                          <i className={`fas ${linkCopied ? "fa-check" : "fa-copy"}`} />
+                          {linkCopied ? "Copied!" : "Copy Link"}
+                        </button>
+                        <a
+                          href={userData.bookingEngineUrl}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="px-4 py-2.5 border border-slate-300 rounded-lg text-sm font-medium text-slate-700 hover:bg-slate-50 transition flex items-center justify-center gap-2"
+                        >
+                          <i className="fas fa-external-link-alt" />
+                          Open
+                        </a>
+                      </div>
+                    </div>
+                  )}
 
                   {/* Branding - Logo Upload */}
                   <div className="bg-white border border-slate-200 rounded-2xl p-6">

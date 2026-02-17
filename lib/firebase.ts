@@ -1,4 +1,4 @@
-import { initializeApp, getApps, getApp } from "firebase/app";
+import { initializeApp, getApps } from "firebase/app";
 import { getAuth } from "firebase/auth";
 import { initializeFirestore } from "firebase/firestore";
 import { getStorage } from "firebase/storage";
@@ -14,8 +14,13 @@ const firebaseConfig = {
   measurementId: process.env.NEXT_PUBLIC_FIREBASE_MEASUREMENT_ID || "G-M4XJKLN1Y2",
 };
 
-// Initialize (guarded for Next.js hot reload)
-const app = getApps().length ? getApp() : initializeApp(firebaseConfig);
+// Use a named app instance ("adminPanel") so the admin panel and booking engine
+// maintain separate Firebase Auth sessions in the same browser / same origin.
+// Firebase Auth persists state in IndexedDB keyed by {apiKey}:{appName}.
+// Without distinct names, logging out of one app signs out the other.
+const ADMIN_APP_NAME = "adminPanel";
+const app = getApps().find(a => a.name === ADMIN_APP_NAME)
+  || initializeApp(firebaseConfig, ADMIN_APP_NAME);
 const auth = getAuth(app);
 
 // Stabilize Firestore in Next.js dev (Turbopack/HMR) and varied network environments
