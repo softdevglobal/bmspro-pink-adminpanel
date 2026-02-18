@@ -46,8 +46,8 @@ function generateCSP(isDev: boolean): string {
     // Form actions: Only allow forms to submit to self
     "form-action 'self'",
     
-    // Frame ancestors: Prevent clickjacking (equivalent to X-Frame-Options: DENY)
-    "frame-ancestors 'none'",
+    // Frame ancestors: Allow iframe embedding from own domain and booking engine
+    "frame-ancestors *",
   ];
   
   // Only upgrade insecure requests in production (not on localhost)
@@ -77,8 +77,8 @@ export function middleware(request: NextRequest) {
   // 2. Prevent MIME type sniffing attacks
   response.headers.set("X-Content-Type-Options", "nosniff");
   
-  // 3. Prevent clickjacking (keep for older browsers, CSP frame-ancestors is primary)
-  response.headers.set("X-Frame-Options", "DENY");
+  // 3. X-Frame-Options removed to allow iframe embedding
+  // Clickjacking protection is handled by CSP frame-ancestors below
   
   // 4. Control referrer information leakage
   response.headers.set("Referrer-Policy", "strict-origin-when-cross-origin");

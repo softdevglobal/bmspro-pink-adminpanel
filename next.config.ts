@@ -74,11 +74,7 @@ const nextConfig: NextConfig = {
             key: 'X-Content-Type-Options',
             value: 'nosniff',
           },
-          // Prevent clickjacking
-          {
-            key: 'X-Frame-Options',
-            value: 'DENY',
-          },
+          // Allow iframe embedding (X-Frame-Options removed to enable iframe usage)
           // Control referrer information
           {
             key: 'Referrer-Policy',
