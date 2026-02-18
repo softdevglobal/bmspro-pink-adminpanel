@@ -530,7 +530,7 @@ export default function TenantsPage() {
 
   useEffect(() => {
     // Auth listener prevents early redirect flicker on reload
-    const unsub = onAuthStateChanged(getAuth(), async (user) => {
+    const unsub = onAuthStateChanged(auth, async (user) => {
       if (!user) {
         router.replace("/login");
         return;
