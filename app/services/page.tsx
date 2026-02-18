@@ -2,10 +2,10 @@
 import React, { useEffect, useState, useRef } from "react";
 import Sidebar from "@/components/Sidebar";
 import { useRouter } from "next/navigation";
-import { auth, db } from "@/lib/firebase";
+import { auth, db, storage } from "@/lib/firebase";
 import { onAuthStateChanged } from "firebase/auth";
 import { doc, getDoc } from "firebase/firestore";
-import { getStorage, ref as storageRef, uploadBytes, getDownloadURL } from "firebase/storage";
+import { ref as storageRef, uploadBytes, getDownloadURL } from "firebase/storage";
 import { subscribeBranchesForOwner } from "@/lib/branches";
 import { subscribeSalonStaffForOwner } from "@/lib/salonStaff";
 import { createServiceForOwner, deleteService as deleteServiceDoc, subscribeServicesForOwner, updateService } from "@/lib/services";
@@ -200,7 +200,6 @@ export default function ServicesPage() {
     
     setUploading(true);
     try {
-      const storage = getStorage();
       const timestamp = Date.now();
       const fileName = `services/${ownerUid}/${timestamp}_${imageFile.name}`;
       const imageRef = storageRef(storage, fileName);
