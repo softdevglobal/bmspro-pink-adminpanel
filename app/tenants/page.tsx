@@ -2,9 +2,9 @@
 import React, { useMemo, useState, useEffect, useCallback } from "react";
 import Sidebar from "@/components/Sidebar";
 import { useRouter } from "next/navigation";
-import { auth, db } from "@/lib/firebase";
+import { app, auth, db } from "@/lib/firebase";
 import { collection, onSnapshot, orderBy, query, addDoc, serverTimestamp, doc, getDoc, where, updateDoc, deleteDoc, getDocs, setDoc } from "firebase/firestore";
-import { initializeApp, getApp } from "firebase/app";
+import { initializeApp } from "firebase/app";
 import { getAuth, createUserWithEmailAndPassword, signOut as signOutSecondary, onAuthStateChanged } from "firebase/auth";
 import { TIMEZONES } from "@/lib/timezone";
 import { generateUniqueSlug } from "@/lib/slug";
@@ -289,7 +289,7 @@ export default function TenantsPage() {
       
       let ownerUid: string;
       try {
-        const options: any = getApp().options;
+        const options: any = app.options;
         const secondaryName = `provision-${Date.now()}`;
         const secondaryApp = initializeApp(options, secondaryName);
         const secondaryAuth = getAuth(secondaryApp);
