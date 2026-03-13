@@ -208,8 +208,20 @@ export default function BranchLocationPicker({
         setIsGettingCurrentLocation(false);
       },
       (error) => {
-        console.error("Error getting location:", error);
-        alert("Unable to get your current location. Please check your browser permissions.");
+        const code = typeof error?.code === "number" ? error.code : undefined;
+        const message = typeof error?.message === "string" ? error.message : undefined;
+        if (code !== undefined || message) {
+          console.warn("Geolocation failed - code:", code ?? "unknown", "message:", message ?? "(none)");
+        }
+        const userMessage =
+          code === 1
+            ? "Location access was denied. Please enable location permissions in your browser settings."
+            : code === 2
+            ? "Location is currently unavailable. Please try again or enter an address manually."
+            : code === 3
+            ? "Location request timed out. Please try again or enter an address manually."
+            : "Unable to get your current location. Please check your browser permissions or enter an address manually.";
+        alert(userMessage);
         setIsGettingCurrentLocation(false);
       },
       {

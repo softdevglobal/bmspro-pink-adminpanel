@@ -4,7 +4,7 @@ import Sidebar from "@/components/Sidebar";
 import { useRouter } from "next/navigation";
 import { auth, db } from "@/lib/firebase";
 import { onAuthStateChanged } from "firebase/auth";
-import { doc, getDoc, collection, query, where, getDocs } from "firebase/firestore";
+import { doc, getDoc, collection, query, where, getDocs, onSnapshot } from "firebase/firestore";
 import { BranchInput, BranchLocation, createBranchForOwner, subscribeBranchesForOwner, syncOwnerBranchCount } from "@/lib/branches";
 import { subscribeSalonStaffForOwner } from "@/lib/salonStaff";
 import { subscribeServicesForOwner } from "@/lib/services";
@@ -242,6 +242,33 @@ export default function BranchesPage() {
     });
     return () => unsub();
   }, [router]);
+
+  // Realtime subscription to owner's branch limit (updates immediately after upgrade)
+  useEffect(() => {
+    if (!ownerUid) return;
+    const unsub = onSnapshot(doc(db, "users", ownerUid), async (snap) => {
+      if (!snap.exists()) return;
+      const userData = snap.data();
+      let branchLimit: number | undefined;
+      if (userData?.planId) {
+        try {
+          const planDoc = await getDoc(doc(db, "subscription_plans", userData.planId));
+          if (planDoc.exists()) branchLimit = planDoc.data()?.branches;
+        } catch {}
+      }
+      if (branchLimit === undefined && userData?.plan) {
+        try {
+          const plansSnapshot = await getDocs(
+            query(collection(db, "subscription_plans"), where("name", "==", userData.plan))
+          );
+          if (!plansSnapshot.empty) branchLimit = plansSnapshot.docs[0].data()?.branches;
+        } catch {}
+      }
+      if (branchLimit === undefined) branchLimit = userData?.branchLimit || 1;
+      setOwnerData({ branchLimit: branchLimit ?? 1, plan: userData?.plan });
+    }, (err) => console.error("Owner branch limit subscription error:", err));
+    return () => unsub();
+  }, [ownerUid]);
 
   // subscribe to branches for this owner
   useEffect(() => {

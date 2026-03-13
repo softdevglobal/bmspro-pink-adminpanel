@@ -6,6 +6,7 @@ interface BillingStatusBannerProps {
   billingStatus: string;
   graceUntil?: string | null;
   nextBillingDate?: string | null;
+  trialDays?: number;
   onUpdatePayment: () => void;
 }
 
@@ -13,6 +14,7 @@ export default function BillingStatusBanner({
   billingStatus,
   graceUntil,
   nextBillingDate,
+  trialDays = 28,
   onUpdatePayment,
 }: BillingStatusBannerProps) {
   const router = useRouter();
@@ -105,7 +107,7 @@ export default function BillingStatusBanner({
           <div className="flex-1">
             <h3 className="font-bold text-lg text-blue-900 mb-1">Free Trial Active</h3>
             <p className="text-sm text-blue-800">
-              You're currently on a 28-day free trial. Your subscription will begin automatically after the trial ends.
+              You're currently on a {trialDays}-day free trial. Your subscription will begin automatically after the trial ends.
               {nextBillingDate && ` Trial ends on ${new Date(nextBillingDate).toLocaleDateString()}.`}
             </p>
           </div>

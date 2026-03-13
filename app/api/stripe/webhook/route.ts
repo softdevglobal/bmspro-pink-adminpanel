@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import Stripe from "stripe";
+import { FieldValue } from "firebase-admin/firestore";
 import { adminDb } from "@/lib/firebaseAdmin";
 
 export const runtime = "nodejs";
@@ -322,6 +323,39 @@ async function handlePaymentSucceeded(
     updatedAt: new Date(),
   };
 
+  // Sync plan limits from subscription_plans (ensures accurate plan/price after upgrade/downgrade)
+  if (priceId) {
+    const plansByPrice = await db.collection("subscription_plans").where("stripePriceId", "==", priceId).limit(1).get();
+    if (!plansByPrice.empty) {
+      const planDoc = plansByPrice.docs[0];
+      const planData = planDoc.data();
+      updateData.planId = planDoc.id;
+      updateData.plan = planData.name || "";
+      updateData.plan_key = planData.plan_key || planDoc.id;
+      updateData.price = planData.priceLabel || `AU$${planData.price}/mo`;
+      updateData.branchLimit = planData.branches ?? -1;
+      updateData.staffLimit = planData.staff ?? -1;
+    } else {
+      try {
+        const price = await stripe.prices.retrieve(priceId);
+        const meta = (price as any).metadata;
+        const planId = meta?.planId;
+        if (planId) {
+          const planDoc = await db.collection("subscription_plans").doc(planId).get();
+          if (planDoc.exists) {
+            const planData = planDoc.data()!;
+            updateData.planId = planId;
+            updateData.plan = planData.name || "";
+            updateData.plan_key = planData.plan_key || planId;
+            updateData.price = planData.priceLabel || `AU$${planData.price}/mo`;
+            updateData.branchLimit = planData.branches ?? -1;
+            updateData.staffLimit = planData.staff ?? -1;
+          }
+        }
+      } catch {}
+    }
+  }
+
   // Clear trial_end if trial ended
   if (sub.status === "active" && sub.trial_end) {
     const trialEnd = new Date(sub.trial_end * 1000);
@@ -415,12 +449,13 @@ async function updateUserSubscription(
 ) {
   const sub = subscription as any;
   const updItem = sub.items?.data?.[0];
+  const priceId = updItem?.price?.id;
   // In Stripe API 2025-12-15.clover, current_period_end/start moved to subscription item level
   const updPeriodStart = updItem?.current_period_start || sub.current_period_start;
   const updPeriodEnd = updItem?.current_period_end || sub.current_period_end;
   const updateData: any = {
     stripeSubscriptionId: sub.id,
-    stripePriceId: updItem?.price?.id || null,
+    stripePriceId: priceId || null,
     subscriptionStatus: sub.status,
     currentPeriodStart: updPeriodStart ? new Date(Math.floor(Number(updPeriodStart)) * 1000) : new Date(),
     currentPeriodEnd: updPeriodEnd ? new Date(Math.floor(Number(updPeriodEnd)) * 1000) : new Date(),
@@ -431,6 +466,67 @@ async function updateUserSubscription(
   // Update trial_end if exists
   if (sub.trial_end) {
     updateData.trial_end = new Date(Math.floor(Number(sub.trial_end)) * 1000);
+  }
+
+  // Sync plan limits when price changes (upgrade, downgrade phase, etc.)
+  // Ensures platform enforces new package restrictions immediately
+  if (priceId) {
+    let planId: string | null = null;
+    let planData: FirebaseFirestore.DocumentData | null = null;
+
+    // 1. Try to find plan by stripePriceId in subscription_plans
+    const plansByPrice = await db
+      .collection("subscription_plans")
+      .where("stripePriceId", "==", priceId)
+      .limit(1)
+      .get();
+
+    if (!plansByPrice.empty) {
+      const doc = plansByPrice.docs[0];
+      planId = doc.id;
+      planData = doc.data();
+    } else {
+      // 2. Fallback: get planId from Stripe price metadata (upgrade/downgrade create prices with metadata)
+      try {
+        const price = await stripe.prices.retrieve(priceId);
+        const meta = (price as any).metadata;
+        planId = meta?.planId || null;
+        if (planId) {
+          const planDoc = await db.collection("subscription_plans").doc(planId).get();
+          if (planDoc.exists) {
+            planData = planDoc.data()!;
+          }
+        }
+      } catch (priceErr: any) {
+        console.warn("[WEBHOOK] Could not retrieve price for plan sync:", priceErr?.message);
+      }
+    }
+
+    if (planId && planData) {
+      updateData.planId = planId;
+      updateData.plan = planData.name || "";
+      updateData.plan_key = planData.plan_key || planId;
+      updateData.price = planData.priceLabel || `AU$${planData.price}/mo`;
+      updateData.branchLimit = planData.branches ?? -1;
+      updateData.staffLimit = planData.staff ?? -1;
+      // Clear downgrade scheduling fields when plan actually changed (upgrade or downgrade took effect)
+      const userDoc = await db.collection("users").doc(userId).get();
+      const userData = userDoc.data();
+      const planChanged = userData?.planId !== planId;
+      if (planChanged) {
+        updateData.stripeScheduleId = FieldValue.delete();
+        updateData.downgradeScheduled = false;
+        updateData.downgradePlanId = FieldValue.delete();
+        updateData.downgradePriceId = FieldValue.delete();
+        updateData.downgradeEffectiveDate = FieldValue.delete();
+        updateData.downgradePlanKey = FieldValue.delete();
+        updateData.downgradePlanName = FieldValue.delete();
+        updateData.downgradePlanPrice = FieldValue.delete();
+        updateData.downgradeBranchLimit = FieldValue.delete();
+        updateData.downgradeStaffLimit = FieldValue.delete();
+      }
+      console.log(`[WEBHOOK] Synced plan limits for user ${userId}: ${planData.name} (${planData.branches} branches, ${planData.staff} staff)`);
+    }
   }
 
   // Update billing_status based on subscription status

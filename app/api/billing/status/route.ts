@@ -115,9 +115,31 @@ export async function GET(req: NextRequest) {
       }
     }
 
+    // Fetch branch and staff counts for downgrade eligibility (salon owners)
+    let branchCount = 0;
+    let staffCount = 0;
+    const role = (userData_db.role || "").toString();
+    if (role === "salon_owner") {
+      try {
+        const [branchSnap, staffSnap] = await Promise.all([
+          db.collection("branches").where("ownerUid", "==", userId).get(),
+          db.collection("users").where("ownerUid", "==", userId).get(),
+        ]);
+        branchCount = branchSnap.size;
+        // Count salon_staff + salon_branch_admin (matches Staff Management page)
+        staffCount = staffSnap.docs.filter(
+          (d) => ["salon_staff", "salon_branch_admin"].includes((d.data().role || "").toString())
+        ).length;
+      } catch (usageErr: any) {
+        console.error("[BILLING STATUS] Error fetching usage counts:", usageErr.message);
+      }
+    }
+
     const response = {
       plan: userData_db.plan || userData_db.planName || "Unknown",
+      planId: userData_db.planId || null,
       plan_key: userData_db.plan_key || null,
+      price: userData_db.price || null,
       billing_status: billingStatus,
       next_billing_date: nextBillingDate,
       payment_required: paymentRequired,
@@ -131,6 +153,8 @@ export async function GET(req: NextRequest) {
       cancellation_date: formatDate(userData_db.currentPeriodEnd) || nextBillingDate,
       stripe_customer_id: userData_db.stripeCustomerId || null,
       stripe_subscription_id: userData_db.stripeSubscriptionId || null,
+      branch_count: branchCount,
+      staff_count: staffCount,
     };
 
     return NextResponse.json({

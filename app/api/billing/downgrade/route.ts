@@ -62,6 +62,45 @@ export async function POST(req: NextRequest) {
       );
     }
 
+    // Validate downgrade eligibility: current usage must not exceed target plan limits
+    const targetBranchLimit = newPlanData.branches ?? -1;
+    const targetStaffLimit = newPlanData.staff ?? -1;
+    if (targetBranchLimit !== -1 || targetStaffLimit !== -1) {
+      const [branchSnap, staffSnap] = await Promise.all([
+        db.collection("branches").where("ownerUid", "==", userId).get(),
+        db.collection("users").where("ownerUid", "==", userId).get(),
+      ]);
+      const branchCount = branchSnap.size;
+      // Count salon_staff + salon_branch_admin (matches Staff Management page)
+      const staffCount = staffSnap.docs.filter(
+        (d) => ["salon_staff", "salon_branch_admin"].includes((d.data().role || "").toString())
+      ).length;
+
+      const branchesExceeded = targetBranchLimit !== -1 && branchCount > targetBranchLimit;
+      const staffExceeded = targetStaffLimit !== -1 && staffCount > targetStaffLimit;
+
+      if (branchesExceeded || staffExceeded) {
+        const parts: string[] = [];
+        if (branchesExceeded) {
+          parts.push(`branches (${branchCount} current vs ${targetBranchLimit} allowed)`);
+        }
+        if (staffExceeded) {
+          parts.push(`staff (${staffCount} current vs ${targetStaffLimit} allowed)`);
+        }
+        return NextResponse.json(
+          {
+            error: `Cannot downgrade: your current usage exceeds the plan limits. ${parts.join(" and ")}. Please reduce your usage or contact admin@bmspros.com.au for assistance.`,
+            code: "LIMITS_EXCEEDED",
+            branchCount,
+            staffCount,
+            branchLimit: targetBranchLimit,
+            staffLimit: targetStaffLimit,
+          },
+          { status: 400 }
+        );
+      }
+    }
+
     // Get user's current subscription
     const userDoc = await db.collection("users").doc(userId).get();
     if (!userDoc.exists) {

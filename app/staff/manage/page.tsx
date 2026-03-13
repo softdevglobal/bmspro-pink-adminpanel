@@ -4,8 +4,8 @@ import Sidebar from "@/components/Sidebar";
 import { useRouter } from "next/navigation";
 import { onAuthStateChanged } from "firebase/auth";
 import { auth, db } from "@/lib/firebase";
-import { doc, getDoc, setDoc, serverTimestamp } from "firebase/firestore";
-import { subscribeBranchesForOwner, syncBranchStaffFromSchedule, removeStaffFromAllBranches } from "@/lib/branches";
+import { doc, getDoc, setDoc, serverTimestamp, onSnapshot } from "firebase/firestore";
+import { subscribeBranchesForOwner, syncBranchStaffFromSchedule } from "@/lib/branches";
 import {
   createSalonStaffForOwner as createStaff,
   subscribeSalonStaffForOwner,
@@ -149,58 +149,43 @@ export default function SettingsPage() {
     };
   }, [ownerUid]);
 
-  // Fetch owner's package/plan with staff limit
+  // Realtime subscription to owner's package/plan with staff limit (updates immediately after upgrade)
   useEffect(() => {
     if (!ownerUid) return;
-    const fetchOwnerPlan = async () => {
-      try {
-        const ownerDoc = await getDoc(doc(db, "users", ownerUid));
-        if (ownerDoc.exists()) {
-          const ownerData = ownerDoc.data();
-          if (ownerData.plan && ownerData.price) {
-            // First check if staffLimit is stored directly on user document
-            let staffLimit = ownerData.staffLimit;
-            
-            // Fallback: fetch from subscription_plans if not on user document
-            if (staffLimit === undefined || staffLimit === null) {
-              staffLimit = -1; // Default to unlimited
-              const planId = ownerData.planId;
-              
-              if (planId) {
-                const planDoc = await getDoc(doc(db, "subscription_plans", planId));
-                if (planDoc.exists()) {
-                  const planData = planDoc.data();
-                  staffLimit = planData.staff ?? -1;
-                }
-              }
-              
-              // Fallback: search by plan name if planId not found
-              if (staffLimit === -1 && ownerData.plan) {
-                const { collection, query, where, getDocs } = await import("firebase/firestore");
-                const plansQuery = query(
-                  collection(db, "subscription_plans"),
-                  where("name", "==", ownerData.plan)
-                );
-                const plansSnapshot = await getDocs(plansQuery);
-                if (!plansSnapshot.empty) {
-                  const planData = plansSnapshot.docs[0].data();
-                  staffLimit = planData.staff ?? -1;
-                }
-              }
-            }
-            
-            setOwnerPlan({
-              name: ownerData.plan,
-              priceLabel: ownerData.price,
-              staffLimit: staffLimit,
-            });
+    const resolvePlan = async (ownerData: Record<string, unknown>) => {
+      if (!ownerData.plan) return;
+      let staffLimit = ownerData.staffLimit as number | undefined;
+      if (staffLimit === undefined || staffLimit === null) {
+        staffLimit = -1;
+        const planId = ownerData.planId as string | undefined;
+        if (planId) {
+          const planDoc = await getDoc(doc(db, "subscription_plans", planId));
+          if (planDoc.exists()) {
+            staffLimit = planDoc.data().staff ?? -1;
           }
         }
-      } catch (error) {
-        console.error("Error fetching owner plan:", error);
+        if (staffLimit === -1 && ownerData.plan) {
+          const { collection, query, where, getDocs } = await import("firebase/firestore");
+          const plansQuery = query(
+            collection(db, "subscription_plans"),
+            where("name", "==", ownerData.plan)
+          );
+          const plansSnapshot = await getDocs(plansQuery);
+          if (!plansSnapshot.empty) {
+            staffLimit = plansSnapshot.docs[0].data().staff ?? -1;
+          }
+        }
       }
+      setOwnerPlan({
+        name: String(ownerData.plan),
+        priceLabel: String(ownerData.price || ""),
+        staffLimit: staffLimit ?? -1,
+      });
     };
-    fetchOwnerPlan();
+    const unsub = onSnapshot(doc(db, "users", ownerUid), (snap) => {
+      if (snap.exists()) resolvePlan(snap.data());
+    }, (err) => console.error("Owner plan subscription error:", err));
+    return () => unsub();
   }, [ownerUid]);
 
   // Auto-update timezone when branch is selected for Branch Admin
@@ -743,31 +728,32 @@ export default function SettingsPage() {
     if (!deleteTarget || !ownerUid) return;
     setDeleting(true);
     try {
-      // Attempt auth deletion first (best-effort)
-      try {
-        const currentUser = auth.currentUser;
-        if (currentUser) {
-          const token = await currentUser.getIdToken();
-          await fetch("/api/staff/auth/delete", {
-            method: "POST",
-            headers: { 
-              "Content-Type": "application/json",
-              "Authorization": `Bearer ${token}`
-            },
-            body: JSON.stringify({ uid: deleteTarget.authUid, email: deleteTarget.email }),
-          });
-        }
-      } catch {}
-      
-      // Remove staff from all branches first
-      await removeStaffFromAllBranches(deleteTarget.id, ownerUid);
-      
-      // Then remove Firestore record
-      await deleteSalonStaff(deleteTarget.id);
+      const currentUser = auth.currentUser;
+      if (!currentUser) {
+        showToast("Please sign in to delete staff");
+        return;
+      }
+      const token = await currentUser.getIdToken();
+      const res = await fetch("/api/staff/auth/delete", {
+        method: "POST",
+        headers: { 
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${token}`
+        },
+        body: JSON.stringify({
+          uid: deleteTarget.authUid || deleteTarget.id,
+          email: deleteTarget.email,
+          staffName: deleteTarget.name,
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(data.error || data.message || "Failed to delete staff");
+      }
       setDeleteTarget(null);
       showToast("Staff deleted");
-    } catch {
-      showToast("Failed to delete staff");
+    } catch (err: any) {
+      showToast(err.message || "Failed to delete staff");
     } finally {
       setDeleting(false);
     }
