@@ -6,6 +6,7 @@ import { onAuthStateChanged } from "firebase/auth";
 import Script from "next/script";
 import { collection, query, where, onSnapshot, getDocs } from "firebase/firestore";
 import { useNotifications } from "@/components/NotificationProvider";
+import { subscribeBranchesForOwner } from "@/lib/branches";
 
 export default function DashboardPage() {
   const router = useRouter();
@@ -29,7 +30,22 @@ export default function DashboardPage() {
   const [salonName, setSalonName] = useState<string>("");
   const [logoUrl, setLogoUrl] = useState<string>("");
   const [authLoading, setAuthLoading] = useState<boolean>(true);
-  
+  const [currentUserUid, setCurrentUserUid] = useState<string | null>(null);
+  const [pendingUnassignedCount, setPendingUnassignedCount] = useState<number>(0);
+  const [showCalendarOnly, setShowCalendarOnly] = useState<boolean>(false);
+
+  // Weekly calendar state
+  const [calWeekStart, setCalWeekStart] = useState<Date>(() => {
+    const d = new Date(); d.setDate(d.getDate() - ((d.getDay() + 6) % 7)); d.setHours(0,0,0,0); return d;
+  });
+  const [calBookings, setCalBookings] = useState<any[]>([]);
+  const [calStaffFilter, setCalStaffFilter] = useState<string>("all");
+  const [calStaffList, setCalStaffList] = useState<{id:string;name:string}[]>([]);
+  const [calBranchFilter, setCalBranchFilter] = useState<string>("all");
+  const [calBranchList, setCalBranchList] = useState<{ value: string; label: string }[]>([]);
+  const [calHoverTooltip, setCalHoverTooltip] = useState<{ data: any; rect: DOMRect } | null>(null);
+  const calTooltipTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
   // Today's Schedule state
   const [todayBookings, setTodayBookings] = useState<any[]>([]);
   const [allBranches, setAllBranches] = useState<string[]>([]);
@@ -48,6 +64,29 @@ export default function DashboardPage() {
   const chartsRef = useRef<{ revenue?: any; status?: any }>({});
   const builtRef = useRef(false);
 
+  const normalizeDateKey = (value: any): string => {
+    if (!value) return "";
+    if (typeof value === "string") {
+      const v = value.trim();
+      if (/^\d{4}-\d{2}-\d{2}$/.test(v)) return v;
+      if (/^\d{4}\/\d{2}\/\d{2}$/.test(v)) return v.replace(/\//g, "-");
+      if (/^\d{2}\/\d{2}\/\d{4}$/.test(v)) {
+        const [dd, mm, yyyy] = v.split("/");
+        return `${yyyy}-${mm}-${dd}`;
+      }
+      const parsed = new Date(v);
+      if (!isNaN(parsed.getTime())) {
+        return `${parsed.getFullYear()}-${String(parsed.getMonth() + 1).padStart(2, "0")}-${String(parsed.getDate()).padStart(2, "0")}`;
+      }
+      return "";
+    }
+    if (typeof value?.toDate === "function") {
+      const d = value.toDate();
+      return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+    }
+    return "";
+  };
+
   // Notification sound is now handled by NotificationProvider
 
   // Authentication
@@ -63,6 +102,7 @@ export default function DashboardPage() {
         try {
           const token = await user.getIdToken();
           if (typeof window !== "undefined") localStorage.setItem("idToken", token);
+          setCurrentUserUid(user.uid);
           setOwnerUid(user.uid);
           
           // Check if user is super admin or branch admin
@@ -225,6 +265,35 @@ export default function DashboardPage() {
         });
         
         setStatusData(statusCount);
+
+        // Count pending bookings that need staff assignment
+        const isBookingUnassigned = (b: any) => {
+          const check = (staffId: string | null | undefined, staffName: string | null | undefined) => {
+            if (!staffId || String(staffId).trim() === "" || staffId === "null") return true;
+            const sn = (staffName ?? "").toLowerCase();
+            return sn.includes("any") || sn.includes("not assigned");
+          };
+          if (check(b.staffId, b.staffName)) return true;
+          const services = b.services;
+          if (Array.isArray(services)) {
+            for (const s of services) {
+              if (s && check(s.staffId, s.staffName)) return true;
+            }
+          }
+          return check(b.staffId, b.staffName);
+        };
+        let pendingUnassigned = 0;
+        const seenIds = new Set<string>();
+        for (const b of bookings as any[]) {
+          const status = (b.status || "").toString().toLowerCase().trim();
+          const isPendingStatus = status === "pending" || status.includes("awaiting") || status.includes("partially") || status === "staffrejected";
+          if (!isPendingStatus || seenIds.has(b.id)) continue;
+          if (isBookingUnassigned(b)) {
+            seenIds.add(b.id);
+            pendingUnassigned++;
+          }
+        }
+        setPendingUnassignedCount(pendingUnassigned);
       },
       (error) => {
         if (error.code === "permission-denied") {
@@ -236,6 +305,7 @@ export default function DashboardPage() {
           setRevenueData([]);
           setRevenueLabels([]);
           setStatusData({ confirmed: 0, pending: 0, completed: 0, canceled: 0 });
+          setPendingUnassignedCount(0);
         } else {
           console.error("Error in bookings snapshot:", error);
         }
@@ -580,6 +650,99 @@ export default function DashboardPage() {
       unsubTodayBookings?.();
     };
   }, [ownerUid, isSuperAdmin, authLoading]);
+
+  // Fetch all branches for calendar filter (from branches collection)
+  useEffect(() => {
+    if (!ownerUid || isSuperAdmin || authLoading) return;
+    const unsub = subscribeBranchesForOwner(
+      ownerUid,
+      (rows) => {
+        const list = rows.map((r: any) => ({
+          value: r.id,
+          label: r.name || r.address || r.id || "Branch",
+        }));
+        setCalBranchList(list.sort((a: any, b: any) => a.label.localeCompare(b.label)));
+      },
+      isBranchAdmin ? "salon_branch_admin" : undefined,
+      isBranchAdmin && currentUserUid ? currentUserUid : undefined
+    );
+    return () => unsub?.();
+  }, [ownerUid, isSuperAdmin, authLoading, isBranchAdmin, currentUserUid]);
+
+  // Fetch weekly calendar bookings via API (admin SDK - reliable, includes bookings + bookingRequests)
+  const fetchCalBookings = React.useCallback(async () => {
+    if (!ownerUid || isSuperAdmin || authLoading) return;
+    try {
+      const { auth } = await import("@/lib/firebase");
+      const token = (await auth.currentUser?.getIdToken()) || (typeof window !== "undefined" ? localStorage.getItem("idToken") : null);
+      if (!token) return;
+      const res = await fetch("/api/calendar/bookings", { headers: { Authorization: `Bearer ${token}` } });
+      if (!res.ok) return;
+      const { bookings } = await res.json();
+      setCalBookings(Array.isArray(bookings) ? bookings : []);
+    } catch {
+      setCalBookings([]);
+    }
+  }, [ownerUid, isSuperAdmin, authLoading]);
+
+  useEffect(() => {
+    if (!ownerUid || isSuperAdmin || authLoading) return;
+    fetchCalBookings();
+    const interval = setInterval(fetchCalBookings, 15000);
+    return () => clearInterval(interval);
+  }, [ownerUid, isSuperAdmin, authLoading, fetchCalBookings]);
+
+  // Fetch all staff from users for calendar filter
+  useEffect(() => {
+    if (!ownerUid || isSuperAdmin || authLoading) return;
+    let unsubStaff: (() => void) | undefined;
+    (async () => {
+      const { db } = await import("@/lib/firebase");
+      const staffQuery = query(
+        collection(db, "users"),
+        where("ownerUid", "==", ownerUid)
+      );
+      unsubStaff = onSnapshot(
+        staffQuery,
+        async (snap) => {
+          let staff = snap.docs
+            .map(doc => {
+              const data = doc.data();
+              const role = (data.role || "").toLowerCase();
+              const name = (data.displayName || data.name || "").toString().trim() || "Unknown";
+              return { id: doc.id, name, role };
+            })
+            .filter((s: { role: string }) => s.role === "salon_staff" || s.role === "salon_branch_admin");
+          if (isBranchAdmin && branchAdminBranchId) {
+            try {
+              const { doc: getDocRef, getDoc } = await import("firebase/firestore");
+              const branchDoc = await getDoc(getDocRef(db, "branches", branchAdminBranchId));
+              if (branchDoc.exists()) {
+                const branchData = branchDoc.data();
+                const branchStaffIds = branchData?.staffIds || [];
+                staff = staff.filter((s: { id: string }) => branchStaffIds.includes(s.id));
+              }
+            } catch {
+              // ignore
+            }
+          }
+          setCalStaffList(staff.sort((a, b) => a.name.localeCompare(b.name)));
+        },
+        () => setCalStaffList([])
+      );
+    })();
+    return () => { unsubStaff?.(); };
+  }, [ownerUid, isSuperAdmin, authLoading, isBranchAdmin, branchAdminBranchId]);
+
+  useEffect(() => {
+    if (isBranchAdmin && branchAdminBranchId) {
+      setCalBranchFilter(branchAdminBranchId);
+      return;
+    }
+    if (calBranchFilter !== "all" && !calBranchList.some((b) => b.value === calBranchFilter)) {
+      setCalBranchFilter("all");
+    }
+  }, [isBranchAdmin, branchAdminBranchId, calBranchList, calBranchFilter]);
 
   // Notifications are now managed by NotificationProvider context
   // No need for duplicate listener here
@@ -931,8 +1094,35 @@ export default function DashboardPage() {
                   </div>
                 </div>
 
-                {/* Right side - Notification icon */}
+                {/* Right side - Calendar, Pending request, Notifications */}
                 <div className="flex items-center gap-3">
+                  {!isSuperAdmin && (
+                    <>
+                      <button
+                        onClick={() => setShowCalendarOnly(!showCalendarOnly)}
+                        className={`flex items-center gap-2 px-4 py-2.5 rounded-xl font-semibold text-sm transition-all ${
+                          showCalendarOnly ? "bg-white/40 text-white" : "bg-white/20 hover:bg-white/30 text-white/90"
+                        }`}
+                        title={showCalendarOnly ? "Show full dashboard" : "Show calendar only"}
+                      >
+                        <i className="fas fa-calendar-week" />
+                        <span>Calendar</span>
+                      </button>
+                      {pendingUnassignedCount > 0 && (
+                        <button
+                          onClick={() => router.push("/bookings/pending")}
+                          className="relative flex items-center gap-2 px-4 py-2.5 rounded-xl bg-amber-500/30 hover:bg-amber-500/40 border border-amber-400/50 text-amber-100 font-semibold text-sm transition-all"
+                          title="Pending requests need staff assignment"
+                        >
+                          <i className="fas fa-user-clock" />
+                          <span>Pending request</span>
+                          <span className="min-w-[20px] h-5 px-1.5 bg-amber-500 text-white text-xs font-bold rounded-full flex items-center justify-center">
+                            {pendingUnassignedCount > 9 ? "9+" : pendingUnassignedCount}
+                          </span>
+                        </button>
+                      )}
+                    </>
+                  )}
                   <button 
                     onClick={() => setNotificationPanelOpen(!notificationPanelOpen)}
                     className={`relative w-12 h-12 rounded-xl flex items-center justify-center transition-all backdrop-blur-sm group ${
@@ -953,6 +1143,8 @@ export default function DashboardPage() {
               <div className="absolute top-0 right-0 -mr-10 -mt-10 w-64 h-64 rounded-full bg-white opacity-10 blur-2xl" />
             </div>
           </div>
+          {!showCalendarOnly && (
+          <>
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
             <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm min-w-0">
               <div className="flex items-center justify-between mb-3">
@@ -2250,6 +2442,374 @@ export default function DashboardPage() {
               )}
             </div>
           </div>
+          )}
+          </>
+          )}
+
+          {/* Weekly Calendar - same as BMS Pro Black */}
+          {!authLoading && !isSuperAdmin && (
+          <>
+          {showCalendarOnly && (
+            <button
+              onClick={() => setShowCalendarOnly(false)}
+              className="flex items-center gap-2 px-4 py-2.5 mb-4 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold text-sm transition-colors border border-slate-200"
+            >
+              <i className="fas fa-arrow-left" />
+              Back to Dashboard
+            </button>
+          )}
+          {(() => {
+            const CAL_HOURS = Array.from({ length: 12 }, (_, i) => i + 7);
+            const SLOT_H = 52;
+            const GRID_HEIGHT = CAL_HOURS.length * SLOT_H;
+            const dayNames = ["Monday","Tuesday","Wednesday","Thursday","Friday","Saturday","Sunday"];
+            const weekDates: Date[] = [];
+            for (let i = 0; i < 7; i++) { const d = new Date(calWeekStart); d.setDate(d.getDate() + i); weekDates.push(d); }
+            const todayStr = (() => { const n = new Date(); return `${n.getFullYear()}-${String(n.getMonth()+1).padStart(2,'0')}-${String(n.getDate()).padStart(2,'0')}`; })();
+            const fmtDate = (d: Date) => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+            const weekLabel = (() => { const s = weekDates[0]; const e = weekDates[6]; const fmt = (d: Date) => d.toLocaleDateString("en-AU",{day:"numeric",month:"short"}); return `${fmt(s)} – ${fmt(e)} ${e.getFullYear()}`; })();
+
+            const prevWeek = () => { const d = new Date(calWeekStart); d.setDate(d.getDate() - 7); setCalWeekStart(d); };
+            const nextWeek = () => { const d = new Date(calWeekStart); d.setDate(d.getDate() + 7); setCalWeekStart(d); };
+            const goToday = () => { const d = new Date(); d.setDate(d.getDate() - ((d.getDay()+6)%7)); d.setHours(0,0,0,0); setCalWeekStart(d); };
+
+            const weekDateSet = new Set(weekDates.map(d => fmtDate(d)));
+            const inWeek = calBookings.filter((b: any) => weekDateSet.has(b.dateKey || normalizeDateKey(b.date)));
+            const branchAdminOnly = isBranchAdmin
+              ? inWeek.filter((b: any) => {
+                  const bid = (b.branchId || "").toString();
+                  const bname = (b.branchName || "").toString().trim().toLowerCase();
+                  const adminBid = (branchAdminBranchId || "").toString();
+                  const adminBname = (branchAdminBranchName || "").toString().trim().toLowerCase();
+                  if (adminBid && bid && bid === adminBid) return true;
+                  if (adminBname && bname && bname === adminBname) return true;
+                  return false;
+                })
+              : inWeek;
+            const byBranch = calBranchFilter === "all"
+              ? branchAdminOnly
+              : branchAdminOnly.filter((b: any) => b.branchId === calBranchFilter || b.branchName === (calBranchList.find(x => x.value === calBranchFilter)?.label));
+            const filtered = calStaffFilter === "all" ? byBranch : byBranch.filter((b: any) => {
+              if (b.staffId === calStaffFilter) return true;
+              return b.services?.some((s: any) => s.staffId === calStaffFilter || s.staffAuthUid === calStaffFilter);
+            });
+
+            const toBlocks = (): any[] => {
+              const blocks: any[] = [];
+              filtered.forEach(b => {
+                if (Array.isArray(b.services) && b.services.length > 0) {
+                  b.services.forEach((svc: any, idx: number) => {
+                    const t = svc.time || b.time || "09:00";
+                    const dur = Number(svc.duration) || 60;
+                    blocks.push({
+                      id: `${b.id}-${idx}`,
+                      bookingId: b.id,
+                      date: b.dateKey || normalizeDateKey(b.date),
+                      time: t,
+                      duration: dur,
+                      client: b.client,
+                      clientPhone: b.clientPhone || "",
+                      clientEmail: b.clientEmail || "",
+                      serviceName: svc.name || b.serviceName || "Service",
+                      servicesText: Array.isArray(b.services) && b.services.length > 0 ? b.services.map((x: any) => x?.name).filter(Boolean).join(", ") : (svc.name || b.serviceName || "Service"),
+                      staffName: svc.staffName || b.staffName || "",
+                      staffId: svc.staffId || svc.staffAuthUid || b.staffId || "",
+                      branchName: b.branchName || "",
+                      pickupTime: b.pickupTime || "",
+                      price: svc.price ?? b.price ?? 0,
+                      status: b.status || "Pending",
+                    });
+                  });
+                } else {
+                  blocks.push({
+                    id: b.id,
+                    bookingId: b.id,
+                    date: b.dateKey || normalizeDateKey(b.date),
+                    time: b.time || "09:00",
+                    duration: b.duration || 60,
+                    client: b.client,
+                    clientPhone: b.clientPhone || "",
+                    clientEmail: b.clientEmail || "",
+                    serviceName: b.serviceName || "Service",
+                    servicesText: b.serviceName || "Service",
+                    staffName: b.staffName || "",
+                    staffId: b.staffId || "",
+                    branchName: b.branchName || "",
+                    pickupTime: b.pickupTime || "",
+                    price: b.price || 0,
+                    status: b.status || "Pending",
+                  });
+                }
+              });
+              return blocks;
+            };
+            const blocks = toBlocks();
+
+            const parseTime = (t: string): { h: number; m: number } => {
+              if (!t || typeof t !== "string") return { h: 9, m: 0 };
+              const upper = t.toUpperCase();
+              const isPM = upper.includes("PM") && !upper.includes("12:00");
+              const is12PM = /12\s*:\s*\d+\s*PM/i.test(t);
+              const is12AM = /12\s*:\s*\d+\s*AM/i.test(t);
+              const numPart = t.replace(/\s*(AM|PM)/gi, "").trim();
+              const parts = numPart.split(":").map(x => parseInt(x.replace(/\D/g, "") || "0", 10));
+              let h: number, m: number;
+              if (parts.length === 1 && parts[0] >= 100) {
+                const v = parts[0];
+                h = Math.floor(v / 100) % 24;
+                m = v % 100;
+              } else {
+                h = parts[0] ?? 9;
+                m = parts[1] ?? 0;
+              }
+              if (is12AM && h === 12) h = 0;
+              else if ((is12PM || isPM) && h !== 12) h += 12;
+              return { h, m };
+            };
+
+            const assignOverlapColumns = (bks: any[]) => {
+              if (bks.length === 0) return [];
+              const withMinutes = bks.map(b => {
+                const { h, m } = parseTime(b.time);
+                const dur = b.duration || 60;
+                const startM = h * 60 + m;
+                const endM = startM + dur;
+                return { ...b, startM, endM };
+              });
+              withMinutes.sort((a, b) => a.startM !== b.startM ? a.startM - b.startM : (a.id || "").localeCompare(b.id || ""));
+              const columnAssign: { [id: string]: number } = {};
+              const active: { endM: number; col: number }[] = [];
+              for (const b of withMinutes) {
+                while (active.length > 0 && active[0].endM <= b.startM) active.shift();
+                const usedCols = new Set(active.map(x => x.col));
+                let col = 0;
+                while (usedCols.has(col)) col++;
+                columnAssign[b.id] = col;
+                active.push({ endM: b.endM, col });
+                active.sort((a, b) => a.endM - b.endM);
+              }
+              const maxCol = Math.max(...Object.values(columnAssign), 0);
+              const n = maxCol + 1;
+              return bks.map(b => {
+                const col = columnAssign[b.id] ?? 0;
+                return { ...b, overlapCol: col, overlapCount: n };
+              });
+            };
+
+            const formatHour = (hour: number) => hour === 0 ? "12 AM" : hour === 12 ? "12 PM" : hour < 12 ? `${hour} AM` : `${hour - 12} PM`;
+            const formatTimeLabel = (hh: number, mm: number) => {
+              const safeH = ((hh % 24) + 24) % 24;
+              const ap = safeH >= 12 ? "PM" : "AM";
+              const h12 = safeH % 12 === 0 ? 12 : safeH % 12;
+              return `${h12}:${String(mm).padStart(2, "0")} ${ap}`;
+            };
+
+            return (
+              <div className="bg-white rounded-2xl shadow-xl border border-slate-200 mb-8 overflow-hidden w-full min-w-0">
+                <style>{`
+                  .cal-grid-scroll::-webkit-scrollbar { width: 6px; }
+                  .cal-grid-scroll::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 10px; }
+                  .cal-booking-card {
+                    transition: all 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+                    overflow: hidden;
+                    white-space: nowrap;
+                    position: absolute;
+                    border: 1px solid rgba(255,255,255,0.2);
+                  }
+                  .cal-booking-card:hover {
+                    width: 200px !important;
+                    min-width: 200px !important;
+                    z-index: 50 !important;
+                  }
+                  .cal-day-column:hover .cal-booking-card:not(:hover) {
+                    opacity: 0.35;
+                    filter: grayscale(0.6);
+                  }
+                  .cal-hour-marker { height: 52px; border-bottom: 1px solid #e2e8f0; }
+                  .cal-today-column { background: linear-gradient(180deg, #eef2ff 0%, #f8fafc 100%) !important; }
+                  .cal-day-tint-0 { background: linear-gradient(180deg, #f0f9ff 0%, #fff 100%); }
+                  .cal-day-tint-1 { background: linear-gradient(180deg, #f0fdf4 0%, #fff 100%); }
+                  .cal-day-tint-2 { background: linear-gradient(180deg, #eef2ff 0%, #f8fafc 100%); }
+                  .cal-day-tint-3 { background: linear-gradient(180deg, #fff7ed 0%, #fff 100%); }
+                  .cal-day-tint-4 { background: linear-gradient(180deg, #fefce8 0%, #fff 100%); }
+                  .cal-day-tint-5 { background: linear-gradient(180deg, #fdf4ff 0%, #fff 100%); }
+                  .cal-day-tint-6 { background: linear-gradient(180deg, #fce7f3 0%, #fff 100%); }
+                  .cal-booking-card { box-shadow: 0 1px 3px rgba(0,0,0,0.08); }
+                  .cal-booking-card:hover { box-shadow: 0 20px 25px -5px rgb(0 0 0 / 0.15), 0 8px 10px -6px rgb(0 0 0 / 0.1); }
+                `}</style>
+                {/* Sticky header + day headers - stays visible when scrolling */}
+                <div className="sticky top-0 z-30 bg-white border-b border-slate-200">
+                <div className="grid w-full" style={{ gridTemplateColumns: "80px minmax(0, 1fr)" }}>
+                  {/* Row 1: Header - 80px spacer + content */}
+                  <div className="border-r border-b border-slate-200 bg-white" />
+                  <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 p-4 border-b border-slate-200 bg-white">
+                    <div className="flex items-center gap-3 flex-wrap">
+                      <div className="flex items-center gap-2">
+                        <div className="w-9 h-9 bg-gradient-to-br from-indigo-600 to-violet-700 rounded-lg flex items-center justify-center">
+                          <i className="fas fa-calendar-week text-white text-xs" />
+                        </div>
+                        <div>
+                          <h3 className="font-bold text-base text-slate-900">Calendar</h3>
+                          <p className="text-xs text-slate-500">{weekLabel}</p>
+                        </div>
+                      </div>
+                      <div className="h-5 w-px bg-slate-200 hidden sm:block" />
+                      <div className="flex items-center gap-2">
+                        {!isBranchAdmin ? (
+                          <div className="relative inline-flex items-center rounded-lg border border-slate-200 bg-slate-50 hover:bg-slate-100 focus-within:ring-2 focus-within:ring-indigo-200 focus-within:border-indigo-300 min-w-[120px] pr-3 transition-colors">
+                            <select value={calBranchFilter} onChange={e => setCalBranchFilter(e.target.value)} className="appearance-none bg-transparent border-0 text-sm font-medium pl-3 pr-6 py-2 focus:outline-none w-full cursor-pointer">
+                              <option value="all">All Branches</option>
+                              {calBranchList.map(b => <option key={b.value} value={b.value}>{b.label}</option>)}
+                            </select>
+                            <i className="fas fa-chevron-down pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-[10px] text-slate-500" />
+                          </div>
+                        ) : (
+                          <span className="inline-flex items-center gap-1.5 text-sm font-medium px-3 py-2 rounded-lg border border-slate-200 bg-slate-50 text-slate-700">
+                            <i className="fas fa-location-dot text-[10px] text-slate-500" />
+                            {branchAdminBranchName || "Branch"}
+                          </span>
+                        )}
+                        <div className="relative inline-flex items-center rounded-lg border border-slate-200 bg-slate-50 hover:bg-slate-100 focus-within:ring-2 focus-within:ring-indigo-200 focus-within:border-indigo-300 min-w-[120px] pr-3 transition-colors">
+                          <select value={calStaffFilter} onChange={e => setCalStaffFilter(e.target.value)} className="appearance-none bg-transparent border-0 text-sm font-medium pl-3 pr-6 py-2 focus:outline-none w-full cursor-pointer">
+                            <option value="all">All Staff</option>
+                            {calStaffList.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+                          </select>
+                          <i className="fas fa-chevron-down pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-[10px] text-slate-500" />
+                        </div>
+                        {(calBranchFilter !== "all" || calStaffFilter !== "all") && (
+                          <button onClick={() => { setCalBranchFilter("all"); setCalStaffFilter("all"); }} className="inline-flex items-center gap-1.5 text-sm font-medium text-slate-600 hover:text-slate-800 px-2.5 py-2 rounded-lg hover:bg-slate-100 transition-colors" title="Clear filters">
+                            <i className="fas fa-times text-[10px]" /> Clear
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <button onClick={() => fetchCalBookings()} className="p-2 border border-slate-200 rounded-lg text-slate-600 hover:bg-slate-50 hover:border-slate-300 transition" title="Refresh bookings"><i className="fas fa-sync-alt text-xs" /></button>
+                      <div className="inline-flex items-center border border-slate-200 rounded-lg overflow-hidden bg-slate-50">
+                        <button onClick={prevWeek} className="p-2 text-slate-600 hover:bg-slate-100 hover:border-slate-200 border-r border-slate-200 transition" title="Previous week"><i className="fas fa-chevron-left text-xs" /></button>
+                        <button onClick={nextWeek} className="p-2 text-slate-600 hover:bg-slate-100 transition" title="Next week"><i className="fas fa-chevron-right text-xs" /></button>
+                      </div>
+                    </div>
+                  </div>
+                  {/* Row 2: Day headers - Time label + 7 day columns */}
+                  <div className="border-r border-b border-slate-200 flex items-center justify-center py-2 bg-gradient-to-r from-slate-50 to-slate-100/80">
+                    <span className="text-[10px] font-bold uppercase tracking-widest text-slate-500">Time</span>
+                  </div>
+                  <div className="grid grid-cols-7 text-center text-xs font-bold uppercase tracking-widest border-b border-slate-200 bg-gradient-to-r from-slate-50 to-slate-100/80">
+                    {weekDates.map((d, i) => {
+                      const ds = fmtDate(d);
+                      const isToday = ds === todayStr;
+                      const dayShort = dayNames[i].substring(0, 3);
+                      return (
+                        <div key={i} className={`py-2.5 border-r border-slate-200 last:border-r-0 transition-colors ${isToday ? "bg-gradient-to-br from-indigo-600 to-violet-700 text-white shadow-sm" : "text-slate-700"}`}>
+                          {dayShort} {d.getDate()}{isToday ? " (Today)" : ""}
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+                </div>
+                {/* Body - scrollable area with time + days (same grid columns for alignment) */}
+                <div className="grid w-full" style={{ gridTemplateColumns: "80px minmax(0, 1fr)" }}>
+                  <div className="cal-grid-scroll col-span-2 grid h-[480px] overflow-y-auto overflow-x-hidden min-w-0" style={{ gridTemplateColumns: "80px minmax(0, 1fr)" }}>
+                  <div className="border-r border-slate-200 bg-white sticky left-0 z-10">
+                    {CAL_HOURS.map((hour) => (
+                      <div key={hour} className="cal-hour-marker text-xs text-slate-600 font-bold text-right pr-3 pt-2">{formatHour(hour)}</div>
+                    ))}
+                  </div>
+                  <div className="grid grid-cols-7 relative overflow-visible min-w-0" style={{ minWidth: 0 }}>
+                    {weekDates.map((d, dayIdx) => {
+                      const ds = fmtDate(d);
+                      const dayBksRaw = blocks.filter(b => b.date === ds);
+                      const dayBks = assignOverlapColumns(dayBksRaw);
+                      const isToday = ds === todayStr;
+                      return (
+                        <div key={dayIdx} className={`cal-day-column relative overflow-visible ${dayIdx < 6 ? "border-r border-slate-200" : ""} ${isToday ? "cal-today-column" : `cal-day-tint-${dayIdx}`}`} style={{ minHeight: GRID_HEIGHT }}>
+                          {CAL_HOURS.slice(1).map(hour => (
+                            <div key={hour} className="absolute left-0 right-0 border-b border-slate-200" style={{ top: (hour - CAL_HOURS[0]) * SLOT_H }} />
+                          ))}
+                          {dayBks.map((bk: any) => {
+                            let { h, m } = parseTime(bk.time);
+                            if (h < 0 || h > 23) h = 9;
+                            if (m < 0 || m > 59) m = 0;
+                            const dur = bk.duration || 60;
+                            const topPx = ((h - CAL_HOURS[0]) * SLOT_H) + ((m / 60) * SLOT_H);
+                            const heightPx = Math.max(24, Math.min((dur / 60) * SLOT_H, GRID_HEIGHT - topPx - 2));
+                            if (h < CAL_HOURS[0] || h >= CAL_HOURS[CAL_HOURS.length - 1] + 1) return null;
+                            const statusNorm = String(bk.status || "").toLowerCase().replace(/[\s_-]/g, "");
+                            const targetPath = statusNorm === "completed" ? "/bookings/completed" : statusNorm === "confirmed" ? "/bookings/confirmed" : statusNorm === "awaitingstaffapproval" ? "/bookings/awaiting-staff" : statusNorm === "staffrejected" ? "/bookings/staff-rejected" : statusNorm === "canceled" || statusNorm === "cancelled" ? "/bookings/cancelled" : "/bookings/pending";
+                            const endM = h * 60 + m + dur;
+                            const endH = Math.floor(endM / 60);
+                            const endMin = endM % 60;
+                            const n = bk.overlapCount ?? 1;
+                            const colIdx = bk.overlapCol ?? 0;
+                            const gapPct = n > 1 ? Math.min(1, 8 / n) : 0;
+                            const widthPct = n > 1 ? (100 / n) - gapPct : 100;
+                            const leftPct = n > 1 ? colIdx * (100 / n) + (gapPct / 2) : 0;
+                            const palette = ["#ec4899","#d946ef","#8b5cf6","#6366f1","#3b82f6","#0ea5e9","#14b8a6","#10b981","#22c55e","#84cc16","#eab308","#f59e0b","#ef4444","#f97316"];
+                            const statusBg = statusNorm === "completed" ? "#3b82f6" : statusNorm === "confirmed" ? "#10b981" : null;
+                            const idx = statusBg ? 0 : (n > 1 ? colIdx % palette.length : Math.abs(`${bk.staffId || ""}-${bk.client || ""}-${bk.id}`.split("").reduce((a: number, c: string) => a + c.charCodeAt(0), 0)) % palette.length);
+                            const cardBg = statusBg || palette[idx];
+                            const tooltipData = { client: bk.client, serviceName: bk.serviceName, statusNorm, timeLabel: `${formatTimeLabel(h, m)} – ${formatTimeLabel(endH, endMin)}`, dur, branchName: bk.branchName, staffName: bk.staffName, clientPhone: bk.clientPhone, clientEmail: bk.clientEmail, price: Number(bk.price || 0) };
+                            return (
+                              <div
+                                key={`${bk.bookingId || bk.id}-${bk.id}`}
+                                className="cal-booking-card absolute cursor-pointer rounded-lg text-white"
+                                style={{ top: topPx + 2, height: heightPx - 2, left: `${leftPct}%`, width: `${widthPct}%`, minWidth: n > 1 ? (n <= 6 ? 40 : 0) : 90, backgroundColor: cardBg, zIndex: 20 + colIdx }}
+                                onMouseEnter={(e) => { if (calTooltipTimeoutRef.current) { clearTimeout(calTooltipTimeoutRef.current); calTooltipTimeoutRef.current = null; } setCalHoverTooltip({ data: tooltipData, rect: e.currentTarget.getBoundingClientRect() }); }}
+                                onMouseLeave={() => { calTooltipTimeoutRef.current = setTimeout(() => setCalHoverTooltip(null), 200); }}
+                                onClick={() => router.push(`${targetPath}?highlight=${bk.bookingId || bk.id.split("-")[0]}`)}
+                              >
+                                <div className="cal-booking-inner h-full overflow-hidden p-1.5 flex flex-col justify-center">
+                                  <b className="text-xs font-bold block truncate">{n > 4 ? (bk.client || "?").split(/\s+/).map((s: string) => s[0]).join("").toUpperCase().slice(0, 2) : (bk.client || "—")}</b>
+                                  <span className="text-[10px] font-medium opacity-95">{formatTimeLabel(h, m).replace(/\s/g, "")}</span>
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+                </div>
+                <p className="text-center text-slate-500 text-xs py-3 border-t border-slate-100"><i className="fas fa-hand-pointer text-slate-400 mr-1" /> Hover over any booking to expand details</p>
+                {calHoverTooltip && (
+                  <div
+                    className="fixed z-[100] w-[320px] rounded-xl shadow-2xl border border-slate-200 bg-white p-4 text-left"
+                    style={{
+                      left: Math.max(12, Math.min(calHoverTooltip.rect.left + calHoverTooltip.rect.width / 2 - 160, (typeof window !== "undefined" ? window.innerWidth : 1200) - 332)),
+                      top: calHoverTooltip.rect.top < 360 ? calHoverTooltip.rect.bottom + 8 : calHoverTooltip.rect.top - 8,
+                      transform: calHoverTooltip.rect.top < 360 ? "none" : "translateY(-100%)",
+                    }}
+                    onMouseEnter={() => { if (calTooltipTimeoutRef.current) { clearTimeout(calTooltipTimeoutRef.current); calTooltipTimeoutRef.current = null; } }}
+                    onMouseLeave={() => { calTooltipTimeoutRef.current = setTimeout(() => setCalHoverTooltip(null), 200); }}
+                  >
+                    {(() => {
+                      const d = calHoverTooltip.data;
+                      return (
+                        <div className="space-y-2 text-slate-800">
+                          <div className="flex items-center justify-between gap-2">
+                            <p className="text-sm font-bold truncate text-slate-900">{d.client}</p>
+                            <span className={`text-xs px-1.5 py-0.5 rounded font-semibold shrink-0 ${d.statusNorm === "completed" ? "bg-blue-100 text-blue-800" : d.statusNorm === "confirmed" ? "bg-emerald-100 text-emerald-800" : "bg-amber-100 text-amber-800"}`}>{d.statusNorm === "completed" ? "Completed" : d.statusNorm === "confirmed" ? "Confirmed" : "Pending"}</span>
+                          </div>
+                          <p className="text-xs font-semibold text-slate-800">{d.serviceName}</p>
+                          <p className="text-xs text-slate-700">{d.timeLabel} · {d.dur} min</p>
+                          {d.branchName && <p className="text-xs text-slate-700"><i className="fas fa-location-dot w-3 mr-1" />{d.branchName}</p>}
+                          {d.staffName && <p className="text-xs text-slate-700"><i className="fas fa-user w-3 mr-1" />{d.staffName}</p>}
+                          {d.clientPhone && <p className="text-xs text-slate-700"><i className="fas fa-phone w-3 mr-1" />{d.clientPhone}</p>}
+                          {d.clientEmail && <p className="text-xs text-slate-700 truncate"><i className="fas fa-envelope w-3 mr-1" />{d.clientEmail}</p>}
+                          <p className="text-sm font-bold pt-1 border-t border-slate-200 text-slate-900">${d.price.toLocaleString()}</p>
+                          <p className="text-xs text-slate-600 pt-1">Click to open full booking</p>
+                        </div>
+                      );
+                    })()}
+                  </div>
+                )}
+              </div>
+            );
+          })()}
+          </>
           )}
         </main>
         )}
