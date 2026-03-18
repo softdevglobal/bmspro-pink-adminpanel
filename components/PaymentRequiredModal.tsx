@@ -9,7 +9,7 @@ interface PaymentRequiredModalProps {
   planId?: string;
   trialDays?: number;
   accountStatus?: string;
-  onClose?: () => void; // Optional - typically we don't allow closing
+  onClose?: () => void;
 }
 
 export default function PaymentRequiredModal({
@@ -27,7 +27,8 @@ export default function PaymentRequiredModal({
   if (!isOpen) return null;
 
   const isTrialExpired = accountStatus === "trial_expired";
-  const hasFreeTrial = !isTrialExpired && trialDays && trialDays > 0;
+  const isSuspended = accountStatus === "suspended";
+  const hasFreeTrial = !isTrialExpired && !isSuspended && trialDays && trialDays > 0;
 
   const handlePayNow = async () => {
     if (!planId) {
@@ -47,7 +48,6 @@ export default function PaymentRequiredModal({
 
       const token = await user.getIdToken();
 
-      // Create Stripe checkout session
       const response = await fetch("/api/stripe/create-checkout", {
         method: "POST",
         headers: {
@@ -65,7 +65,6 @@ export default function PaymentRequiredModal({
         throw new Error(data.error || "Failed to create checkout session");
       }
 
-      // Redirect to Stripe Checkout
       if (data.url) {
         window.location.href = data.url;
       } else {
@@ -87,38 +86,176 @@ export default function PaymentRequiredModal({
     }
   };
 
+  // Trial expired view
+  if (isTrialExpired) {
+    return (
+      <div className="fixed inset-0 z-[9999] flex items-center justify-center">
+        <div className="absolute inset-0 bg-black/70 backdrop-blur-sm" />
+
+        <div className="relative bg-white rounded-2xl shadow-2xl max-w-md w-full mx-4 overflow-hidden">
+          {/* Header */}
+          <div className="bg-gradient-to-r from-rose-500 via-pink-500 to-rose-600 p-6 text-white text-center">
+            <div className="w-16 h-16 bg-white/20 backdrop-blur rounded-full flex items-center justify-center mx-auto mb-4">
+              <i className="fas fa-hourglass-end text-3xl" />
+            </div>
+            <h2 className="text-2xl font-bold mb-2">Your Trial Has Ended</h2>
+            <p className="text-white/90 text-sm">
+              Complete your payment to continue using BMS Pro
+            </p>
+          </div>
+
+          <div className="p-6">
+            {/* Selected Plan Card */}
+            {planName && (
+              <div className="bg-gradient-to-br from-pink-50 to-rose-50 rounded-xl p-5 mb-5 border border-pink-200 relative overflow-hidden">
+                <div className="absolute top-0 right-0 bg-pink-500 text-white text-[10px] font-bold px-3 py-1 rounded-bl-lg uppercase tracking-wider">
+                  Your Plan
+                </div>
+                <div className="flex items-center justify-between mt-2">
+                  <div>
+                    <p className="text-xs text-pink-600 uppercase tracking-wide font-semibold mb-1">
+                      Selected Package
+                    </p>
+                    <p className="text-xl font-bold text-slate-900">{planName}</p>
+                  </div>
+                  {planPrice && (
+                    <div className="text-right">
+                      <p className="text-2xl font-bold text-pink-600">{planPrice}</p>
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {/* What happens next */}
+            <div className="bg-slate-50 rounded-xl p-4 mb-5 border border-slate-200">
+              <p className="text-sm font-semibold text-slate-800 mb-3">
+                <i className="fas fa-arrow-right text-pink-500 mr-2" />
+                What happens next?
+              </p>
+              <div className="space-y-2.5">
+                <div className="flex items-start gap-2.5">
+                  <div className="w-5 h-5 rounded-full bg-pink-100 flex items-center justify-center flex-shrink-0 mt-0.5">
+                    <span className="text-[10px] font-bold text-pink-600">1</span>
+                  </div>
+                  <p className="text-sm text-slate-600">You&apos;ll be redirected to a secure payment page</p>
+                </div>
+                <div className="flex items-start gap-2.5">
+                  <div className="w-5 h-5 rounded-full bg-pink-100 flex items-center justify-center flex-shrink-0 mt-0.5">
+                    <span className="text-[10px] font-bold text-pink-600">2</span>
+                  </div>
+                  <p className="text-sm text-slate-600">Enter your payment details to activate your subscription</p>
+                </div>
+                <div className="flex items-start gap-2.5">
+                  <div className="w-5 h-5 rounded-full bg-pink-100 flex items-center justify-center flex-shrink-0 mt-0.5">
+                    <span className="text-[10px] font-bold text-pink-600">3</span>
+                  </div>
+                  <p className="text-sm text-slate-600">Your account will be reactivated instantly</p>
+                </div>
+              </div>
+            </div>
+
+            {/* Data safe notice */}
+            <div className="bg-emerald-50 border border-emerald-200 rounded-xl p-4 mb-5">
+              <div className="flex items-start gap-3">
+                <i className="fas fa-shield-alt text-emerald-600 mt-0.5" />
+                <p className="text-sm text-emerald-700">
+                  <span className="font-medium">Your data is safe.</span> All your salon data, appointments, and settings are preserved and will be fully accessible once you subscribe.
+                </p>
+              </div>
+            </div>
+
+            {/* Error Message */}
+            {error && (
+              <div className="bg-rose-50 border border-rose-200 rounded-xl p-4 mb-5">
+                <div className="flex items-start gap-3">
+                  <i className="fas fa-exclamation-circle text-rose-600 mt-0.5" />
+                  <p className="text-sm text-rose-800">{error}</p>
+                </div>
+              </div>
+            )}
+
+            {/* Pay Button */}
+            <button
+              onClick={handlePayNow}
+              disabled={loading}
+              className="w-full py-4 px-6 text-white font-bold rounded-xl hover:shadow-lg transition-all disabled:opacity-50 disabled:cursor-not-allowed mb-4 bg-gradient-to-r from-pink-500 to-rose-500 hover:from-pink-600 hover:to-rose-600"
+            >
+              {loading ? (
+                <>
+                  <i className="fas fa-circle-notch fa-spin mr-2" />
+                  Redirecting to payment...
+                </>
+              ) : (
+                <>
+                  <i className="fas fa-credit-card mr-2" />
+                  Complete Payment & Continue
+                </>
+              )}
+            </button>
+
+            {/* Secondary Actions */}
+            <div className="flex items-center justify-between text-sm">
+              <button
+                onClick={handleLogout}
+                className="text-slate-500 hover:text-slate-700 transition-colors"
+              >
+                <i className="fas fa-sign-out-alt mr-1" />
+                Log out
+              </button>
+              <a
+                href="mailto:support@bmspros.com.au"
+                className="text-pink-600 hover:text-pink-700 transition-colors"
+              >
+                <i className="fas fa-envelope mr-1" />
+                Contact Support
+              </a>
+            </div>
+          </div>
+
+          {/* Footer */}
+          <div className="bg-slate-50 px-6 py-4 border-t border-slate-200">
+            <div className="flex items-center justify-center gap-4 text-xs text-slate-500">
+              <div className="flex items-center gap-1">
+                <i className="fas fa-lock text-emerald-500" />
+                <span>Secure Payment</span>
+              </div>
+              <div className="flex items-center gap-1">
+                <i className="fab fa-stripe text-indigo-500" />
+                <span>Powered by Stripe</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // Free trial / pending payment view
   return (
     <div className="fixed inset-0 z-[9999] flex items-center justify-center">
-      {/* Backdrop */}
       <div className="absolute inset-0 bg-black/70 backdrop-blur-sm" />
 
-      {/* Modal */}
       <div className="relative bg-white rounded-2xl shadow-2xl max-w-md w-full mx-4 overflow-hidden">
         {/* Header */}
         <div className={`p-6 text-white text-center ${
-          isTrialExpired
-            ? 'bg-gradient-to-r from-rose-500 via-pink-500 to-rose-600'
-            : hasFreeTrial 
-              ? 'bg-gradient-to-r from-emerald-500 via-teal-500 to-cyan-500' 
-              : 'bg-gradient-to-r from-amber-500 via-orange-500 to-rose-500'
+          hasFreeTrial 
+            ? 'bg-gradient-to-r from-emerald-500 via-teal-500 to-cyan-500' 
+            : 'bg-gradient-to-r from-amber-500 via-orange-500 to-rose-500'
         }`}>
           <div className="w-16 h-16 bg-white/20 backdrop-blur rounded-full flex items-center justify-center mx-auto mb-4">
-            <i className={`fas ${isTrialExpired ? 'fa-clock' : hasFreeTrial ? 'fa-gift' : 'fa-lock'} text-3xl`} />
+            <i className={`fas ${hasFreeTrial ? 'fa-gift' : 'fa-lock'} text-3xl`} />
           </div>
           <h2 className="text-2xl font-bold mb-2">
-            {isTrialExpired 
-              ? 'Your Free Trial Has Ended'
-              : hasFreeTrial 
-                ? 'Start Your Free Trial' 
-                : 'Payment Required'
+            {hasFreeTrial 
+              ? 'Start Your Free Trial' 
+              : 'Payment Required'
             }
           </h2>
           <p className="text-white/90 text-sm">
-            {isTrialExpired
-              ? 'Subscribe now to continue using BMS Pro'
-              : hasFreeTrial 
-                ? `Enter payment details to start your ${trialDays}-day free trial`
-                : 'Complete your subscription to access the dashboard'
+            {hasFreeTrial 
+              ? `Enter payment details to start your ${trialDays}-day free trial`
+              : 'Complete your subscription to access the dashboard'
             }
           </p>
         </div>
@@ -154,27 +291,16 @@ export default function PaymentRequiredModal({
 
           {/* Message */}
           <div className={`rounded-xl p-4 mb-6 ${
-            isTrialExpired 
-              ? 'bg-rose-50 border border-rose-200' 
-              : hasFreeTrial 
-                ? 'bg-emerald-50 border border-emerald-200' 
-                : 'bg-amber-50 border border-amber-200'
+            hasFreeTrial 
+              ? 'bg-emerald-50 border border-emerald-200' 
+              : 'bg-amber-50 border border-amber-200'
           }`}>
             <div className="flex items-start gap-3">
-              <i className={`fas ${isTrialExpired ? 'fa-exclamation-triangle' : 'fa-info-circle'} mt-0.5 ${
-                isTrialExpired ? 'text-rose-600' : hasFreeTrial ? 'text-emerald-600' : 'text-amber-600'
+              <i className={`fas fa-info-circle mt-0.5 ${
+                hasFreeTrial ? 'text-emerald-600' : 'text-amber-600'
               }`} />
               <div>
-                {isTrialExpired ? (
-                  <>
-                    <p className="text-sm text-rose-800 font-medium mb-1">
-                      Your free trial period has expired
-                    </p>
-                    <p className="text-sm text-rose-700">
-                      To continue using BMS Pro and access all features, please subscribe to a plan. Your data is safe and will be available once you subscribe.
-                    </p>
-                  </>
-                ) : hasFreeTrial ? (
+                {hasFreeTrial ? (
                   <>
                     <p className="text-sm text-emerald-800 font-medium mb-1">
                       No charge during your trial
@@ -212,21 +338,12 @@ export default function PaymentRequiredModal({
           <button
             onClick={handlePayNow}
             disabled={loading}
-            className={`w-full py-4 px-6 text-white font-bold rounded-xl hover:shadow-lg transition-all disabled:opacity-50 disabled:cursor-not-allowed mb-4 ${
-              isTrialExpired
-                ? 'bg-gradient-to-r from-pink-500 to-rose-500'
-                : 'bg-gradient-to-r from-emerald-500 to-teal-500'
-            }`}
+            className="w-full py-4 px-6 text-white font-bold rounded-xl hover:shadow-lg transition-all disabled:opacity-50 disabled:cursor-not-allowed mb-4 bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-600 hover:to-teal-600"
           >
             {loading ? (
               <>
                 <i className="fas fa-circle-notch fa-spin mr-2" />
                 Redirecting to checkout...
-              </>
-            ) : isTrialExpired ? (
-              <>
-                <i className="fas fa-rocket mr-2" />
-                Subscribe Now
               </>
             ) : hasFreeTrial ? (
               <>

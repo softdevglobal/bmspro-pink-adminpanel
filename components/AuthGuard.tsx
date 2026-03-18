@@ -172,14 +172,18 @@ export default function AuthGuard({ children }: AuthGuardProps) {
                   }
                 }
                 
-                console.log("[AuthGuard] SHOWING PAYMENT MODAL with planId:", userData.planId, "trialDays:", trialDays, "accountStatus:", accountStatus);
+                // If trial has actually expired (by date check), treat as trial_expired
+                // even if the cron job hasn't updated the DB status yet
+                const effectiveAccountStatus = trialExpired ? "trial_expired" : accountStatus;
+                
+                console.log("[AuthGuard] SHOWING PAYMENT MODAL with planId:", userData.planId, "trialDays:", trialDays, "accountStatus:", effectiveAccountStatus, "(raw:", accountStatus, ")");
                 setPaymentInfo({
                   required: true,
                   planName: userData.plan || undefined,
                   planPrice: userData.price || undefined,
                   planId: userData.planId || undefined,
                   trialDays: trialDays,
-                  accountStatus: accountStatus,
+                  accountStatus: effectiveAccountStatus,
                 });
               } else {
                 setPaymentInfo({ required: false });
