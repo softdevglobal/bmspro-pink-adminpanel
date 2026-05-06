@@ -25,7 +25,7 @@ function generateCSP(isDev: boolean): string {
     "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://cdnjs.cloudflare.com https://unpkg.com",
     
     // Images: Allow self, data URIs, Firebase Storage, OpenStreetMap tiles, and DiceBear avatars
-    "img-src 'self' data: blob: https://*.firebasestorage.app https://*.googleapis.com https://*.googleusercontent.com https://tile.openstreetmap.org https://*.tile.openstreetmap.org https://api.dicebear.com",
+    "img-src 'self' data: blob: https://*.firebasestorage.app https://*.googleapis.com https://*.appspot.com https://*.googleusercontent.com https://tile.openstreetmap.org https://*.tile.openstreetmap.org https://api.dicebear.com",
     
     // Fonts: Allow self, Google Fonts, and Font Awesome (cdnjs)
     "font-src 'self' https://fonts.gstatic.com https://cdnjs.cloudflare.com",

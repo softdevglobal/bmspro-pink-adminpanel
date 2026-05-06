@@ -18,6 +18,8 @@ interface Notification {
   createdAt: Date;
   read: boolean;
   status?: string;
+  /** For staff leave workflows */
+  leaveRequestId?: string;
 }
 
 interface NotificationContextType {
@@ -205,9 +207,13 @@ export default function NotificationProvider({ children }: NotificationProviderP
       message: isNotification 
         ? notification.message 
         : `${notification.customerName || notification.clientName || "A customer"} requested a booking`,
-      serviceName: notification.serviceName || notification.services?.[0]?.name || "Service",
+      serviceName:
+        notification.type === "leave_request"
+          ? undefined
+          : notification.serviceName || notification.services?.[0]?.name || "Service",
       price: notification.price || notification.totalPrice,
-      bookingId: notification.bookingId || notification.id,
+      bookingId: notification.bookingId || "",
+      leaveRequestId: notification.leaveRequestId,
       type: notification.type || "booking_request",
       branchName: notification.branchName,
       date: notification.date || notification.bookingDate,
@@ -348,6 +354,12 @@ export default function NotificationProvider({ children }: NotificationProviderP
             
             const isStaffRejected = notif.type === "staff_rejected";
             
+            const isLeaveRequest = notif.type === "leave_request";
+            
+            if (isLeaveRequest) {
+              return true;
+            }
+            
             if (isNewBooking) {
               const isPending = !notif.status || 
                 notif.status === "Pending" || 
@@ -426,6 +438,8 @@ export default function NotificationProvider({ children }: NotificationProviderP
           
           const isStaffRejectedNotification = data.type === "staff_rejected";
           
+          const isLeaveRequestNotification = data.type === "leave_request";
+          
           // Only show new booking notifications if booking is still pending/awaiting
           const isPendingStatus = !bookingStatus || 
             bookingStatus === "Pending" || 
@@ -433,6 +447,7 @@ export default function NotificationProvider({ children }: NotificationProviderP
             bookingStatus === "PartiallyApproved";
           
           const shouldShow = 
+            isLeaveRequestNotification ||
             (isNewBookingNotification && isPendingStatus) || 
             isStaffRejectedNotification;
 
@@ -454,6 +469,7 @@ export default function NotificationProvider({ children }: NotificationProviderP
             createdAt: data.createdAt?.toDate ? data.createdAt.toDate() : new Date(data.createdAt?.seconds * 1000 || Date.now()),
             read: data.read || false,
             status: bookingStatus || data.status,
+            leaveRequestId: data.leaveRequestId ? String(data.leaveRequestId) : undefined,
           };
           
           allNotificationsMap.set(notifId, notification);
@@ -869,6 +885,7 @@ export default function NotificationProvider({ children }: NotificationProviderP
               serviceName={toast.serviceName}
               price={toast.price}
               bookingId={toast.bookingId}
+              leaveRequestId={toast.leaveRequestId}
               type={toast.type}
               branchName={toast.branchName}
               date={toast.date}

@@ -12,6 +12,11 @@ import { collection, onSnapshot, query, where } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import { shouldBlockSlots } from "@/lib/bookingTypes";
 import { getCurrentDateTimeInTimezone } from "@/lib/timezone";
+import {
+  filterApprovedLeaves,
+  isStaffUnavailableDueToApprovedLeave,
+  type LeaveRequestLike,
+} from "@/lib/staffLeaveOverlap";
 
 // Wrapper component to handle search params with Suspense
 function BookingsPageContent() {
@@ -21,6 +26,7 @@ function BookingsPageContent() {
   const [chartReady, setChartReady] = useState(false);
   const [autoOpenHandled, setAutoOpenHandled] = useState(false);
   const [bookingsUpdateKey, setBookingsUpdateKey] = useState(0); // Force re-render when bookings update
+  const [approvedLeavesForSlots, setApprovedLeavesForSlots] = useState<LeaveRequestLike[]>([]);
 
   // Booking wizard state
   const [bkStep, setBkStep] = useState<1 | 2 | 3>(1);
@@ -475,7 +481,7 @@ function BookingsPageContent() {
         const selectedServiceId = serviceSelect?.value || "";
         
         // For "Any Staff" bookings, get all eligible staff IDs for this service+branch
-        const eligibleStaffIds: string[] = (() => {
+        const branchServiceEligibleIds: string[] = (() => {
           if (!isAnyStaffSelected || !selectedServiceId) return [];
           
           const serviceData = this.data.services.find((s: any) => String(s.id) === String(selectedServiceId));
@@ -500,6 +506,24 @@ function BookingsPageContent() {
             return true;
           }).map((st: any) => st.id);
         })();
+
+        const branchTz = ((selectedBranch as { timezone?: string } | undefined)?.timezone || "Australia/Sydney") as string;
+        const approvedLeaves = (((this.data as { approvedLeaves?: LeaveRequestLike[] }).approvedLeaves) || []) as LeaveRequestLike[];
+        const leaveFn =
+          typeof window !== "undefined"
+            ? (
+                window as unknown as {
+                  __staffLeaveUnavailable?: typeof isStaffUnavailableDueToApprovedLeave;
+                }
+              ).__staffLeaveUnavailable
+            : undefined;
+
+        const eligibleStaffIdsForSlot = (slotM: number): string[] => {
+          if (!leaveFn) return branchServiceEligibleIds;
+          return branchServiceEligibleIds.filter(
+            (id: string) => !leaveFn(approvedLeaves as LeaveRequestLike[], id, date as string, slotM, duration, branchTz)
+          );
+        };
         
         // Helper: detect "Any Staff" staffId values (null, empty, "any", etc.)
         const isAnyStaffValue = (sid: string | null | undefined): boolean => {
@@ -538,10 +562,10 @@ function BookingsPageContent() {
         // Filter bookings to only those relevant
         const relevantBookings = (() => {
           if (isAnyStaffSelected) {
-            if (eligibleStaffIds.length === 0) return allDateBookings;
+            if (branchServiceEligibleIds.length === 0) return allDateBookings;
             return allDateBookings.filter((b: any) => {
               // Include if any eligible staff is specifically assigned
-              if (eligibleStaffIds.some((sid: string) => bookingInvolvesStaff(b, sid))) return true;
+              if (branchServiceEligibleIds.some((sid: string) => bookingInvolvesStaff(b, sid))) return true;
               // Also include "any staff" bookings — each one consumes a staff slot from the pool
               return bookingHasAnyStaffService(b);
             });
@@ -582,7 +606,10 @@ function BookingsPageContent() {
         
         // Helper: Count how many eligible staff slots are consumed at a given time
         // by existing bookings (both specific-staff and any-staff bookings).
-        const countConsumedStaffAtSlot = (slotStartMin: number): { bookedStaffIds: Set<string>; anyStaffCount: number } => {
+        const countConsumedStaffAtSlot = (
+          slotStartMin: number,
+          eligiblePool: string[]
+        ): { bookedStaffIds: Set<string>; anyStaffCount: number } => {
           const newServiceEndMin = slotStartMin + duration;
           const bookedStaffIds = new Set<string>();
           let anyStaffCount = 0;
@@ -599,7 +626,7 @@ function BookingsPageContent() {
                 
                 const svcStaffId = svc.staffId || null;
                 if (!isAnyStaffValue(svcStaffId)) {
-                  if (eligibleStaffIds.includes(svcStaffId!)) {
+                  if (eligiblePool.includes(svcStaffId!)) {
                     bookedStaffIds.add(svcStaffId!);
                   }
                 } else {
@@ -615,7 +642,7 @@ function BookingsPageContent() {
               
               const bStaffId = booking.staffId || null;
               if (!isAnyStaffValue(bStaffId)) {
-                if (eligibleStaffIds.includes(bStaffId!)) {
+                if (eligiblePool.includes(bStaffId!)) {
                   bookedStaffIds.add(bStaffId!);
                 }
               } else {
@@ -632,14 +659,23 @@ function BookingsPageContent() {
           if (isAnyStaffSelected) {
             // "Any Staff" mode: slot is occupied only if ALL eligible staff slots are consumed.
             // Count both specific-staff bookings AND "any staff" bookings that consume from the pool.
-            if (eligibleStaffIds.length === 0) return false;
-            const { bookedStaffIds, anyStaffCount } = countConsumedStaffAtSlot(slotMinutes);
-            const freeStaff = eligibleStaffIds.length - bookedStaffIds.size - anyStaffCount;
+            if (branchServiceEligibleIds.length === 0) return false;
+            const poolIds = eligibleStaffIdsForSlot(slotMinutes);
+            if (poolIds.length === 0) return true;
+            const { bookedStaffIds, anyStaffCount } = countConsumedStaffAtSlot(slotMinutes, poolIds);
+            const freeStaff = poolIds.length - bookedStaffIds.size - anyStaffCount;
             return freeStaff <= 0;
           }
           
           // Specific staff selected - check bookings involving this staff
           if (!staffId) return false;
+
+          if (
+            leaveFn &&
+            leaveFn(approvedLeaves as LeaveRequestLike[], staffId as string, date as string, slotMinutes, duration, branchTz)
+          ) {
+            return true;
+          }
           const newServiceEndMin = slotMinutes + duration;
           
           for (const booking of relevantBookings) {
@@ -848,6 +884,42 @@ function BookingsPageContent() {
     // Initialize as soon as mounted; charts will be skipped until chartReady
     app.init();
   }, []);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    (window as unknown as { __staffLeaveUnavailable?: typeof isStaffUnavailableDueToApprovedLeave }).__staffLeaveUnavailable =
+      isStaffUnavailableDueToApprovedLeave;
+  }, []);
+
+  // Approved leave rows for slot filtering (legacy modal + realtime sync into window.app.data)
+  useEffect(() => {
+    if (!ownerUid) return;
+    const q = query(collection(db, "leaveRequests"), where("ownerUid", "==", ownerUid));
+    const unsub = onSnapshot(
+      q,
+      (snap) => {
+        const rows = snap.docs.map((d) => ({ id: d.id, ...(d.data() as Record<string, unknown>) })) as LeaveRequestLike[];
+        const appr = filterApprovedLeaves(rows);
+        setApprovedLeavesForSlots(appr);
+        try {
+          const w = (typeof window !== "undefined" ? (window as any).app : null) as {
+            data?: Record<string, unknown>;
+            generateTimeSlots?: () => void;
+          } | null;
+          if (w) {
+            w.data = w.data || {};
+            w.data.approvedLeaves = appr;
+            if (typeof w.generateTimeSlots === "function") w.generateTimeSlots();
+          }
+        } catch (_) {
+          /* ignore */
+        }
+        setBookingsUpdateKey((k) => k + 1);
+      },
+      () => setApprovedLeavesForSlots([])
+    );
+    return () => unsub();
+  }, [ownerUid]);
 
   // Once Chart.js loads, initialize charts if app is ready
   useEffect(() => {
@@ -1523,15 +1595,29 @@ function BookingsPageContent() {
     // Use bookingsUpdateKey to ensure we recalculate when bookings change
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
     const _ = bookingsUpdateKey;
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    const __leaveKey = approvedLeavesForSlots;
     
     // Get the staff member selected for this service
     const staffIdForService = forServiceId ? bkServiceStaff[String(forServiceId)] : null;
     const isAnyStaffSelected = !staffIdForService || staffIdForService === "any";
     const dateStr = formatLocalYmd(bkDate);
+
+    let serviceDuration = 60;
+    if (forServiceId) {
+      const serviceEarly = servicesList.find((s) => String(s.id) === String(forServiceId)) ||
+        (app ? app.data.services.find((s: any) => String(s.id) === String(forServiceId)) : null);
+      serviceDuration = Number((serviceEarly as any)?.duration) || 60;
+    }
+
+    const branchTzEarly =
+      (branches.find((b: any) => b.id === bkBranchId)?.timezone as string | undefined) ||
+      (app?.data.branches?.find((b: any) => b.id === bkBranchId)?.timezone as string | undefined) ||
+      "Australia/Sydney";
     
     // For "Any Staff" bookings, get all eligible staff IDs for this service+branch.
     // A slot is only blocked when ALL eligible staff are occupied at that time.
-    const eligibleStaffIds: string[] = (() => {
+    const branchServiceEligibleIds: string[] = (() => {
       if (!isAnyStaffSelected || !forServiceId) return [];
       
       const service = servicesList.find((s) => String(s.id) === String(forServiceId)) ||
@@ -1562,6 +1648,21 @@ function BookingsPageContent() {
         return true;
       }).map(st => st.id);
     })();
+
+    const eligibleStaffIdsForSlotReact = (slotStartMin: number): string[] => {
+      if (!isAnyStaffSelected || !forServiceId) return [];
+      return branchServiceEligibleIds.filter(
+        (id) =>
+          !isStaffUnavailableDueToApprovedLeave(
+            approvedLeavesForSlots,
+            id,
+            dateStr,
+            slotStartMin,
+            serviceDuration,
+            branchTzEarly
+          )
+      );
+    };
     
     // Get all bookings for this date (excluding cancelled, completed, rejected)
     // Use centralized helper to ensure consistency
@@ -1593,9 +1694,9 @@ function BookingsPageContent() {
       if (isAnyStaffSelected) {
         // "Any Staff" mode: get ALL active bookings involving ANY eligible staff member
         // so we can check if all staff are occupied at a given time
-        if (eligibleStaffIds.length === 0) return allDateBookings; // fallback: use all bookings
+        if (branchServiceEligibleIds.length === 0) return allDateBookings; // fallback: use all bookings
         return allDateBookings.filter((b: any) =>
-          eligibleStaffIds.some(sid => bookingInvolvesStaff(b, sid))
+          branchServiceEligibleIds.some(sid => bookingInvolvesStaff(b, sid))
         );
       }
       // Specific staff mode: only bookings involving the selected staff
@@ -1639,9 +1740,12 @@ function BookingsPageContent() {
       if (isAnyStaffSelected) {
         // "Any Staff" mode: slot is occupied only if ALL eligible staff members are booked
         // If at least one staff member is free, the slot remains available
-        if (eligibleStaffIds.length === 0) return { occupied: false };
-        
-        const allStaffOccupied = eligibleStaffIds.every(sid => isStaffOccupiedAtSlot(slotMinutes, sid));
+        if (branchServiceEligibleIds.length === 0) return { occupied: false };
+
+        const pool = eligibleStaffIdsForSlotReact(slotMinutes);
+        if (pool.length === 0) return { occupied: true, reason: 'all_staff_booked' };
+
+        const allStaffOccupied = pool.every(sid => isStaffOccupiedAtSlot(slotMinutes, sid));
         if (allStaffOccupied) {
           return { occupied: true, reason: 'all_staff_booked' };
         }
@@ -1650,6 +1754,19 @@ function BookingsPageContent() {
       
       // Specific staff mode (existing logic)
       if (!staffIdForService) return { occupied: false };
+
+      if (
+        isStaffUnavailableDueToApprovedLeave(
+          approvedLeavesForSlots,
+          String(staffIdForService),
+          dateStr,
+          slotMinutes,
+          serviceDuration,
+          branchTzEarly
+        )
+      ) {
+        return { occupied: true, reason: 'staff_on_leave' };
+      }
       
       // Calculate when this new service would END
       const newServiceEndMin = slotMinutes + serviceDuration;
@@ -1712,12 +1829,15 @@ function BookingsPageContent() {
       if (isAnyStaffSelected) {
         // "Any Staff" mode: check if enough free staff remain after accounting for
         // existing bookings AND other services selected in the current booking session
-        if (eligibleStaffIds.length === 0) return { blocked: false };
+        if (branchServiceEligibleIds.length === 0) return { blocked: false };
         
         const newServiceEndMin = slotMinutes + serviceDuration;
+
+        const pool = eligibleStaffIdsForSlotReact(slotMinutes);
+        if (pool.length === 0) return { blocked: true, reason: 'all_staff_booked' };
         
         // Count how many eligible staff are already occupied by existing bookings
-        const occupiedByExisting = eligibleStaffIds.filter(sid => isStaffOccupiedAtSlot(slotMinutes, sid)).length;
+        const occupiedByExisting = pool.filter(sid => isStaffOccupiedAtSlot(slotMinutes, sid)).length;
         
         // Count how many other services in this session overlap with this slot
         // and could consume from the same staff pool
@@ -1732,7 +1852,7 @@ function BookingsPageContent() {
           const otherIsAnyStaff = !otherStaffId || otherStaffId === "any";
           
           // Only count if the other service competes for the same staff pool
-          if (!otherIsAnyStaff && !eligibleStaffIds.includes(otherStaffId)) continue;
+          if (!otherIsAnyStaff && !branchServiceEligibleIds.includes(otherStaffId)) continue;
           
           const otherService = servicesList.find((s) => String(s.id) === String(otherServiceId)) ||
             (app ? app.data.services.find((s: any) => String(s.id) === String(otherServiceId)) : null);
@@ -1747,8 +1867,8 @@ function BookingsPageContent() {
           }
         }
         
-        // Free staff = total eligible - occupied by existing bookings
-        const freeStaff = eligibleStaffIds.length - occupiedByExisting;
+        // Free staff = total eligible at slot - occupied by existing bookings
+        const freeStaff = pool.length - occupiedByExisting;
         
         // We need at least one free staff for this service
         // (overlappingCurrentServices already consume free staff slots)
@@ -1825,13 +1945,7 @@ function BookingsPageContent() {
       return []; // Return empty slots if branch is closed
     }
 
-    // Get service duration
-    let serviceDuration = 60;
-    if (forServiceId) {
-      const service = servicesList.find((s) => String(s.id) === String(forServiceId)) ||
-        (app ? app.data.services.find((s: any) => String(s.id) === String(forServiceId)) : null);
-      serviceDuration = Number((service as any)?.duration) || 60;
-    }
+    // serviceDuration / branch timezone for slot loop (already computed above)
 
     // Calculate the latest possible slot start time
     // The service must finish by closing time, so: slotStart + duration <= endTime

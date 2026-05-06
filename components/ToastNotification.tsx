@@ -9,6 +9,8 @@ interface ToastNotificationProps {
   serviceName?: string;
   price?: number;
   bookingId?: string;
+  /** Staff leave workflow */
+  leaveRequestId?: string;
   type?: string;
   branchName?: string;
   date?: string;
@@ -23,12 +25,14 @@ export default function ToastNotification({
   serviceName,
   price,
   bookingId,
+  leaveRequestId,
   type,
   branchName,
   date,
   time,
   onClose,
 }: ToastNotificationProps) {
+  void leaveRequestId;
   const router = useRouter();
   const [isVisible, setIsVisible] = useState(false);
   const [isLeaving, setIsLeaving] = useState(false);
@@ -55,6 +59,11 @@ export default function ToastNotification({
   };
 
   const handleClick = () => {
+    if (type === "leave_request") {
+      router.push("/staff/leave-requests");
+      handleClose();
+      return;
+    }
     if (bookingId) {
       // Navigate based on notification type
       if (type === "booking_needs_assignment" || type === "booking_engine_new_booking" || type === "staff_booking_created") {
@@ -74,6 +83,8 @@ export default function ToastNotification({
       case "booking_needs_assignment":
       case "booking_engine_new_booking":
         return "fa-calendar-plus";
+      case "leave_request":
+        return "fa-umbrella-beach";
       case "staff_booking_created":
         return "fa-user-plus";
       case "staff_rejected":
@@ -94,6 +105,8 @@ export default function ToastNotification({
         return "from-green-500 to-emerald-600";
       case "booking_needs_assignment":
         return "from-amber-500 to-orange-600";
+      case "leave_request":
+        return "from-fuchsia-500 to-indigo-600";
       default:
         return "from-pink-500 to-rose-500";
     }
@@ -143,7 +156,7 @@ export default function ToastNotification({
                 {date} {time}
               </span>
             )}
-            {price && price > 0 && (
+            {price != null && price > 0 && (
               <span className="px-2 py-1 bg-green-600 text-white rounded-md font-semibold">
                 ${price.toFixed(2)}
               </span>

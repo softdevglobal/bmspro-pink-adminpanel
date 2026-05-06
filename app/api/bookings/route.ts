@@ -8,6 +8,11 @@ import { checkRateLimit, getClientIdentifier, RateLimiters, getRateLimitHeaders 
 import { logBookingCreatedServer } from "@/lib/auditLogServer";
 import { createStaffAssignmentNotification, createOwnerNotification } from "@/lib/notifications";
 import { sendBookingRequestReceivedEmail, sendBookingEmail } from "@/lib/emailService";
+import {
+  filterApprovedLeaves,
+  isStaffUnavailableDueToApprovedLeave,
+  type LeaveRequestLike,
+} from "@/lib/staffLeaveOverlap";
 
 export const runtime = "nodejs";
 
@@ -396,10 +401,18 @@ export async function POST(req: NextRequest) {
         .where("ownerUid", "==", ownerUid)
         .where("date", "==", dateStr);
 
-      const [bookingsSnapshot, bookingRequestsSnapshot] = await Promise.all([
+      const leaveRequestsQuery = db.collection("leaveRequests").where("ownerUid", "==", ownerUid);
+
+      const [bookingsSnapshot, bookingRequestsSnapshot, leaveSnapshot] = await Promise.all([
         bookingsQuery.get().catch(() => ({ docs: [] })),
-        bookingRequestsQuery.get().catch(() => ({ docs: [] }))
+        bookingRequestsQuery.get().catch(() => ({ docs: [] })),
+        leaveRequestsQuery.get().catch(() => ({ docs: [] as any[] })),
       ]);
+
+      const branchTz = (branchTimezone as string) || "Australia/Sydney";
+      const approvedLeaves: LeaveRequestLike[] = filterApprovedLeaves(
+        leaveSnapshot.docs.map((doc: any) => ({ id: doc.id, ...doc.data() }))
+      );
 
       // Combine results from both collections
       const allExistingBookings: Array<any> = [
@@ -444,6 +457,13 @@ export async function POST(req: NextRequest) {
 
           const serviceId = svc.id || svc.serviceId || body.serviceId;
           const serviceData = allServicesData.find((s: any) => String(s.id) === String(serviceId));
+          const svcTimeStr = String(svc.time || body.time || "");
+          const svcDur = Number(svc.duration || body.duration || 60);
+          const svcStartMin = (() => {
+            const parts = svcTimeStr.split(":").map(Number);
+            if (parts.length < 2) return 0;
+            return parts[0] * 60 + parts[1];
+          })();
 
           const eligible = allStaff.filter((st: any) => {
             const role = (st.role || "").toString().toLowerCase();
@@ -459,8 +479,34 @@ export async function POST(req: NextRequest) {
             }
 
             // Check branch assignment (weeklySchedule + primary branchId)
-            return isStaffAssignedToBranch(st, String(body.branchId), dayOfWeek);
+            if (!isStaffAssignedToBranch(st, String(body.branchId), dayOfWeek)) return false;
+
+            if (
+              isStaffUnavailableDueToApprovedLeave(
+                approvedLeaves,
+                String(st.id),
+                dateStr,
+                svcStartMin,
+                svcDur,
+                branchTz
+              )
+            ) {
+              return false;
+            }
+
+            return true;
           });
+
+          if (eligible.length === 0) {
+            return NextResponse.json(
+              {
+                error: "No staff available",
+                details:
+                  "No eligible staff for this service, date, and time (includes approved leave). Choose another time or staff.",
+              },
+              { status: 409 }
+            );
+          }
 
           eligibleStaffByService[String(serviceId)] = eligible.map((s: any) => s.id);
           console.log(`[ADMIN BOOKING] Service ${serviceId}: ${eligible.length} eligible staff [${eligible.map((s: any) => s.id).join(', ')}] (day=${dayOfWeek})`);
@@ -477,6 +523,27 @@ export async function POST(req: NextRequest) {
         const newStartMinutes = timeToMinutes(newServiceTime);
         const newEndMinutes = newStartMinutes + newServiceDuration;
         const newIsAnyStaff = isAnyStaff(newServiceStaffId);
+
+        if (
+          !newIsAnyStaff &&
+          newServiceStaffId &&
+          isStaffUnavailableDueToApprovedLeave(
+            approvedLeaves,
+            String(newServiceStaffId),
+            dateStr,
+            newStartMinutes,
+            newServiceDuration,
+            branchTz
+          )
+        ) {
+          return NextResponse.json(
+            {
+              error: "Staff on leave",
+              details: "This staff member has approved leave during the selected date and time.",
+            },
+            { status: 409 }
+          );
+        }
 
         if (newIsAnyStaff) {
           // ── "Any Staff" mode ──

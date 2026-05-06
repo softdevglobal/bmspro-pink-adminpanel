@@ -468,6 +468,17 @@ export default function Sidebar({ mobile = false, onClose }: SidebarProps) {
                   <span>Staff Management</span>
                 </Link>
                 <Link
+                  href="/staff/leave-requests"
+                  className={`ml-3 flex items-center space-x-3 px-3 py-2 rounded-lg text-sm font-medium transition ${
+                    pathname === "/staff/leave-requests"
+                      ? "bg-slate-800 text-white"
+                      : "text-slate-400 hover:bg-slate-800 hover:text-white"
+                  }`}
+                >
+                  <i className="fas fa-umbrella-beach w-4" />
+                  <span>Leave Requests</span>
+                </Link>
+                <Link
                   href="/staff/attendance"
                   className={`ml-3 flex items-center space-x-3 px-3 py-2 rounded-lg text-sm font-medium transition ${
                     pathname === "/staff/attendance"
