@@ -9,12 +9,15 @@ import { subscribeSalonStaffForOwner } from "@/lib/salonStaff";
 import { subscribeBranchesForOwner } from "@/lib/branches";
 import { createBooking } from "@/lib/bookings";
 import { collection, onSnapshot, query, where } from "firebase/firestore";
+import { formatInTimeZone } from "date-fns-tz";
 import { db } from "@/lib/firebase";
 import { shouldBlockSlots } from "@/lib/bookingTypes";
 import { getCurrentDateTimeInTimezone } from "@/lib/timezone";
 import {
   filterApprovedLeaves,
+  hideStaffChipForApprovedLeaveOnDate,
   isStaffUnavailableDueToApprovedLeave,
+  staffUidAliasListForLeave,
   type LeaveRequestLike,
 } from "@/lib/staffLeaveOverlap";
 
@@ -520,9 +523,14 @@ function BookingsPageContent() {
 
         const eligibleStaffIdsForSlot = (slotM: number): string[] => {
           if (!leaveFn) return branchServiceEligibleIds;
-          return branchServiceEligibleIds.filter(
-            (id: string) => !leaveFn(approvedLeaves as LeaveRequestLike[], id, date as string, slotM, duration, branchTz)
-          );
+          return branchServiceEligibleIds.filter((id: string) => {
+            const st = (this.data.staff || []).find((row: any) => String(row.id) === String(id));
+            const idAliases =
+              st && String(st.uid ?? "").trim() && String(st.uid).trim() !== String(st.id).trim()
+                ? [String(st.uid).trim()]
+                : undefined;
+            return !leaveFn(approvedLeaves as LeaveRequestLike[], id, date as string, slotM, duration, branchTz, idAliases);
+          });
         };
         
         // Helper: detect "Any Staff" staffId values (null, empty, "any", etc.)
@@ -670,9 +678,17 @@ function BookingsPageContent() {
           // Specific staff selected - check bookings involving this staff
           if (!staffId) return false;
 
+          const stLeaveRow = (this.data.staff || []).find((row: any) => String(row.id) === String(staffId));
+          const selAliases =
+            stLeaveRow &&
+            String(stLeaveRow.uid ?? "").trim() &&
+            String(stLeaveRow.uid).trim() !== String(stLeaveRow.id).trim()
+              ? [String(stLeaveRow.uid).trim()]
+              : undefined;
+
           if (
             leaveFn &&
-            leaveFn(approvedLeaves as LeaveRequestLike[], staffId as string, date as string, slotMinutes, duration, branchTz)
+            leaveFn(approvedLeaves as LeaveRequestLike[], staffId as string, date as string, slotMinutes, duration, branchTz, selAliases)
           ) {
             return true;
           }
@@ -1006,9 +1022,11 @@ function BookingsPageContent() {
 
   // Subscribe to bookings for selected date in booking wizard (for slot availability checking)
   useEffect(() => {
-    if (!ownerUid || !bkDate) return;
-    
-    const dateStr = formatLocalYmd(bkDate);
+    if (!ownerUid || !bkDate || !bkBranchId) return;
+
+    const selBr = branches.find((b: any) => String(b.id) === String(bkBranchId));
+    const tz = (selBr?.timezone as string | undefined) || "Australia/Sydney";
+    const dateStr = formatInTimeZone(bkDate, tz, "yyyy-MM-dd");
     
     // Branch admin should only see bookings for their branch
     const constraints = [
@@ -1118,7 +1136,7 @@ function BookingsPageContent() {
       unsub1();
       unsub2();
     };
-  }, [ownerUid, userRole, userBranchId, bkDate]);
+  }, [ownerUid, userRole, userBranchId, bkDate, bkBranchId, branches]);
 
   // Subscribe to Firestore data for wizard choices
   useEffect(() => {
@@ -1601,7 +1619,6 @@ function BookingsPageContent() {
     // Get the staff member selected for this service
     const staffIdForService = forServiceId ? bkServiceStaff[String(forServiceId)] : null;
     const isAnyStaffSelected = !staffIdForService || staffIdForService === "any";
-    const dateStr = formatLocalYmd(bkDate);
 
     let serviceDuration = 60;
     if (forServiceId) {
@@ -1614,7 +1631,8 @@ function BookingsPageContent() {
       (branches.find((b: any) => b.id === bkBranchId)?.timezone as string | undefined) ||
       (app?.data.branches?.find((b: any) => b.id === bkBranchId)?.timezone as string | undefined) ||
       "Australia/Sydney";
-    
+
+    const bookingYmdLeave = formatInTimeZone(bkDate, branchTzEarly, "yyyy-MM-dd");
     // For "Any Staff" bookings, get all eligible staff IDs for this service+branch.
     // A slot is only blocked when ALL eligible staff are occupied at that time.
     const branchServiceEligibleIds: string[] = (() => {
@@ -1651,17 +1669,18 @@ function BookingsPageContent() {
 
     const eligibleStaffIdsForSlotReact = (slotStartMin: number): string[] => {
       if (!isAnyStaffSelected || !forServiceId) return [];
-      return branchServiceEligibleIds.filter(
-        (id) =>
-          !isStaffUnavailableDueToApprovedLeave(
-            approvedLeavesForSlots,
-            id,
-            dateStr,
-            slotStartMin,
-            serviceDuration,
-            branchTzEarly
-          )
-      );
+      return branchServiceEligibleIds.filter((id) => {
+        const stRow = staffList.find((st) => String(st.id) === String(id));
+        return !isStaffUnavailableDueToApprovedLeave(
+          approvedLeavesForSlots,
+          id,
+          bookingYmdLeave,
+          slotStartMin,
+          serviceDuration,
+          branchTzEarly,
+          staffUidAliasListForLeave(stRow)
+        );
+      });
     };
     
     // Get all bookings for this date (excluding cancelled, completed, rejected)
@@ -1669,7 +1688,7 @@ function BookingsPageContent() {
     // NOTE: When a booking is cancelled, its status changes to "Canceled" and shouldBlockSlots returns false,
     // so it's automatically excluded from relevantBookings, making the slot available again in real-time
     const allDateBookings = app ? app.data.bookings.filter((b: any) => {
-      return b.date === dateStr && shouldBlockSlots(b.status);
+      return b.date === bookingYmdLeave && shouldBlockSlots(b.status);
     }) : [];
     
     // Helper function to check if a booking involves a specific staff member
@@ -1759,10 +1778,11 @@ function BookingsPageContent() {
         isStaffUnavailableDueToApprovedLeave(
           approvedLeavesForSlots,
           String(staffIdForService),
-          dateStr,
+          bookingYmdLeave,
           slotMinutes,
           serviceDuration,
-          branchTzEarly
+          branchTzEarly,
+          staffUidAliasListForLeave(staffList.find((st) => String(st.id) === String(staffIdForService)))
         )
       ) {
         return { occupied: true, reason: 'staff_on_leave' };
@@ -1964,8 +1984,8 @@ function BookingsPageContent() {
     const branchNowTime = branchNow.time; // HH:mm in branch timezone
     
     // Check if selected date is today IN THE BRANCH'S TIMEZONE
-    const selectedDateStr = formatLocalYmd(bkDate);
-    const isToday = selectedDateStr === branchTodayDate;
+    const wallYmdSlots = formatInTimeZone(bkDate, branchTimezone, "yyyy-MM-dd");
+    const isToday = wallYmdSlots === branchTodayDate;
     
     // Calculate current minutes based on branch's local time
     const currentMinutes = isToday 
@@ -2068,7 +2088,7 @@ function BookingsPageContent() {
       staffName: mainStaffName,
       branchId: bkBranchId,
       branchName,
-      date: formatLocalYmd(bkDate),
+      date: formatInTimeZone(bkDate, branchTimezone, "yyyy-MM-dd"),
       time: mainTime,
       duration: totalDuration,
       status: "Pending",
@@ -2562,6 +2582,11 @@ function BookingsPageContent() {
                            return staffBranchId === bkBranchId || staffBranchName === selectedBranchName;
                         };
                         
+                        const wizardTz =
+                          branches.find((b: any) => String(b.id) === String(bkBranchId))?.timezone ||
+                          "Australia/Sydney";
+                        const wizardYmd = bkDate ? formatInTimeZone(bkDate, wizardTz, "yyyy-MM-dd") : null;
+
                         // FILTER: Staff must be non-suspended + work at branch + (if service has staffIds, be in that list)
                         let availableStaffForService = staffList.filter(st => {
                            // 1. Filter out suspended staff
@@ -2574,6 +2599,20 @@ function BookingsPageContent() {
                            
                            // 3. Staff must work at the selected branch (mandatory)
                            if (!staffWorksAtBranch(st)) return false;
+
+                           // 4. Approved full-day leave: hide stylist chip (partial leave still appears; slots block by time)
+                           if (
+                             wizardYmd &&
+                             hideStaffChipForApprovedLeaveOnDate(
+                               approvedLeavesForSlots,
+                               st.id,
+                               staffUidAliasListForLeave(st),
+                               wizardYmd,
+                               wizardTz
+                             )
+                           ) {
+                             return false;
+                           }
                            
                            return true;
                         });
