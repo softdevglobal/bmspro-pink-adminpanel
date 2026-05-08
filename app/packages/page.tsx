@@ -7,6 +7,24 @@ import { auth, db, storage } from "@/lib/firebase";
 import { doc, getDoc, collection, query, where, onSnapshot, updateDoc, serverTimestamp } from "firebase/firestore";
 import { ref as storageRef, uploadBytes, getDownloadURL } from "firebase/storage";
 import { logTenantPlanChanged } from "@/lib/auditLog";
+import {
+  BILLING_MONTHLY_DAYS,
+  BILLING_WEEKLY_DAYS,
+  normalizeBillingIntervalDays,
+} from "@/lib/billingInterval";
+
+function formatSuggestedPriceLabel(rawPrice: string, billingDays: number): string {
+  if (!rawPrice || Number.isNaN(parseFloat(rawPrice))) return "";
+  const numPrice = parseFloat(rawPrice);
+  const suffix = billingDays === BILLING_WEEKLY_DAYS ? "/7 days" : "/28 days";
+  if (numPrice % 1 === 0) return `AU$${numPrice}${suffix}`;
+  return `AU$${numPrice.toFixed(2)}${suffix}`;
+}
+
+function billingCadenceLabel(days?: number): string {
+  const d = normalizeBillingIntervalDays(days);
+  return d === BILLING_WEEKLY_DAYS ? "Weekly (7 days)" : "Monthly (28 days)";
+}
 
 type SubscriptionPlan = {
   id: string;
@@ -25,6 +43,8 @@ type SubscriptionPlan = {
   stripePriceId?: string; // Stripe Price ID for payment processing
   trialDays?: number; // Free trial period in days (0 = no trial)
   plan_key?: string; // Internal plan identifier (e.g., SOLO, TEAM5)
+  /** Stripe recurring interval: 7 = weekly, 28 = monthly billing period */
+  billingIntervalDays?: number;
 };
 
 export default function PackagesPage() {
@@ -66,6 +86,7 @@ export default function PackagesPage() {
     stripePriceId: "",
     trialDays: "0", // Free trial period in days
     plan_key: "", // Internal plan identifier
+    billingIntervalDays: String(BILLING_MONTHLY_DAYS),
   });
 
   useEffect(() => {
@@ -226,6 +247,7 @@ export default function PackagesPage() {
       stripePriceId: "",
       trialDays: "0",
       plan_key: "",
+      billingIntervalDays: String(BILLING_MONTHLY_DAYS),
     });
     setImageFile(null);
     setImagePreview(null);
@@ -253,6 +275,7 @@ export default function PackagesPage() {
       stripePriceId: pkg.stripePriceId || "",
       trialDays: (pkg.trialDays || 0).toString(),
       plan_key: pkg.plan_key || "",
+      billingIntervalDays: String(normalizeBillingIntervalDays(pkg.billingIntervalDays)),
     });
     setImageFile(null);
     setImagePreview(pkg.image || null);
@@ -324,6 +347,7 @@ export default function PackagesPage() {
         stripePriceId: formData.stripePriceId.trim() || undefined,
         trialDays: parseInt(formData.trialDays, 10) || 0,
         plan_key: formData.plan_key.trim() || undefined,
+        billingIntervalDays: normalizeBillingIntervalDays(parseInt(formData.billingIntervalDays, 10)),
       };
 
       const url = editingPackage ? "/api/packages" : "/api/packages";
@@ -486,6 +510,7 @@ export default function PackagesPage() {
                           </div>
                           <h3 className="text-xl font-bold text-slate-900 mb-1">{plan.name}</h3>
                           <p className={`text-2xl font-bold bg-gradient-to-r ${gradientClass} bg-clip-text text-transparent mb-2`}>{plan.priceLabel}</p>
+                          <p className="text-xs text-slate-500 mb-1">{billingCadenceLabel(plan.billingIntervalDays)}</p>
                           <p className="text-sm text-slate-500">
                             {plan.branches === -1 ? "Unlimited Branches" : `${plan.branches} ${plan.branches === 1 ? "Branch" : "Branches"}`} • {" "}
                             {plan.staff === -1 ? "Unlimited Staff" : `${plan.staff} Staff`}
@@ -609,6 +634,7 @@ export default function PackagesPage() {
                               <div className={`text-4xl font-extrabold bg-gradient-to-r ${gradientClass} bg-clip-text text-transparent mb-2`}>
                                 {plan.priceLabel}
                               </div>
+                              <p className="text-center text-xs text-slate-500 mb-2">{billingCadenceLabel(plan.billingIntervalDays)}</p>
                               <div className="flex items-center justify-center gap-3 text-sm text-slate-500">
                                 <span className="flex items-center gap-1">
                                   <i className="fas fa-building text-xs" />
@@ -780,17 +806,8 @@ export default function PackagesPage() {
                               value={formData.price}
                               onChange={(e) => {
                                 const priceValue = e.target.value;
-                                // Auto-fill price label with formatted price
-                                let priceLabel = "";
-                                if (priceValue && !isNaN(parseFloat(priceValue))) {
-                                  const numPrice = parseFloat(priceValue);
-                                  // Format as AU$XX/mo, removing unnecessary decimals
-                                  if (numPrice % 1 === 0) {
-                                    priceLabel = `AU$${numPrice}/mo`;
-                                  } else {
-                                    priceLabel = `AU$${numPrice.toFixed(2)}/mo`;
-                                  }
-                                }
+                                const days = normalizeBillingIntervalDays(parseInt(formData.billingIntervalDays, 10));
+                                const priceLabel = formatSuggestedPriceLabel(priceValue, days);
                                 setFormData({ ...formData, price: priceValue, priceLabel });
                               }}
                               className="w-full px-4 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-pink-500 focus:border-transparent [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
@@ -808,10 +825,54 @@ export default function PackagesPage() {
                             value={formData.priceLabel}
                             onChange={(e) => setFormData({ ...formData, priceLabel: e.target.value })}
                             className="w-full px-4 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-pink-500 focus:border-transparent"
-                            placeholder="AU$99/mo"
+                            placeholder="AU$99/28 days"
                           />
                         </div>
 
+                        <div>
+                          <label className="block text-sm font-semibold text-slate-700 mb-2">
+                            Billing frequency <span className="text-rose-500">*</span>
+                          </label>
+                          <div className="flex rounded-xl border border-slate-200 bg-slate-100/80 p-1 gap-1">
+                            <button
+                              type="button"
+                              disabled={savingPackage}
+                              onClick={() => {
+                                const billingIntervalDays = String(BILLING_MONTHLY_DAYS);
+                                const days = normalizeBillingIntervalDays(BILLING_MONTHLY_DAYS);
+                                const priceLabel = formatSuggestedPriceLabel(formData.price, days);
+                                setFormData({ ...formData, billingIntervalDays, priceLabel });
+                              }}
+                              className={`flex-1 rounded-lg py-2.5 px-3 text-sm font-semibold transition-all duration-200 disabled:opacity-50 ${
+                                formData.billingIntervalDays === String(BILLING_MONTHLY_DAYS)
+                                  ? "bg-gradient-to-r from-pink-500 to-fuchsia-600 text-white shadow-md"
+                                  : "text-slate-600 hover:bg-white/90"
+                              }`}
+                            >
+                              Monthly (28 days)
+                            </button>
+                            <button
+                              type="button"
+                              disabled={savingPackage}
+                              onClick={() => {
+                                const billingIntervalDays = String(BILLING_WEEKLY_DAYS);
+                                const days = normalizeBillingIntervalDays(BILLING_WEEKLY_DAYS);
+                                const priceLabel = formatSuggestedPriceLabel(formData.price, days);
+                                setFormData({ ...formData, billingIntervalDays, priceLabel });
+                              }}
+                              className={`flex-1 rounded-lg py-2.5 px-3 text-sm font-semibold transition-all duration-200 disabled:opacity-50 ${
+                                formData.billingIntervalDays === String(BILLING_WEEKLY_DAYS)
+                                  ? "bg-gradient-to-r from-pink-500 to-fuchsia-600 text-white shadow-md"
+                                  : "text-slate-600 hover:bg-white/90"
+                              }`}
+                            >
+                              Weekly (7 days)
+                            </button>
+                          </div>
+                          <p className="text-xs text-slate-500 mt-1">
+                            Matches Stripe recurring interval (day × count)
+                          </p>
+                        </div>
                         <div className="grid grid-cols-2 gap-4">
                           <div>
                             <label className="block text-sm font-semibold text-slate-700 mb-2">

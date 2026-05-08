@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import Stripe from "stripe";
 import { adminDb, adminAuth } from "@/lib/firebaseAdmin";
+import { mergeBillingFieldsFromPlan } from "@/lib/billingInterval";
 
 export const runtime = "nodejs";
 
@@ -128,6 +129,13 @@ export async function POST(req: NextRequest) {
     }
     if (session.metadata?.planName) {
       updateData.plan = session.metadata.planName;
+    }
+
+    if (session.metadata?.planId) {
+      const planDoc = await db.collection("subscription_plans").doc(session.metadata.planId).get();
+      if (planDoc.exists) {
+        mergeBillingFieldsFromPlan(updateData, planDoc.data());
+      }
     }
 
     // Update users collection

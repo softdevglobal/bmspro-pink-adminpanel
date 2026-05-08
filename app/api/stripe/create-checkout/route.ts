@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import Stripe from "stripe";
 import { adminDb, adminAuth } from "@/lib/firebaseAdmin";
+import { normalizeBillingIntervalDays } from "@/lib/billingInterval";
 
 export const runtime = "nodejs";
 
@@ -54,6 +55,7 @@ export async function POST(req: NextRequest) {
     }
 
     const planData = planDoc.data()!;
+    const billingIntervalDays = normalizeBillingIntervalDays(planData.billingIntervalDays);
     
     // Validate plan has a price
     if (!planData.price || planData.price <= 0) {
@@ -148,7 +150,7 @@ export async function POST(req: NextRequest) {
           unit_amount: Math.round(planData.price * 100), // Convert to cents
           recurring: {
             interval: "day",
-            interval_count: 28, // 28-day billing cycle
+            interval_count: billingIntervalDays,
           },
         },
         quantity: 1,

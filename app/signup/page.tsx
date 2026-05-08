@@ -7,6 +7,7 @@ import { doc, setDoc, serverTimestamp } from "firebase/firestore";
 import { auth, db } from "@/lib/firebase";
 import { TIMEZONES } from "@/lib/timezone";
 import { generateUniqueSlug } from "@/lib/slug";
+import { normalizeBillingIntervalDays, billingCycleLabel } from "@/lib/billingInterval";
 
 interface Package {
   id: string;
@@ -23,6 +24,12 @@ interface Package {
   plan_key?: string;
   active?: boolean;
   hidden?: boolean;
+  billingIntervalDays?: number;
+}
+
+function signupPlanCadence(pkg: Package): string {
+  const d = normalizeBillingIntervalDays(pkg.billingIntervalDays);
+  return d === 7 ? "Every 7 days" : "Every 28 days";
 }
 
 export default function SignupPage() {
@@ -271,6 +278,8 @@ export default function SignupPage() {
         price: selectedPackage.priceLabel || null,
         planId: selectedPackage.id,
         plan_key: selectedPackage.plan_key || null,
+        billingIntervalDays: normalizeBillingIntervalDays(selectedPackage.billingIntervalDays),
+        billingCycle: billingCycleLabel(normalizeBillingIntervalDays(selectedPackage.billingIntervalDays)),
         branchLimit: selectedPackage.branches,
         currentBranchCount: 0,
         branchNames: [],
@@ -890,6 +899,7 @@ export default function SignupPage() {
                               <p className={`text-2xl font-bold bg-gradient-to-r ${gradientClass} bg-clip-text text-transparent`}>
                                 {pkg.priceLabel}
                               </p>
+                              <p className="text-xs text-slate-500 mt-0.5">{signupPlanCadence(pkg)}</p>
                             </div>
                           </div>
 

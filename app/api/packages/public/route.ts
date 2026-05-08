@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { adminDb } from "@/lib/firebaseAdmin";
+import { normalizeBillingIntervalDays } from "@/lib/billingInterval";
 
 export const runtime = "nodejs";
 
@@ -35,6 +36,7 @@ export async function GET(req: NextRequest) {
           image: data.image || null,
           trialDays: data.trialDays || 0,
           plan_key: data.plan_key || null,
+          billingIntervalDays: normalizeBillingIntervalDays(data.billingIntervalDays),
           active: data.active !== false,
         });
       }

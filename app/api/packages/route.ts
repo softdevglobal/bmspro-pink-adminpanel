@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { adminDb, adminAuth } from "@/lib/firebaseAdmin";
+import { normalizeBillingIntervalDays } from "@/lib/billingInterval";
 
 export const runtime = "nodejs";
 
@@ -44,6 +45,7 @@ export async function POST(req: NextRequest) {
 
     const body = await req.json();
     const { name, price, priceLabel, branches, staff, features, popular, color, image, icon, active, stripePriceId, trialDays, plan_key } = body;
+    const billingIntervalDays = normalizeBillingIntervalDays(body.billingIntervalDays);
 
     // Validation
     if (!name || price === undefined || !priceLabel) {
@@ -68,6 +70,7 @@ export async function POST(req: NextRequest) {
       hidden: body.hidden === true || body.hidden === "true",
       // Trial period in days (0 = no trial, null = no trial)
       trialDays: trialDays !== undefined && trialDays !== null && trialDays !== "" ? parseInt(trialDays, 10) : 0,
+      billingIntervalDays,
       createdAt: new Date(),
       updatedAt: new Date(),
     };
@@ -179,6 +182,9 @@ export async function PUT(req: NextRequest) {
     // Internal plan key (e.g., SOLO, TEAM5)
     if (plan_key !== undefined) {
       updateData.plan_key = plan_key && plan_key.trim() ? plan_key.trim() : null;
+    }
+    if (body.billingIntervalDays !== undefined) {
+      updateData.billingIntervalDays = normalizeBillingIntervalDays(body.billingIntervalDays);
     }
 
     await planRef.update(updateData);

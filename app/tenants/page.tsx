@@ -8,6 +8,7 @@ import { initializeApp } from "firebase/app";
 import { getAuth, createUserWithEmailAndPassword, signOut as signOutSecondary, onAuthStateChanged } from "firebase/auth";
 import { TIMEZONES } from "@/lib/timezone";
 import { generateUniqueSlug } from "@/lib/slug";
+import { billingCycleLabel, normalizeBillingIntervalDays } from "@/lib/billingInterval";
 import { 
   logTenantOnboarded, 
   logTenantDetailsUpdated, 
@@ -134,7 +135,7 @@ export default function TenantsPage() {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [currentStep, setCurrentStep] = useState<1 | 2 | 3>(1);
   const [selectedPlan, setSelectedPlan] = useState<string | null>(null);
-  const [packages, setPackages] = useState<Array<{ id: string; name: string; price: number; priceLabel: string; branches: number; staff: number; features: string[]; popular?: boolean; color: string; image?: string; icon?: string; active?: boolean; stripePriceId?: string; trialDays?: number; plan_key?: string }>>([]);
+  const [packages, setPackages] = useState<Array<{ id: string; name: string; price: number; priceLabel: string; branches: number; staff: number; features: string[]; popular?: boolean; color: string; image?: string; icon?: string; active?: boolean; stripePriceId?: string; trialDays?: number; plan_key?: string; billingIntervalDays?: number }>>([]);
   const [packagesLoading, setPackagesLoading] = useState(true);
   // Onboarding form (minimal fields to persist)
   const [formBusinessName, setFormBusinessName] = useState("");
@@ -347,6 +348,8 @@ export default function TenantsPage() {
         // subscription package details
         planId: selectedPackage.id,
         plan_key: selectedPackage.plan_key || null,
+        billingIntervalDays: normalizeBillingIntervalDays(selectedPackage.billingIntervalDays),
+        billingCycle: billingCycleLabel(normalizeBillingIntervalDays(selectedPackage.billingIntervalDays)),
         branchLimit: selectedPackage.branches,
         currentBranchCount: 0,
         branchNames: [],
@@ -2151,6 +2154,10 @@ onClick={async () => {
                                   <span className="flex items-center gap-1">
                                     <i className="fas fa-users text-slate-400" />
                                     {pkg.staff === -1 ? "Unlimited" : pkg.staff} Staff
+                                  </span>
+                                  <span className="flex items-center gap-1">
+                                    <i className="fas fa-calendar-alt text-slate-400" />
+                                    {normalizeBillingIntervalDays(pkg.billingIntervalDays) === 7 ? "Weekly · 7 days" : "Monthly · 28 days"}
                                   </span>
                                 </div>
                                 

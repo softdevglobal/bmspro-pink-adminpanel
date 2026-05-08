@@ -3,6 +3,7 @@ import Stripe from "stripe";
 import { adminDb } from "@/lib/firebaseAdmin";
 import { verifyAdminAuth } from "@/lib/authHelpers";
 import { FieldValue, Timestamp } from "firebase-admin/firestore";
+import { mergeBillingFieldsFromPlan, normalizeBillingIntervalDays } from "@/lib/billingInterval";
 
 export const runtime = "nodejs";
 
@@ -12,7 +13,7 @@ const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, {
 
 /**
  * POST /api/billing/upgrade
- * Upgrades subscription immediately - charges now and restarts 28-day cycle
+ * Upgrades subscription immediately - charges now and restarts billing cycle (7 or 28 days per plan)
  * 
  * Input: { newPlanId }
  * 
@@ -59,6 +60,7 @@ export async function POST(req: NextRequest) {
     }
 
     const newPlanData = newPlanDoc.data()!;
+    const billingIntervalDays = normalizeBillingIntervalDays(newPlanData.billingIntervalDays);
     if (!newPlanData.price || newPlanData.price <= 0) {
       return NextResponse.json(
         { error: "Plan does not have a valid price" },
@@ -117,18 +119,20 @@ export async function POST(req: NextRequest) {
       unit_amount: Math.round(newPlanData.price * 100), // Convert to cents
       recurring: {
         interval: "day",
-        interval_count: 28, // 28-day billing cycle
+        interval_count: billingIntervalDays,
       },
       product_data: {
         name: newPlanData.name || "BMS Pro Subscription",
         metadata: {
           planId: newPlanId,
           plan_key: newPlanData.plan_key || "",
+          billing_interval_days: String(billingIntervalDays),
         },
       },
       metadata: {
         planId: newPlanId,
         plan_key: newPlanData.plan_key || "",
+        billing_interval_days: String(billingIntervalDays),
       },
     });
 
@@ -204,6 +208,8 @@ export async function POST(req: NextRequest) {
       staffLimit: newPlanData.staff ?? -1,
       updatedAt: Timestamp.now(),
     };
+
+    mergeBillingFieldsFromPlan(updateData, newPlanData);
 
     await db.collection("users").doc(userId).update(updateData);
 

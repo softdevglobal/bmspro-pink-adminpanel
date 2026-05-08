@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import Stripe from "stripe";
 import { FieldValue } from "firebase-admin/firestore";
 import { adminDb } from "@/lib/firebaseAdmin";
+import { mergeBillingFieldsFromPlan } from "@/lib/billingInterval";
 
 export const runtime = "nodejs";
 
@@ -260,6 +261,7 @@ async function handleCheckoutCompleted(
       if (planData.staff !== undefined) {
         updateData.staffLimit = planData.staff;
       }
+      mergeBillingFieldsFromPlan(updateData, planData);
     }
   }
 
@@ -269,6 +271,13 @@ async function handleCheckoutCompleted(
   }
   if (session.metadata?.planName) {
     updateData.plan = session.metadata.planName;
+  }
+
+  if (session.metadata?.planId) {
+    const planByMeta = await db.collection("subscription_plans").doc(session.metadata.planId).get();
+    if (planByMeta.exists) {
+      mergeBillingFieldsFromPlan(updateData, planByMeta.data());
+    }
   }
 
   await updateUserBilling(db, firebaseUid, updateData);
@@ -335,6 +344,7 @@ async function handlePaymentSucceeded(
       updateData.price = planData.priceLabel || `AU$${planData.price}/mo`;
       updateData.branchLimit = planData.branches ?? -1;
       updateData.staffLimit = planData.staff ?? -1;
+      mergeBillingFieldsFromPlan(updateData, planData);
     } else {
       try {
         const price = await stripe.prices.retrieve(priceId);
@@ -350,6 +360,7 @@ async function handlePaymentSucceeded(
             updateData.price = planData.priceLabel || `AU$${planData.price}/mo`;
             updateData.branchLimit = planData.branches ?? -1;
             updateData.staffLimit = planData.staff ?? -1;
+            mergeBillingFieldsFromPlan(updateData, planData);
           }
         }
       } catch {}
@@ -509,6 +520,7 @@ async function updateUserSubscription(
       updateData.price = planData.priceLabel || `AU$${planData.price}/mo`;
       updateData.branchLimit = planData.branches ?? -1;
       updateData.staffLimit = planData.staff ?? -1;
+      mergeBillingFieldsFromPlan(updateData, planData);
       // Clear downgrade scheduling fields when plan actually changed (upgrade or downgrade took effect)
       const userDoc = await db.collection("users").doc(userId).get();
       const userData = userDoc.data();

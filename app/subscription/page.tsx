@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import { onAuthStateChanged } from "firebase/auth";
 import { auth, db } from "@/lib/firebase";
 import { doc, getDoc } from "firebase/firestore";
+import { normalizeBillingIntervalDays } from "@/lib/billingInterval";
 
 interface Package {
   id: string;
@@ -23,6 +24,8 @@ interface Package {
   hidden?: boolean; // Hidden packages are not shown for upgrade/downgrade (budget plans)
   stripePriceId?: string;
   trialDays?: number;
+  /** 7 = weekly, 28 = monthly billing period */
+  billingIntervalDays?: number;
 }
 
 interface UserData {
@@ -62,6 +65,15 @@ interface BillingStatus {
   cancel_at_period_end: boolean;
   branch_count?: number;
   staff_count?: number;
+}
+
+function planBillingPeriodDays(pkg: Package): number {
+  return normalizeBillingIntervalDays(pkg.billingIntervalDays);
+}
+
+function planBillingSummary(pkg: Package): string {
+  const d = planBillingPeriodDays(pkg);
+  return d === 7 ? "Billed every 7 days" : "Billed every 28 days";
 }
 
 export default function SubscriptionPage() {
@@ -938,6 +950,7 @@ export default function SubscriptionPage() {
                               <div className={`text-3xl font-extrabold bg-gradient-to-r ${gradientClass} bg-clip-text text-transparent`}>
                                 {pkg.priceLabel}
                               </div>
+                              <p className="text-xs text-slate-500 mt-1">{planBillingSummary(pkg)}</p>
                             </div>
                             
                             {/* Branches & Staff */}
@@ -1097,6 +1110,7 @@ export default function SubscriptionPage() {
                     <div className="text-left">
                       <div className="font-bold text-slate-900">{selectedPackage.name}</div>
                       <div className="text-sm text-pink-600 font-semibold">{selectedPackage.priceLabel}</div>
+                      <div className="text-xs text-slate-500">{planBillingSummary(selectedPackage)}</div>
                     </div>
                   </div>
                 </div>
@@ -1113,6 +1127,12 @@ export default function SubscriptionPage() {
                     <span className="text-slate-500">Staff</span>
                     <span className="font-medium text-slate-700">
                       {selectedPackage.staff === -1 ? "Unlimited" : selectedPackage.staff}
+                    </span>
+                  </div>
+                  <div className="flex items-center justify-between text-sm mb-2">
+                    <span className="text-slate-500">Billing period</span>
+                    <span className="font-medium text-slate-700">
+                      {planBillingPeriodDays(selectedPackage) === 7 ? "7 days (weekly)" : "28 days (monthly)"}
                     </span>
                   </div>
                   <div className="flex items-center justify-between text-sm">
@@ -1310,7 +1330,7 @@ export default function SubscriptionPage() {
                       {upgradeAction === "upgrade" ? (
                         <>
                           <p className="font-medium mb-1">Immediate upgrade</p>
-                          <p>A new 28-day billing cycle starts today. Payment will be charged immediately.</p>
+                          <p>A new {planBillingPeriodDays(upgradePkg)}-day billing cycle starts today. Payment will be charged immediately.</p>
                         </>
                       ) : (
                         <>
