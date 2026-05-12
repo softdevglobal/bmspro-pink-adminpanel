@@ -1,6 +1,7 @@
 "use client";
 import React, { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
+import { openSupportChatWidget } from "@/lib/supportChatEvents";
 
 interface ToastNotificationProps {
   id: string;
@@ -11,6 +12,7 @@ interface ToastNotificationProps {
   bookingId?: string;
   /** Staff leave workflow */
   leaveRequestId?: string;
+  chatId?: string;
   type?: string;
   branchName?: string;
   date?: string;
@@ -26,6 +28,7 @@ export default function ToastNotification({
   price,
   bookingId,
   leaveRequestId,
+  chatId,
   type,
   branchName,
   date,
@@ -59,7 +62,11 @@ export default function ToastNotification({
   };
 
   const handleClick = () => {
-    if (type === "leave_request") {
+    if (type === "cc_chat_inbound" && chatId) {
+      openSupportChatWidget();
+      handleClose();
+      return;
+    } else if (type === "leave_request") {
       router.push("/staff/leave-requests");
       handleClose();
       return;
@@ -85,6 +92,8 @@ export default function ToastNotification({
         return "fa-calendar-plus";
       case "leave_request":
         return "fa-umbrella-beach";
+      case "cc_chat_inbound":
+        return "fa-headset";
       case "staff_booking_created":
         return "fa-user-plus";
       case "staff_rejected":
@@ -107,6 +116,8 @@ export default function ToastNotification({
         return "from-amber-500 to-orange-600";
       case "leave_request":
         return "from-fuchsia-500 to-indigo-600";
+      case "cc_chat_inbound":
+        return "from-sky-500 to-indigo-600";
       default:
         return "from-pink-500 to-rose-500";
     }

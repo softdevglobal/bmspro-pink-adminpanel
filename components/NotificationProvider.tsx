@@ -3,6 +3,7 @@ import React, { createContext, useContext, useEffect, useRef, useState, ReactNod
 import { onAuthStateChanged } from "firebase/auth";
 import { collection, query, where, onSnapshot } from "firebase/firestore";
 import ToastNotification from "./ToastNotification";
+import { SUPPORT_CHAT_PANEL_STATE_EVENT } from "@/lib/supportChatEvents";
 
 interface Notification {
   id: string;
@@ -20,6 +21,8 @@ interface Notification {
   status?: string;
   /** For staff leave workflows */
   leaveRequestId?: string;
+  /** Call center direct chat — open floating reception widget. */
+  chatId?: string;
 }
 
 interface NotificationContextType {
@@ -45,6 +48,8 @@ interface NotificationProviderProps {
   children: ReactNode;
 }
 
+const SALON_ALERT_TYPES = new Set(["cc_chat_inbound"]);
+
 export default function NotificationProvider({ children }: NotificationProviderProps) {
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const [pendingBookings, setPendingBookings] = useState<any[]>([]);
@@ -55,6 +60,9 @@ export default function NotificationProvider({ children }: NotificationProviderP
   const [toastNotifications, setToastNotifications] = useState<any[]>([]);
   const [ownerUid, setOwnerUid] = useState<string | null>(null);
   const [isSuperAdmin, setIsSuperAdmin] = useState<boolean>(false);
+  /** While the floating reception chat is open, suppress CC message toasts/sounds and bell unread for `cc_chat_inbound`. */
+  const [supportChatPanelOpen, setSupportChatPanelOpen] = useState(false);
+  const supportChatPanelOpenRef = useRef(false);
   const previousNotificationIdsRef = useRef<Set<string>>(new Set());
   const previousPendingIdsRef = useRef<Set<string>>(new Set());
   const isInitialLoadRef = useRef(true);
@@ -101,6 +109,18 @@ export default function NotificationProvider({ children }: NotificationProviderP
       }
     }
   }, [dismissedNotificationIds]);
+
+  useEffect(() => {
+    const onPanel = (e: Event) => {
+      const d = (e as CustomEvent<{ open?: boolean }>).detail;
+      const open = Boolean(d?.open);
+      supportChatPanelOpenRef.current = open;
+      setSupportChatPanelOpen(open);
+    };
+    if (typeof window === "undefined") return undefined;
+    window.addEventListener(SUPPORT_CHAT_PANEL_STATE_EVENT, onPanel);
+    return () => window.removeEventListener(SUPPORT_CHAT_PANEL_STATE_EVENT, onPanel);
+  }, []);
 
   // Initialize audio element for notification sound
   useEffect(() => {
@@ -218,6 +238,7 @@ export default function NotificationProvider({ children }: NotificationProviderP
       branchName: notification.branchName,
       date: notification.date || notification.bookingDate,
       time: notification.time || notification.bookingTime,
+      chatId: typeof notification.chatId === "string" ? notification.chatId : undefined,
     };
     
     console.log("🔔 Showing toast notification:", toast);
@@ -355,8 +376,15 @@ export default function NotificationProvider({ children }: NotificationProviderP
             const isStaffRejected = notif.type === "staff_rejected";
             
             const isLeaveRequest = notif.type === "leave_request";
+
+            const isCcChatInbound = notif.type === "cc_chat_inbound";
             
             if (isLeaveRequest) {
+              return true;
+            }
+
+            if (isCcChatInbound) {
+              if (supportChatPanelOpenRef.current) return false;
               return true;
             }
             
@@ -439,6 +467,8 @@ export default function NotificationProvider({ children }: NotificationProviderP
           const isStaffRejectedNotification = data.type === "staff_rejected";
           
           const isLeaveRequestNotification = data.type === "leave_request";
+
+          const isCcChatInbound = data.type === "cc_chat_inbound";
           
           // Only show new booking notifications if booking is still pending/awaiting
           const isPendingStatus = !bookingStatus || 
@@ -448,12 +478,16 @@ export default function NotificationProvider({ children }: NotificationProviderP
           
           const shouldShow = 
             isLeaveRequestNotification ||
+            isCcChatInbound ||
             (isNewBookingNotification && isPendingStatus) || 
             isStaffRejectedNotification;
 
           if (!shouldShow) {
             continue;
           }
+
+          const chatIdRaw =
+            typeof data.chatId === "string" && data.chatId.trim() ? data.chatId.trim() : undefined;
 
           const notification: Notification = {
             id: notifId,
@@ -470,6 +504,7 @@ export default function NotificationProvider({ children }: NotificationProviderP
             read: data.read || false,
             status: bookingStatus || data.status,
             leaveRequestId: data.leaveRequestId ? String(data.leaveRequestId) : undefined,
+            ...(chatIdRaw ? { chatId: chatIdRaw } : {}),
           };
           
           allNotificationsMap.set(notifId, notification);
@@ -829,6 +864,10 @@ export default function NotificationProvider({ children }: NotificationProviderP
         notif.type === "booking_request";
       
       const isStaffRejectedNotification = notif.type === "staff_rejected";
+
+      const isLeaveRequestNotification = notif.type === "leave_request";
+
+      const isCcChatInbound = notif.type === "cc_chat_inbound";
       
       // For new booking notifications, only show if booking is still pending
       if (isNewBookingNotification) {
@@ -843,15 +882,29 @@ export default function NotificationProvider({ children }: NotificationProviderP
       if (isStaffRejectedNotification) {
         return true;
       }
+
+      if (isLeaveRequestNotification) {
+        return true;
+      }
+
+      if (isCcChatInbound) {
+        return true;
+      }
       
       // Don't show any other notification types
       return false;
     });
 
-    // Combine and deduplicate by bookingId (prefer Firestore notifications over pending)
+    // Combine and deduplicate: bookingId for booking rows; stable id for CC / leave alerts
     const allNotifications = [...pendingNotifications, ...validNotifications];
+    const dedupeKey = (n: Notification) => {
+      if (n.id.startsWith("pending-")) return `pending:${n.bookingId}`;
+      if (SALON_ALERT_TYPES.has(n.type)) return n.id;
+      if (n.type === "leave_request") return n.id;
+      return n.bookingId || n.id;
+    };
     const unique = Array.from(
-      new Map(allNotifications.map((n) => [n.bookingId, n])).values()
+      new Map(allNotifications.map((n) => [dedupeKey(n), n])).values()
     ).sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
 
     return unique.slice(0, 50);
@@ -859,8 +912,12 @@ export default function NotificationProvider({ children }: NotificationProviderP
 
   // Calculate unread count from combined notifications
   const combinedUnreadCount = useMemo(() => {
-    return combinedNotifications.filter((n) => !n.read).length;
-  }, [combinedNotifications]);
+    return combinedNotifications.filter((n) => {
+      if (n.read) return false;
+      if (n.type === "cc_chat_inbound" && supportChatPanelOpen) return false;
+      return true;
+    }).length;
+  }, [combinedNotifications, supportChatPanelOpen]);
 
   const value: NotificationContextType = {
     notifications: combinedNotifications,
@@ -886,6 +943,7 @@ export default function NotificationProvider({ children }: NotificationProviderP
               price={toast.price}
               bookingId={toast.bookingId}
               leaveRequestId={toast.leaveRequestId}
+              chatId={toast.chatId}
               type={toast.type}
               branchName={toast.branchName}
               date={toast.date}

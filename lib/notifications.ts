@@ -912,3 +912,18 @@ export async function createBranchAdminNotification(data: {
   return notificationId;
 }
 
+/** Send FCM to a user's device using `users` / `salon_staff` token lookup (used by CC direct chat). */
+export async function sendPushToUserByUid(
+  userUid: string,
+  title: string,
+  body: string,
+  data?: Record<string, string>
+): Promise<void> {
+  const token = await getUserFcmToken(userUid);
+  if (!token) {
+    console.log(`⚠️ sendPushToUserByUid: no FCM token for ${userUid}`);
+    return;
+  }
+  await sendPushNotification(token, title, body, data);
+}
+

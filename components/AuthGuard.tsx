@@ -8,6 +8,7 @@ import { doc, getDoc } from "firebase/firestore";
 import PaymentRequiredModal from "./PaymentRequiredModal";
 import OwnerAccountInactiveModal from "./OwnerAccountInactiveModal";
 import TrialWarningBanner from "./TrialWarningBanner";
+import SupportChatWidget from "./SupportChatWidget";
 
 interface AuthGuardProps {
   children: React.ReactNode;
@@ -334,6 +335,7 @@ export default function AuthGuard({ children }: AuthGuardProps) {
     <>
       <TrialWarningBanner />
       {children}
+      <SupportChatWidget />
       <PaymentRequiredModal
         isOpen={paymentInfo.required}
         planName={paymentInfo.planName}

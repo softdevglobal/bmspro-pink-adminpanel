@@ -1,0 +1,72 @@
+BMS Pro Pink — Call center / reception chat APIs
+================================================
+
+Replace BASE with your deployed Pink admin origin (e.g. https://admin.example.com).
+
+Auth: Authorization: Bearer <Firebase ID token> (same Firebase project as Pink).
+Call-center routes use CORS Access-Control-Allow-Origin: * like Black.
+
+------------------------------------------------------------
+LIST SALONS (SALON OWNERS) — two equivalent entry points
+------------------------------------------------------------
+
+1) Full or summary workshop list (recommended; matches Black)
+
+   GET BASE/api/call-center/workshops?summary=1
+   → JSON { "workshops": [ ... ] }  — lightweight owner rows (ownerUid, name, slug, logoUrl, contactPhone, email, timezone, state, accountStatus).
+
+   GET BASE/api/call-center/workshops
+   → JSON { "workshops": [ ... ] }  — full bundle per salon (workshop + branches + services + staff; Pink shape, no vehicle-type fields).
+
+2) Chat-focused light list (same underlying owner query; key name differs)
+
+   GET BASE/api/call-center/chats/workshop-owners
+   → JSON { "workshopOwners": [ ... ] }  — same style of summary rows as (1) summary mode.
+
+Dev: on localhost, unauthenticated listing may be enabled unless CALL_CENTER_DEV_LIST_ALL_WORKSHOPS=false.
+
+------------------------------------------------------------
+Direct CC chat (cc_direct_chats)
+------------------------------------------------------------
+
+GET    BASE/api/call-center/chats?limit=50
+GET    BASE/api/call-center/chats/workshop-owners
+POST   BASE/api/call-center/chats/start-with-owner
+GET    BASE/api/call-center/chats/{chatId}
+POST   BASE/api/call-center/chats/{chatId}/claim
+GET    BASE/api/call-center/chats/{chatId}/messages
+POST   BASE/api/call-center/chats/{chatId}/messages
+POST   BASE/api/call-center/chats/{chatId}/read
+POST   BASE/api/call-center/chats/{chatId}/close
+PATCH  BASE/api/call-center/chats/{chatId}/reviewed
+
+------------------------------------------------------------
+Support queue (agent)
+------------------------------------------------------------
+
+GET    BASE/api/support-chat/agent/conversations
+POST   BASE/api/support-chat/agent/conversations/{conversationId}/claim
+GET    BASE/api/support-chat/agent/conversations/{conversationId}/messages
+POST   BASE/api/support-chat/agent/conversations/{conversationId}/messages
+POST   BASE/api/support-chat/agent/conversations/{conversationId}/read
+POST   BASE/api/support-chat/agent/conversations/{conversationId}/close
+POST   BASE/api/support-chat/agent/conversations/{conversationId}/transfer
+POST   BASE/api/support-chat/agent/fcm-token
+POST   BASE/api/support-chat/agent/presence
+
+------------------------------------------------------------
+Salon admin app (tenant JWT)
+------------------------------------------------------------
+
+GET    BASE/api/chats/cc/agents
+GET    BASE/api/chats/cc/rooms
+POST   BASE/api/chats/cc/rooms
+GET    BASE/api/chats/cc/rooms/{chatId}/messages
+POST   BASE/api/chats/cc/rooms/{chatId}/messages
+POST   BASE/api/chats/cc/rooms/{chatId}/read
+POST   BASE/api/chats/cc/rooms/{chatId}/close
+POST   BASE/api/support-chat/customer/messages
+GET    BASE/api/support-chat/customer/conversations
+POST   BASE/api/support-chat/customer/conversations/{conversationId}/read
+
+Paths and behavior align with BMS Pro Black; only BASE and which Firebase project/token change for Pink.

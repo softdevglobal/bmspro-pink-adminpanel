@@ -3,6 +3,38 @@ import { adminAuth, adminDb } from "./firebaseAdmin";
 import { DecodedIdToken } from "firebase-admin/auth";
 
 /**
+ * Firebase ID token from `Authorization: Bearer …` (case-insensitive),
+ * or in development only from `?access_token=` / `?token=` for local tests.
+ */
+export function getFirebaseIdTokenFromRequest(req: NextRequest): string | null {
+  const h =
+    req.headers.get("authorization") ??
+    req.headers.get("Authorization") ??
+    "";
+  const bearer = h.match(/^Bearer\s+(.+)$/i);
+  if (bearer?.[1]) {
+    const t = bearer[1].trim();
+    if (t) return t;
+  }
+  if (process.env.NODE_ENV === "development") {
+    const q =
+      req.nextUrl.searchParams.get("access_token")?.trim() ||
+      req.nextUrl.searchParams.get("token")?.trim();
+    if (q) return q;
+  }
+  return null;
+}
+
+export function missingFirebaseTokenMessage(): string {
+  const base =
+    "Send header: Authorization: Bearer <Firebase ID token>. Obtain via Firebase Auth after sign-in, then user.getIdToken().";
+  if (process.env.NODE_ENV === "development") {
+    return `Missing Firebase ID token. ${base} For local testing only: you may add ?access_token=<token> to the URL.`;
+  }
+  return `Missing or invalid Authorization header. ${base}`;
+}
+
+/**
  * Result of authentication verification
  */
 export type AuthResult = {
@@ -16,6 +48,7 @@ export type AuthResult = {
     email?: string;
     branchId?: string;
     billingStatus?: string;
+    isSuperAdmin?: boolean;
   };
 } | {
   success: false;
@@ -187,6 +220,7 @@ export async function verifyAdminAuth(
         email: userData.email || decodedToken.email,
         branchId: userData.branchId,
         billingStatus: userData.billing_status || userData.subscriptionStatus,
+        isSuperAdmin: userRole === "super_admin",
       },
     };
   } catch (error: any) {
