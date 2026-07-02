@@ -1,8 +1,13 @@
 // Client-side stub for emailService
 // This file prevents server-only code from being bundled in client components
 
-export async function sendBranchAdminAssignmentEmail() {
-  throw new Error("sendBranchAdminAssignmentEmail can only be called on the server");
+export async function sendBranchAdminAssignmentEmail(
+  staffEmail: string,
+  staffName: string,
+  branchName: string,
+  salonName?: string
+): Promise<{ success: boolean; error?: string }> {
+  return { success: false, error: "sendBranchAdminAssignmentEmail can only be called on the server" };
 }
 
 // Export other functions as stubs if needed

@@ -14,6 +14,6 @@ export async function sendBranchAdminAssignmentEmail(
   
   // Dynamic import - webpack will replace this with the client stub in client bundles
   // The module replacement plugin in next.config.ts handles this
-  const emailService = await import("./emailService");
+  const emailService = await import("@/lib/emailService");
   return emailService.sendBranchAdminAssignmentEmail(staffEmail, staffName, branchName, salonName);
 }
