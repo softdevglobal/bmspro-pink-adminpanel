@@ -27,6 +27,19 @@ export async function syncSmsPackageToStripe(packageId: string): Promise<SmsPack
   const ref = db.collection("sms_packages").doc(packageId);
 
   let productId = pkg.stripeProductId ?? undefined;
+  if (productId) {
+    // A product saved against a different Stripe account (or mode) will not
+    // resolve here — drop it so a fresh one is created below.
+    try {
+      await stripe.products.update(productId, {
+        name: pkg.name,
+        description: pkg.description || `${pkg.messageQuota} SMS credits`,
+      });
+    } catch {
+      productId = undefined;
+    }
+  }
+
   if (!productId) {
     const product = await stripe.products.create({
       name: pkg.name,
@@ -34,11 +47,6 @@ export async function syncSmsPackageToStripe(packageId: string): Promise<SmsPack
       metadata: { smsPackageId: packageId, type: "sms_topup" },
     });
     productId = product.id;
-  } else {
-    await stripe.products.update(productId, {
-      name: pkg.name,
-      description: pkg.description || `${pkg.messageQuota} SMS credits`,
-    });
   }
 
   const price = await stripe.prices.create({
@@ -136,7 +144,19 @@ export async function createSmsCheckoutSession(args: {
     throw new Error("SMS package not available");
   }
 
+  const stripe = getStripe();
+
   let stripePriceId = pkg.stripePriceId;
+  if (stripePriceId) {
+    // Same account-mismatch guard as products: a price from another account
+    // must be re-created rather than handed to checkout.
+    try {
+      const price = await stripe.prices.retrieve(stripePriceId);
+      if (!price.active) stripePriceId = undefined;
+    } catch {
+      stripePriceId = undefined;
+    }
+  }
   if (!stripePriceId) {
     const synced = await syncSmsPackageToStripe(args.packageId);
     stripePriceId = synced.stripePriceId ?? undefined;
@@ -144,8 +164,6 @@ export async function createSmsCheckoutSession(args: {
   if (!stripePriceId) {
     throw new Error("SMS package is not linked to Stripe");
   }
-
-  const stripe = getStripe();
   const db = adminDb();
   const userDoc = await db.collection("users").doc(args.ownerUid).get();
   const userData = userDoc.data();

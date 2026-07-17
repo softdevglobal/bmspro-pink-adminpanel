@@ -87,8 +87,32 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // Get current subscription from Stripe
-    const subscription = await stripe.subscriptions.retrieve(subscriptionId);
+    // Get current subscription from Stripe. A subscription saved against a
+    // different Stripe account will not resolve, and the raw Stripe error is
+    // meaningless to a salon owner — surface an actionable one instead.
+    let subscription: Stripe.Subscription;
+    try {
+      subscription = await stripe.subscriptions.retrieve(subscriptionId);
+    } catch (err: unknown) {
+      const code =
+        err && typeof err === "object" && "code" in err
+          ? String((err as { code: unknown }).code)
+          : "";
+      if (code === "resource_missing") {
+        console.error(
+          `[BILLING UPGRADE] Subscription ${subscriptionId} on user ${userId} does not exist in the current Stripe account`
+        );
+        return NextResponse.json(
+          {
+            error:
+              "Your subscription record is out of date and can't be upgraded. Please contact support to re-activate your plan.",
+          },
+          { status: 409 }
+        );
+      }
+      throw err;
+    }
+
     const subscriptionItemId = subscription.items.data[0]?.id;
 
     if (!subscriptionItemId) {
