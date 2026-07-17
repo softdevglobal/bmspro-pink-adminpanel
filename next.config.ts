@@ -13,28 +13,36 @@ const nextConfig: NextConfig = {
   webpack: (config, { isServer, webpack }) => {
     // Exclude server-only modules from client bundles
     if (!isServer) {
-      // Use NormalModuleReplacementPlugin to replace emailService with client stub
       const emailServiceStubPath = path.resolve(__dirname, 'lib/emailService.client.ts');
-      const emailServiceRealPath = path.resolve(__dirname, 'lib/emailService.ts');
-      
+
+      const replaceWithEmailStub = (resource: { request: string }) => {
+        resource.request = emailServiceStubPath;
+      };
+
       config.plugins.push(
         new webpack.NormalModuleReplacementPlugin(
           /^@\/lib\/emailService$/,
-          (resource: any) => {
-            // Replace the real emailService with the client stub
-            resource.request = emailServiceStubPath;
-          }
+          replaceWithEmailStub
         ),
         new webpack.NormalModuleReplacementPlugin(
           /^@\/lib\/emailService\.server$/,
-          (resource: any) => {
-            // Replace the server wrapper with the client stub
-            resource.request = emailServiceStubPath;
-          }
+          replaceWithEmailStub
+        ),
+        // Resolved absolute paths (dynamic imports may bypass @/ aliases)
+        new webpack.NormalModuleReplacementPlugin(
+          /[\\/]lib[\\/]emailService\.ts$/,
+          replaceWithEmailStub
+        ),
+        new webpack.NormalModuleReplacementPlugin(
+          /[\\/]lib[\\/]emailService\.server\.ts$/,
+          replaceWithEmailStub
+        ),
+        new webpack.NormalModuleReplacementPlugin(
+          /[\\/]lib[\\/]zeptomail\.ts$/,
+          replaceWithEmailStub
         )
       );
-      
-      // Also set alias as backup
+
       if (!config.resolve) {
         config.resolve = {};
       }
@@ -43,6 +51,7 @@ const nextConfig: NextConfig = {
       }
       config.resolve.alias['@/lib/emailService'] = emailServiceStubPath;
       config.resolve.alias['@/lib/emailService.server'] = emailServiceStubPath;
+      config.resolve.alias['@/lib/zeptomail'] = emailServiceStubPath;
     }
     return config;
   },
