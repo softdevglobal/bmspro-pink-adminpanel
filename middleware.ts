@@ -11,6 +11,22 @@ import { NextRequest, NextResponse } from "next/server";
  * 
  * @see https://developer.mozilla.org/en-US/docs/Web/HTTP/CSP
  */
+function extraCommandCenterConnectSources(isDev: boolean): string {
+  const parts: string[] = [];
+  if (isDev) {
+    parts.push("http://127.0.0.1:5050", "http://localhost:5050");
+  }
+  const raw = process.env.NEXT_PUBLIC_COMMAND_CENTER_URL?.trim();
+  if (raw) {
+    try {
+      parts.push(new URL(raw).origin);
+    } catch {
+      /* ignore invalid URL */
+    }
+  }
+  return parts.length ? ` ${parts.join(" ")}` : "";
+}
+
 function generateCSP(isDev: boolean): string {
   const cspDirectives = [
     // Default: block everything unless explicitly allowed
@@ -32,7 +48,7 @@ function generateCSP(isDev: boolean): string {
     
     // Connect: API endpoints, Firebase, WebSocket connections, OpenStreetMap, and Leaflet CDN
     // Added *.firebaseapp.com for Firebase Auth popup/redirect
-    "connect-src 'self' https://*.firebaseio.com https://*.googleapis.com https://*.firebaseapp.com wss://*.firebaseio.com https://firestore.googleapis.com https://identitytoolkit.googleapis.com https://securetoken.googleapis.com https://firebaseinstallations.googleapis.com https://*.cloudfunctions.net https://www.google.com https://www.recaptcha.net https://nominatim.openstreetmap.org https://*.tile.openstreetmap.org https://unpkg.com https://ka-f.fontawesome.com",
+    `connect-src 'self' https://*.firebaseio.com https://*.googleapis.com https://*.firebaseapp.com wss://*.firebaseio.com https://firestore.googleapis.com https://identitytoolkit.googleapis.com https://securetoken.googleapis.com https://firebaseinstallations.googleapis.com https://*.cloudfunctions.net https://www.google.com https://www.recaptcha.net https://nominatim.openstreetmap.org https://*.tile.openstreetmap.org https://unpkg.com https://ka-f.fontawesome.com${extraCommandCenterConnectSources(isDev)}`,
     
     // Frames: Block all except Google reCAPTCHA and Firebase Auth
     "frame-src 'self' https://*.firebaseapp.com https://www.google.com https://www.recaptcha.net",

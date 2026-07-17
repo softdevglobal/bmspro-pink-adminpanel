@@ -1,36 +1,52 @@
 "use client";
 
 import { auth } from "@/lib/firebase";
-import {
-  GREETING_AUDIENCE_LABELS,
-  MAX_GREETING_MESSAGE_LENGTH,
-  type GreetingAudience,
-} from "@/lib/greetingMessages/types";
+import { formatAuPhoneDisplay } from "@/lib/phone/au-phone";
+import type { BusinessSmsBalance } from "@/lib/sms/types";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
 const INPUT_CLASS =
-  "w-full rounded-lg border border-neutral-300 bg-white px-3.5 py-2.5 text-sm text-neutral-900 placeholder:text-neutral-400 focus:border-neutral-900 focus:outline-none focus:ring-2 focus:ring-neutral-900/10";
+  "w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-900 placeholder:text-slate-400 focus:border-pink-500 focus:outline-none focus:ring-1 focus:ring-pink-500";
 
-type RecipientPreview = {
-  audience: GreetingAudience;
-  audienceLabel: string;
-  total: number;
-  customers: number;
-  staff: number;
-  smsConfigured: boolean;
+const MAX_MESSAGE_LENGTH = 480;
+
+const QUICK_TEMPLATES: Array<{ label: string; text: string }> = [
+  {
+    label: "Season's greetings",
+    text: "Season's greetings from {salon}! Thank you for your support this year. We wish you a safe and happy holiday season.",
+  },
+  {
+    label: "Merry Christmas",
+    text: "Merry Christmas from {salon}! We appreciate your business and look forward to seeing you again soon.",
+  },
+  {
+    label: "Happy New Year",
+    text: "Happy New Year from {salon}! Thank you for trusting us this year. Wishing you health and happiness in the year ahead.",
+  },
+  {
+    label: "Easter wishes",
+    text: "Wishing you a wonderful Easter from everyone at {salon}. We hope you enjoy a relaxing break with family and friends.",
+  },
+];
+
+function personalizeWithSalonName(text: string, salonName: string): string {
+  const name = salonName.trim();
+  if (!name) return text.replace(/\{salon\}/g, "our salon");
+  return text.replace(/\{salon\}/g, name);
+}
+
+type ContactKind = "customer" | "staff";
+
+type SmsContact = {
+  id: string;
+  fullName: string;
+  phone: string;
+  kind: ContactKind;
 };
 
-type SendResult = {
-  sent: number;
-  failed: number;
-  skipped: number;
-  total: number;
-  errors: string[];
-};
+type Audience = "customers" | "staff" | "both";
 
-type FetchResult<T> =
-  | { ok: true; data: T }
-  | { ok: false; error: string };
+type FetchResult<T> = { ok: true; data: T } | { ok: false; error: string };
 
 async function authFetch<T>(
   path: string,
@@ -63,368 +79,435 @@ async function authFetch<T>(
   return { ok: true, data: body };
 }
 
-const TEMPLATES = [
-  {
-    label: "Blank",
-    text: "",
-    group: "custom",
-  },
-  {
-    label: "General greeting",
-    text: "Hi {name}, thank you for being part of our salon family. We appreciate you!",
-    group: "greeting",
-  },
-  {
-    label: "Holiday wishes",
-    text: "Hi {name}, warm holiday wishes from our team. Thank you for your continued support!",
-    group: "greeting",
-  },
-  {
-    label: "New year",
-    text: "Hi {name}, happy new year from all of us! Wishing you a great year ahead.",
-    group: "greeting",
-  },
-  {
-    label: "Special offer",
-    text: "Hi {name}, we have a special offer running this week. Contact us or book online to learn more.",
-    group: "custom",
-  },
-  {
-    label: "Service reminder",
-    text: "Hi {name}, friendly reminder that your vehicle service is due soon. Book a time that suits you.",
-    group: "custom",
-  },
-  {
-    label: "Salon update",
-    text: "Hi {name}, quick update from our team: [add your message here]. Thank you for your patience.",
-    group: "custom",
-  },
-] as const;
-
-function AudienceOption({
-  active,
-  onClick,
-  icon,
-  title,
-  description,
-}: {
-  active: boolean;
-  onClick: () => void;
-  icon: string;
-  title: string;
-  description: string;
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      className={`flex w-full items-start gap-3 rounded-xl border p-4 text-left transition-all ${
-        active
-          ? "border-amber-300 bg-amber-50 shadow-sm ring-1 ring-amber-200"
-          : "border-neutral-200 bg-white hover:border-neutral-300 hover:bg-neutral-50"
-      }`}
-    >
-      <div
-        className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-lg ${
-          active ? "bg-amber-600 text-white" : "bg-neutral-100 text-neutral-500"
-        }`}
-      >
-        <i className={`fas ${icon}`} />
-      </div>
-      <div>
-        <p className="text-sm font-semibold text-neutral-900">{title}</p>
-        <p className="mt-0.5 text-xs text-neutral-500">{description}</p>
-      </div>
-    </button>
-  );
+function audienceLabel(audience: Audience): string {
+  if (audience === "customers") return "customers";
+  if (audience === "staff") return "staff";
+  return "recipients";
 }
 
 export function OwnerCustomMessagesBoard() {
-  const [audience, setAudience] = useState<GreetingAudience>("both");
+  const [customers, setCustomers] = useState<SmsContact[]>([]);
+  const [staff, setStaff] = useState<SmsContact[]>([]);
+  const [balance, setBalance] = useState<BusinessSmsBalance | null>(null);
+  const [salonName, setSalonName] = useState("");
+  const [loading, setLoading] = useState(true);
+  const [listError, setListError] = useState<string | null>(null);
+
   const [message, setMessage] = useState("");
-  const [preview, setPreview] = useState<RecipientPreview | null>(null);
-  const [previewLoading, setPreviewLoading] = useState(false);
-  const [previewError, setPreviewError] = useState<string | null>(null);
-  const [confirmOpen, setConfirmOpen] = useState(false);
+  const [audience, setAudience] = useState<Audience>("customers");
+  const [mode, setMode] = useState<"all" | "select">("all");
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [query, setQuery] = useState("");
+
   const [sending, setSending] = useState(false);
-  const [sendError, setSendError] = useState<string | null>(null);
-  const [sendResult, setSendResult] = useState<SendResult | null>(null);
+  const [formError, setFormError] = useState<string | null>(null);
+  const [successMessage, setSuccessMessage] = useState<string | null>(null);
 
-  const charsLeft = MAX_GREETING_MESSAGE_LENGTH - message.length;
-  const canSend = message.trim().length > 0 && charsLeft >= 0 && (preview?.total ?? 0) > 0;
-
-  const previewSummary = useMemo(() => {
-    if (!preview) return null;
-    if (audience === "customers") {
-      return `${preview.customers} customer${preview.customers === 1 ? "" : "s"} with a valid phone number`;
+  const load = useCallback(async () => {
+    const result = await authFetch<{
+      customers: SmsContact[];
+      staff: SmsContact[];
+      balance: BusinessSmsBalance | null;
+      salonName?: string;
+    }>("/api/business/custom-messages");
+    if (result.ok) {
+      setCustomers(result.data.customers ?? []);
+      setStaff(result.data.staff ?? []);
+      setBalance(result.data.balance ?? null);
+      setSalonName(result.data.salonName?.trim() ?? "");
+      setListError(null);
+    } else {
+      setListError(result.error);
     }
-    if (audience === "staff") {
-      return `${preview.staff} staff member${preview.staff === 1 ? "" : "s"} with a valid phone number`;
-    }
-    return `${preview.total} recipient${preview.total === 1 ? "" : "s"} (${preview.customers} customers, ${preview.staff} staff)`;
-  }, [audience, preview]);
-
-  const loadPreview = useCallback(async (nextAudience: GreetingAudience) => {
-    setPreviewLoading(true);
-    setPreviewError(null);
-    const result = await authFetch<RecipientPreview>(
-      `/api/greeting-messages/recipients?audience=${encodeURIComponent(nextAudience)}`,
-    );
-    setPreviewLoading(false);
-    if (!result.ok) {
-      setPreview(null);
-      setPreviewError(result.error);
-      return;
-    }
-    setPreview(result.data);
+    setLoading(false);
   }, []);
 
   useEffect(() => {
-    void loadPreview(audience);
-  }, [audience, loadPreview]);
+    void load();
+  }, [load]);
 
-  const handleSend = async () => {
-    setSending(true);
-    setSendError(null);
-    setSendResult(null);
-    const result = await authFetch<SendResult>("/api/greeting-messages/send", {
-      method: "POST",
-      body: JSON.stringify({ message: message.trim(), audience }),
+  const contacts = useMemo(() => {
+    if (audience === "customers") return customers;
+    if (audience === "staff") return staff;
+    return [...customers, ...staff];
+  }, [audience, customers, staff]);
+
+  const filtered = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    if (!q) return contacts;
+    return contacts.filter((contact) => {
+      const displayPhone = formatAuPhoneDisplay(contact.phone).toLowerCase();
+      return (
+        contact.fullName.toLowerCase().includes(q) ||
+        contact.phone.includes(q) ||
+        displayPhone.includes(q)
+      );
     });
-    setSending(false);
-    setConfirmOpen(false);
-    if (!result.ok) {
-      setSendError(result.error);
+  }, [contacts, query]);
+
+  const recipientCount = useMemo(() => {
+    if (mode === "all") return contacts.length;
+    return contacts.filter((contact) => selectedIds.has(contact.id)).length;
+  }, [mode, contacts, selectedIds]);
+
+  const remaining =
+    balance && !balance.isUnlimited ? (balance.remaining ?? 0) : null;
+  const insufficientCredits =
+    remaining !== null && recipientCount > remaining;
+
+  const canSubmit =
+    message.trim().length > 0 &&
+    recipientCount > 0 &&
+    !insufficientCredits &&
+    !sending;
+
+  function handleAudienceChange(next: Audience) {
+    setAudience(next);
+    setSelectedIds(new Set());
+    setQuery("");
+    setFormError(null);
+    setSuccessMessage(null);
+  }
+
+  function toggleContact(id: string) {
+    setSelectedIds((current) => {
+      const next = new Set(current);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+
+  function selectAllFiltered() {
+    setSelectedIds((current) => {
+      const next = new Set(current);
+      for (const contact of filtered) next.add(contact.id);
+      return next;
+    });
+  }
+
+  function clearSelection() {
+    setSelectedIds(new Set());
+  }
+
+  async function handleSubmit(event: React.FormEvent) {
+    event.preventDefault();
+    setFormError(null);
+    setSuccessMessage(null);
+
+    if (!message.trim()) {
+      setFormError("Write a message to send.");
       return;
     }
-    setSendResult(result.data);
-    void loadPreview(audience);
-  };
+    if (recipientCount === 0) {
+      setFormError(`Select at least one ${audienceLabel(audience)} to message.`);
+      return;
+    }
+    if (insufficientCredits) {
+      setFormError("Not enough SMS credits for this many recipients.");
+      return;
+    }
 
-  const greetingTemplates = TEMPLATES.filter((t) => t.group === "greeting");
-  const customTemplates = TEMPLATES.filter((t) => t.group === "custom");
+    setSending(true);
+    const result = await authFetch<{ sentCount: number; requestedCount: number }>(
+      "/api/business/custom-messages",
+      {
+        method: "POST",
+        body: JSON.stringify({
+          message: message.trim(),
+          audience,
+          recipients: mode === "all" ? "all" : Array.from(selectedIds),
+        }),
+      },
+    );
+    setSending(false);
+
+    if (!result.ok) {
+      setFormError(result.error);
+      return;
+    }
+
+    const sent = result.data.sentCount ?? 0;
+    setSuccessMessage(
+      `Message sent to ${sent} ${sent === 1 ? "recipient" : "recipients"}.`,
+    );
+    setMessage("");
+    setSelectedIds(new Set());
+    void load();
+  }
+
+  if (loading) {
+    return (
+      <div className="flex min-h-[320px] items-center justify-center">
+        <i className="fas fa-spinner fa-spin text-2xl text-pink-500" />
+      </div>
+    );
+  }
 
   return (
-    <div className="space-y-6">
-      {!preview?.smsConfigured && preview && !previewLoading && (
-        <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
-          <i className="fas fa-triangle-exclamation mr-2" />
-          SMS is not configured on the server. Add <code className="text-xs">TEXTBEE_API_KEY</code> and{" "}
-          <code className="text-xs">TEXTBEE_DEVICE_ID</code> to your environment.
+    <form onSubmit={handleSubmit} className="flex flex-col gap-6">
+      <div className="flex flex-wrap items-center gap-3 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+        <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-pink-50">
+          <i className="fas fa-sms text-pink-500" />
         </div>
-      )}
-
-      <div className="grid gap-6 lg:grid-cols-5">
-        <div className="space-y-6 lg:col-span-3">
-          <section className="rounded-2xl border border-neutral-200 bg-white p-5 shadow-sm sm:p-6">
-            <h2 className="text-base font-semibold text-neutral-900">Audience</h2>
-            <p className="mt-1 text-sm text-neutral-500">
-              Choose who should receive your custom SMS.
-            </p>
-            <div className="mt-4 grid gap-3 sm:grid-cols-3">
-              <AudienceOption
-                active={audience === "customers"}
-                onClick={() => setAudience("customers")}
-                icon="fa-user-group"
-                title="Customers"
-                description="Saved customers with a mobile number"
-              />
-              <AudienceOption
-                active={audience === "staff"}
-                onClick={() => setAudience("staff")}
-                icon="fa-users"
-                title="Staff"
-                description="Active staff and branch admins"
-              />
-              <AudienceOption
-                active={audience === "both"}
-                onClick={() => setAudience("both")}
-                icon="fa-people-group"
-                title="Both"
-                description="Customers and staff together"
-              />
-            </div>
-          </section>
-
-          <section className="rounded-2xl border border-neutral-200 bg-white p-5 shadow-sm sm:p-6">
-            <div>
-              <h2 className="text-base font-semibold text-neutral-900">Custom message</h2>
-              <p className="mt-1 text-sm text-neutral-500">
-                Write any SMS you like — greetings, promotions, reminders, or updates. Use{" "}
-                <code className="rounded bg-neutral-100 px-1.5 py-0.5 text-xs">{"{name}"}</code> to
-                personalize each message.
-              </p>
-            </div>
-
-            <div className="mt-4 space-y-3">
-              <div>
-                <p className="mb-2 text-xs font-medium uppercase tracking-wide text-neutral-400">
-                  Greeting templates
-                </p>
-                <div className="flex flex-wrap gap-2">
-                  {greetingTemplates.map((preset) => (
-                    <button
-                      key={preset.label}
-                      type="button"
-                      onClick={() => setMessage(preset.text)}
-                      className="rounded-full border border-neutral-200 bg-neutral-50 px-3 py-1.5 text-xs font-medium text-neutral-700 transition hover:border-neutral-300 hover:bg-white"
-                    >
-                      {preset.label}
-                    </button>
-                  ))}
-                </div>
-              </div>
-              <div>
-                <p className="mb-2 text-xs font-medium uppercase tracking-wide text-neutral-400">
-                  Custom templates
-                </p>
-                <div className="flex flex-wrap gap-2">
-                  {customTemplates.map((preset) => (
-                    <button
-                      key={preset.label}
-                      type="button"
-                      onClick={() => setMessage(preset.text)}
-                      className="rounded-full border border-amber-200 bg-amber-50 px-3 py-1.5 text-xs font-medium text-amber-800 transition hover:border-amber-300 hover:bg-amber-100"
-                    >
-                      {preset.label}
-                    </button>
-                  ))}
-                </div>
-              </div>
-            </div>
-
-            <textarea
-              value={message}
-              onChange={(e) => setMessage(e.target.value)}
-              rows={6}
-              maxLength={MAX_GREETING_MESSAGE_LENGTH + 50}
-              placeholder="Write your custom SMS here. Example: Hi {name}, we're open this Saturday for walk-ins."
-              className={`${INPUT_CLASS} mt-4 resize-y`}
-            />
-            <p
-              className={`mt-2 text-right text-xs font-medium ${
-                charsLeft < 0 ? "text-red-600" : charsLeft < 40 ? "text-amber-600" : "text-neutral-400"
-              }`}
-            >
-              {charsLeft} characters left
-            </p>
-          </section>
+        <div className="min-w-0">
+          <p className="text-sm font-semibold text-slate-900">SMS balance</p>
+          <p className="text-xs text-slate-500">
+            {balance == null
+              ? "Unavailable"
+              : balance.isUnlimited
+                ? "Unlimited messages"
+                : `${remaining ?? 0} messages remaining`}
+          </p>
         </div>
-
-        <div className="space-y-6 lg:col-span-2">
-          <section className="rounded-2xl border border-neutral-200 bg-white p-5 shadow-sm sm:p-6">
-            <h2 className="text-base font-semibold text-neutral-900">Delivery preview</h2>
-            <p className="mt-1 text-sm text-neutral-500">
-              Review audience and recipient count before sending.
+        <div className="ml-auto text-right text-xs text-slate-500">
+          {salonName ? (
+            <p className="mb-1 font-semibold text-slate-700">
+              <i className="fas fa-store mr-1 text-pink-500" />
+              {salonName}
             </p>
-
-            <div className="mt-5 rounded-xl bg-neutral-50 p-4">
-              {previewLoading ? (
-                <div className="flex items-center gap-2 text-sm text-neutral-500">
-                  <i className="fas fa-spinner fa-spin" />
-                  Counting recipients…
-                </div>
-              ) : previewError ? (
-                <p className="text-sm text-red-600">{previewError}</p>
-              ) : preview ? (
-                <div className="space-y-3">
-                  <div>
-                    <p className="text-xs font-medium uppercase tracking-wide text-neutral-400">Audience</p>
-                    <p className="mt-1 text-sm font-semibold text-neutral-900">
-                      {GREETING_AUDIENCE_LABELS[audience]}
-                    </p>
-                  </div>
-                  <div>
-                    <p className="text-xs font-medium uppercase tracking-wide text-neutral-400">Recipients</p>
-                    <p className="mt-1 text-2xl font-bold text-neutral-900">{preview.total}</p>
-                    <p className="mt-1 text-sm text-neutral-500">{previewSummary}</p>
-                  </div>
-                  <div className="rounded-lg border border-neutral-200 bg-white p-3">
-                    <p className="text-xs font-medium uppercase tracking-wide text-neutral-400">Sample</p>
-                    <p className="mt-2 whitespace-pre-wrap text-sm text-neutral-700">
-                      {message.trim().replace(/\{name\}/gi, "Alex") || "Your message will appear here."}
-                    </p>
-                  </div>
-                </div>
-              ) : null}
-            </div>
-
-            <button
-              type="button"
-              disabled={!canSend || sending || previewLoading || !preview?.smsConfigured}
-              onClick={() => setConfirmOpen(true)}
-              className="mt-5 inline-flex w-full items-center justify-center gap-2 rounded-xl bg-neutral-900 px-4 py-3 text-sm font-semibold text-white transition hover:bg-neutral-800 disabled:cursor-not-allowed disabled:bg-neutral-300"
-            >
-              <i className="fas fa-paper-plane" />
-              Send custom message
-            </button>
-          </section>
-
-          {sendResult && (
-            <section className="rounded-2xl border border-emerald-200 bg-emerald-50 p-5 text-sm text-emerald-900">
-              <p className="font-semibold">Custom message sent</p>
-              <p className="mt-2">
-                Delivered to {sendResult.sent} of {sendResult.total} recipient
-                {sendResult.total === 1 ? "" : "s"}.
-              </p>
-              {sendResult.failed > 0 && (
-                <p className="mt-1 text-emerald-800">{sendResult.failed} failed to send.</p>
-              )}
-              {sendResult.errors.length > 0 && (
-                <ul className="mt-2 list-disc space-y-1 pl-5 text-emerald-800">
-                  {sendResult.errors.map((err) => (
-                    <li key={err}>{err}</li>
-                  ))}
-                </ul>
-              )}
-            </section>
-          )}
-
-          {sendError && (
-            <section className="rounded-2xl border border-red-200 bg-red-50 p-5 text-sm text-red-800">
-              <p className="font-semibold">Could not send custom message</p>
-              <p className="mt-2">{sendError}</p>
-            </section>
-          )}
+          ) : null}
+          <p>
+            {customers.length} customer{customers.length === 1 ? "" : "s"} ·{" "}
+            {staff.length} staff member{staff.length === 1 ? "" : "s"}
+          </p>
         </div>
       </div>
 
-      {confirmOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-          <div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-xl">
-            <h3 className="text-lg font-semibold text-neutral-900">Send custom message?</h3>
-            <p className="mt-2 text-sm text-neutral-600">
-              This will send your SMS to {preview?.total ?? 0} recipient
-              {(preview?.total ?? 0) === 1 ? "" : "s"}. This action cannot be undone.
+      <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6">
+        <div className="mb-4 flex items-center gap-2">
+          <i className="fas fa-edit text-pink-500" />
+          <h3 className="text-lg font-bold text-slate-900">New SMS message</h3>
+        </div>
+
+        <div className="flex flex-col gap-4">
+          {salonName ? (
+            <div className="flex items-center gap-2 rounded-xl border border-pink-100 bg-pink-50 px-3 py-2.5 text-sm text-pink-800">
+              <i className="fas fa-store text-pink-500" />
+              <span>
+                Messages will be sent from{" "}
+                <span className="font-semibold">{salonName}</span>
+              </span>
+            </div>
+          ) : null}
+          <div>
+            <label className="mb-1 block text-sm font-semibold text-slate-700">
+              Message
+            </label>
+            <textarea
+              value={message}
+              maxLength={MAX_MESSAGE_LENGTH}
+              onChange={(event) => setMessage(event.target.value)}
+              rows={4}
+              placeholder="Write the SMS your recipients will receive."
+              className={`${INPUT_CLASS} resize-y`}
+            />
+            <p className="mt-1 text-right text-xs text-slate-400">
+              {message.length}/{MAX_MESSAGE_LENGTH}
             </p>
-            <div className="mt-5 flex justify-end gap-3">
-              <button
-                type="button"
-                onClick={() => setConfirmOpen(false)}
-                disabled={sending}
-                className="rounded-lg border border-neutral-200 px-4 py-2 text-sm font-medium text-neutral-700 hover:bg-neutral-50"
-              >
-                Cancel
-              </button>
-              <button
-                type="button"
-                onClick={() => void handleSend()}
-                disabled={sending}
-                className="inline-flex items-center gap-2 rounded-lg bg-neutral-900 px-4 py-2 text-sm font-semibold text-white hover:bg-neutral-800 disabled:bg-neutral-400"
-              >
-                {sending ? (
-                  <>
-                    <i className="fas fa-spinner fa-spin" />
-                    Sending…
-                  </>
-                ) : (
-                  "Confirm send"
-                )}
-              </button>
+            <div className="mt-2 flex flex-wrap gap-2">
+              <span className="w-full text-xs font-semibold text-slate-500">
+                Seasonal greetings
+                {salonName ? (
+                  <span className="font-normal text-slate-400">
+                    {" "}
+                    — includes your salon name ({salonName})
+                  </span>
+                ) : null}
+              </span>
+              {QUICK_TEMPLATES.map((template) => (
+                <button
+                  key={template.label}
+                  type="button"
+                  onClick={() =>
+                    setMessage(personalizeWithSalonName(template.text, salonName))
+                  }
+                  className="inline-flex items-center gap-1 rounded-full border border-slate-200 px-3 py-1 text-xs font-medium text-slate-600 transition hover:border-pink-300 hover:bg-pink-50 hover:text-pink-700"
+                >
+                  <i className="fas fa-star text-[10px] text-pink-400" />
+                  {template.label}
+                </button>
+              ))}
             </div>
           </div>
+
+          <fieldset className="rounded-xl border border-slate-200 p-3">
+            <legend className="px-1 text-xs font-semibold text-slate-500">
+              Send to
+            </legend>
+            <label className="flex cursor-pointer items-center gap-2 py-1.5 text-sm text-slate-700">
+              <input
+                type="radio"
+                name="audience"
+                checked={audience === "customers"}
+                onChange={() => handleAudienceChange("customers")}
+                className="h-4 w-4 accent-pink-500"
+              />
+              Customers only ({customers.length})
+            </label>
+            <label className="flex cursor-pointer items-center gap-2 py-1.5 text-sm text-slate-700">
+              <input
+                type="radio"
+                name="audience"
+                checked={audience === "staff"}
+                onChange={() => handleAudienceChange("staff")}
+                className="h-4 w-4 accent-pink-500"
+              />
+              Staff members only ({staff.length})
+            </label>
+            <label className="flex cursor-pointer items-center gap-2 py-1.5 text-sm text-slate-700">
+              <input
+                type="radio"
+                name="audience"
+                checked={audience === "both"}
+                onChange={() => handleAudienceChange("both")}
+                className="h-4 w-4 accent-pink-500"
+              />
+              Customers & staff ({customers.length + staff.length})
+            </label>
+          </fieldset>
+
+          <fieldset className="rounded-xl border border-slate-200 p-3">
+            <legend className="px-1 text-xs font-semibold text-slate-500">
+              Recipients
+            </legend>
+            <label className="flex cursor-pointer items-center gap-2 py-1.5 text-sm text-slate-700">
+              <input
+                type="radio"
+                name="recipients"
+                checked={mode === "all"}
+                onChange={() => setMode("all")}
+                className="h-4 w-4 accent-pink-500"
+              />
+              All {audienceLabel(audience)} ({contacts.length})
+            </label>
+            <label className="flex cursor-pointer items-center gap-2 py-1.5 text-sm text-slate-700">
+              <input
+                type="radio"
+                name="recipients"
+                checked={mode === "select"}
+                onChange={() => setMode("select")}
+                className="h-4 w-4 accent-pink-500"
+              />
+              Select {audienceLabel(audience)}
+            </label>
+
+            {mode === "select" ? (
+              <div className="mt-3 flex flex-col gap-2">
+                <div className="flex flex-wrap items-center gap-2">
+                  <input
+                    type="text"
+                    value={query}
+                    onChange={(event) => setQuery(event.target.value)}
+                    placeholder="Search name or phone"
+                    className={`${INPUT_CLASS} flex-1`}
+                  />
+                  <button
+                    type="button"
+                    onClick={selectAllFiltered}
+                    className="rounded-lg border border-slate-200 px-3 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-50"
+                  >
+                    Select all
+                  </button>
+                  <button
+                    type="button"
+                    onClick={clearSelection}
+                    className="rounded-lg border border-slate-200 px-3 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-50"
+                  >
+                    Clear
+                  </button>
+                </div>
+
+                <div className="max-h-64 overflow-y-auto rounded-lg border border-slate-200">
+                  {filtered.length === 0 ? (
+                    <p className="px-3 py-6 text-center text-sm text-slate-500">
+                      {contacts.length === 0
+                        ? `No ${audienceLabel(audience)} with a phone number yet.`
+                        : "No matches for your search."}
+                    </p>
+                  ) : (
+                    <ul className="divide-y divide-slate-100">
+                      {filtered.map((contact) => (
+                        <li key={contact.id}>
+                          <label className="flex cursor-pointer items-center gap-3 px-3 py-2.5 hover:bg-slate-50">
+                            <input
+                              type="checkbox"
+                              checked={selectedIds.has(contact.id)}
+                              onChange={() => toggleContact(contact.id)}
+                              className="h-4 w-4 accent-pink-500"
+                            />
+                            <span className="min-w-0 flex-1">
+                              <span className="flex items-center gap-2">
+                                <span className="block truncate text-sm font-medium text-slate-900">
+                                  {contact.fullName}
+                                </span>
+                                {audience === "both" ? (
+                                  <span
+                                    className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase ${
+                                      contact.kind === "staff"
+                                        ? "bg-purple-100 text-purple-700"
+                                        : "bg-blue-100 text-blue-700"
+                                    }`}
+                                  >
+                                    {contact.kind}
+                                  </span>
+                                ) : null}
+                              </span>
+                              <span className="block truncate text-xs text-slate-500">
+                                {formatAuPhoneDisplay(contact.phone) ||
+                                  contact.phone}
+                              </span>
+                            </span>
+                          </label>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
+              </div>
+            ) : null}
+          </fieldset>
+
+          {listError ? (
+            <p className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-600">
+              {listError}
+            </p>
+          ) : null}
+          {insufficientCredits ? (
+            <p className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-600">
+              You need {recipientCount} credits but only {remaining ?? 0} remain.
+              Select fewer recipients or contact support to add SMS credits.
+            </p>
+          ) : null}
+          {formError ? (
+            <p className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-600">
+              {formError}
+            </p>
+          ) : null}
+          {successMessage ? (
+            <p className="rounded-lg bg-pink-50 px-3 py-2 text-sm text-pink-700">
+              {successMessage}
+            </p>
+          ) : null}
+
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <p className="text-sm text-slate-500">
+              {recipientCount} recipient{recipientCount === 1 ? "" : "s"}
+              {recipientCount > 0
+                ? ` · ${recipientCount} SMS credit${recipientCount === 1 ? "" : "s"}`
+                : ""}
+            </p>
+            <button
+              type="submit"
+              disabled={!canSubmit}
+              className="inline-flex h-11 items-center gap-2 rounded-xl bg-gradient-to-r from-pink-500 to-fuchsia-600 px-5 text-sm font-semibold text-white transition hover:from-pink-600 hover:to-fuchsia-700 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              <i className={`fas ${sending ? "fa-spinner fa-spin" : "fa-paper-plane"}`} />
+              {sending ? "Sending..." : "Send SMS"}
+            </button>
+          </div>
         </div>
-      )}
-    </div>
+      </div>
+    </form>
   );
 }

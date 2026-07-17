@@ -8,6 +8,7 @@ import { auth, db } from "@/lib/firebase";
 import { doc, getDoc } from "firebase/firestore";
 import { logUserLogout, logSuperAdminLogout, createSuperAdminAuditLog } from "@/lib/auditLog";
 import { useSmsBalance } from "@/lib/sms/sms-balance-context";
+import { clearCommandCenterAndBlackTokens } from "@/lib/agentSessionTokens";
 
 type SidebarProps = {
   mobile?: boolean;
@@ -19,6 +20,8 @@ export default function Sidebar({ mobile = false, onClose }: SidebarProps) {
   const router = useRouter();
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const isDashboard = pathname === "/dashboard" || pathname === "/admin-dashboard" || pathname === "/";
+  const isCustomMessages = pathname?.startsWith("/custom-messages");
+  const isOwnerCustomSms = pathname?.startsWith("/sms/custom-messages");
   const isBookings = pathname?.startsWith("/bookings");
   const isBookingsDashboard = pathname === "/bookings/dashboard";
   const isBookingsAll = pathname === "/bookings/all";
@@ -66,6 +69,8 @@ export default function Sidebar({ mobile = false, onClose }: SidebarProps) {
         if (typeof window !== "undefined") {
           localStorage.removeItem("role");
           localStorage.removeItem("userName");
+          clearCommandCenterAndBlackTokens();
+          localStorage.removeItem("idToken");
         }
         return;
       }
@@ -83,12 +88,32 @@ export default function Sidebar({ mobile = false, onClose }: SidebarProps) {
           displayName = superAdminData?.displayName || user.displayName || "";
           email = superAdminData?.email || user.email || "";
         } else {
-          // Check users collection
-          const snap = await getDoc(doc(db, "users", user.uid));
-          const userData = snap.data();
-          r = (userData?.role || "").toString();
-          displayName = userData?.displayName || userData?.name || user.displayName || "";
-          email = userData?.email || user.email || "";
+          const agentSnap = await getDoc(
+            doc(db, "call_center_agents", user.uid)
+          );
+          if (agentSnap.exists()) {
+            const ad = agentSnap.data();
+            r = (ad?.role || "agent").toString();
+            displayName =
+              ad?.displayName || ad?.name || user.displayName || "";
+            email = ad?.email || user.email || "";
+          } else {
+            const snap = await getDoc(doc(db, "users", user.uid));
+            if (snap.exists()) {
+              const userData = snap.data();
+              r = (userData?.role || "").toString();
+              displayName =
+                userData?.displayName ||
+                userData?.name ||
+                user.displayName ||
+                "";
+              email = userData?.email || user.email || "";
+            } else {
+              r = "";
+              displayName = user.displayName || "";
+              email = user.email || "";
+            }
+          }
         }
         
         setRole(r || null);
@@ -275,6 +300,7 @@ export default function Sidebar({ mobile = false, onClose }: SidebarProps) {
         localStorage.removeItem("idToken");
         localStorage.removeItem("role");
         localStorage.removeItem("userName");
+        clearCommandCenterAndBlackTokens();
       }
       await signOut(auth);
     } catch (e) {
@@ -356,6 +382,12 @@ export default function Sidebar({ mobile = false, onClose }: SidebarProps) {
           <Link href="/sms-packages/log" className={`flex items-center space-x-3 px-4 py-3 rounded-xl text-sm transition ${pathname === "/sms-packages/log" ? "bg-pink-500 text-white shadow-lg" : "hover:bg-slate-800 text-slate-400 hover:text-white"}`}>
             <i className="fas fa-list w-5" />
             <span>SMS Log</span>
+          </Link>
+        )}
+        {mounted && role === "super_admin" && (
+          <Link href="/custom-messages" className={`flex items-center space-x-3 px-4 py-3 rounded-xl text-sm transition ${isCustomMessages ? "bg-pink-500 text-white shadow-lg" : "hover:bg-slate-800 text-slate-400 hover:text-white"}`}>
+            <i className="fas fa-bullhorn w-5" />
+            <span>Custom notification</span>
           </Link>
         )}
         {mounted && role === "super_admin" && (
@@ -459,6 +491,17 @@ export default function Sidebar({ mobile = false, onClose }: SidebarProps) {
         >
           <i className="fas fa-user-group w-5" />
           <span>Customers</span>
+        </Link>
+      )}
+      {mounted && role === "salon_owner" && (
+        <Link
+          href="/sms/custom-messages"
+          className={`flex items-center space-x-3 px-4 py-3 rounded-xl text-sm transition ${
+            isOwnerCustomSms ? "bg-pink-500 text-white shadow-lg" : "hover:bg-slate-800 text-slate-400 hover:text-white"
+          }`}
+        >
+          <i className="fas fa-comment-sms w-5" />
+          <span>Custom messages</span>
         </Link>
       )}
       {mounted && role === "salon_owner" && (

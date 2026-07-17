@@ -3,10 +3,12 @@ import React, { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { signInWithEmailAndPassword } from "firebase/auth";
-import { auth, db } from "@/lib/firebase";
-import { doc, getDoc } from "firebase/firestore";
+import { auth } from "@/lib/firebase";
 import { ensureUserDocument } from "@/lib/users";
 import { logUserLogin, logSuperAdminLogin, createSuperAdminAuditLog } from "@/lib/auditLog";
+import { fetchCurrentUser } from "@/lib/authClient";
+import { tryPersistCommandCenterSession } from "@/lib/commandCenterLoginClient";
+import { clearCommandCenterAndBlackTokens } from "@/lib/agentSessionTokens";
 
 export default function LoginPage() {
   const router = useRouter();
@@ -90,110 +92,78 @@ export default function LoginPage() {
       await signInWithEmailAndPassword(auth, email, password);
       await ensureUserDocument(auth.currentUser);
 
-      // Check suspension and role BEFORE persisting any tokens/role locally
-      const uid = auth.currentUser?.uid;
-      if (uid) {
-        // Check super_admins collection first
-        const superAdminSnap = await getDoc(doc(db, "super_admins", uid));
-        let userRole: string;
-        let suspended = false;
-        let statusText = "";
-        
-        if (superAdminSnap.exists()) {
-          // User is a super_admin
-          userRole = "super_admin";
-        } else {
-          // Check users collection
-          const snap = await getDoc(doc(db, "users", uid));
-          const userData = snap.data();
-          suspended = Boolean(userData?.suspended);
-          statusText = (userData?.status || "").toString().toLowerCase();
-          userRole = (userData?.role || "").toString().toLowerCase();
-        }
-        
-        // Check if account is suspended (only applies to regular users, not super_admins)
-        if (suspended || statusText.includes("suspend")) {
-          await (await import("firebase/auth")).signOut(auth);
-          setError("Your account is suspended. Please contact support.");
-          return;
-        }
-        
-        // Check if user has admin role - only allow admin roles, not customers
-        const allowedRoles = ["salon_owner", "salon_branch_admin", "super_admin"];
-        if (!allowedRoles.includes(userRole)) {
-          await (await import("firebase/auth")).signOut(auth);
-          setError("Access denied. This portal is for admin users only.");
-          return;
-        }
+      const userData = await fetchCurrentUser();
+      if (!userData) {
+        await (await import("firebase/auth")).signOut(auth);
+        clearCommandCenterAndBlackTokens();
+        setError("Unable to verify your account. Please try again.");
+        return;
       }
 
-      // Persist token
+      const {
+        role: userRole,
+        displayName: userName,
+        suspended,
+        status: statusText,
+        ownerUid,
+        isSuperAdmin,
+      } = userData;
+
+      if (!isSuperAdmin && (suspended || (statusText || "").toLowerCase().includes("suspend"))) {
+        await (await import("firebase/auth")).signOut(auth);
+        clearCommandCenterAndBlackTokens();
+        setError("Your account is suspended. Please contact support.");
+        return;
+      }
+
+      const allowedRoles = [
+        "salon_owner",
+        "salon_branch_admin",
+        "super_admin",
+        "agent",
+        "call_center_agent",
+        "call_center_admin",
+      ];
+      if (!allowedRoles.includes(userRole)) {
+        await (await import("firebase/auth")).signOut(auth);
+        clearCommandCenterAndBlackTokens();
+        setError("Access denied. This portal is for admin users only.");
+        return;
+      }
+
       const token = await auth.currentUser?.getIdToken();
       if (token && typeof window !== "undefined") {
         localStorage.setItem("idToken", token);
       }
-      // Fetch role and persist for immediate sidebar rendering (after suspension check)
-      try {
-        const uid2 = auth.currentUser?.uid;
-        if (uid2) {
-          // Check super_admins collection first
-          const superAdminSnap = await getDoc(doc(db, "super_admins", uid2));
-          let data: any;
-          let role: string;
-          let name: string;
-          let ownerUid: string;
-          
-          if (superAdminSnap.exists()) {
-            // User is a super_admin
-            data = superAdminSnap.data();
-            role = "super_admin";
-            name = (data?.displayName || "").toString();
-            ownerUid = uid2; // Super admin is their own owner
-          } else {
-            // Check users collection
-            const snap = await getDoc(doc(db, "users", uid2));
-            data = snap.data();
-            role = (data?.role || "").toString();
-            name = (data?.displayName || data?.name || "").toString();
-            ownerUid = data?.ownerUid || uid2; // For staff, get their owner; for owners, use their own uid
-          }
-          
-          if (typeof window !== "undefined") {
-            localStorage.setItem("role", role);
-            if (name) localStorage.setItem("userName", name);
+
+      await tryPersistCommandCenterSession(email, password);
+
+      const uid = auth.currentUser?.uid;
+      if (uid) {
+        try {
+          if (userRole !== "super_admin") {
+            await logUserLogin(ownerUid || uid, uid, userName || email, userRole);
           }
 
-          // Audit log for successful login
-          try {
-            // Log to salon-specific audit logs (for salon owners/staff)
-            if (role !== "super_admin") {
-              await logUserLogin(ownerUid, uid2, name || email, role);
-            }
-            
-            // Log to super admin audit logs (for all logins - visible to super admins)
-            if (role === "super_admin") {
-              await logSuperAdminLogin(uid2, name || email);
-            } else {
-              // Log salon owner/staff logins to super admin audit logs
-              await createSuperAdminAuditLog({
-                action: `${role === "salon_owner" ? "Salon Owner" : "Staff"} logged in: ${name || email}`,
-                actionType: "login",
-                entityType: "tenant",
-                entityId: ownerUid,
-                entityName: name || email,
-                performedBy: uid2,
-                performedByName: name || email,
-                details: `Role: ${role}`,
-              });
-            }
-          } catch (auditErr) {
-            console.error("Failed to create login audit log:", auditErr);
+          if (userRole === "super_admin") {
+            await logSuperAdminLogin(uid, userName || email);
+          } else {
+            await createSuperAdminAuditLog({
+              action: `${userRole === "salon_owner" ? "Salon Owner" : userRole === "salon_branch_admin" ? "Staff" : "Agent"} logged in: ${userName || email}`,
+              actionType: "login",
+              entityType: "tenant",
+              entityId: ownerUid || uid,
+              entityName: userName || email,
+              performedBy: uid,
+              performedByName: userName || email,
+              details: `Role: ${userRole}`,
+            });
           }
+        } catch (auditErr) {
+          console.error("Failed to create login audit log:", auditErr);
         }
-      } catch {}
-      // Avoid immediate redirect if we are already on a page that might redirect back
-      // Instead, verify role logic one last time
-      const userRole = localStorage.getItem("role");
+      }
+
       if (userRole === "super_admin") {
         router.replace("/admin-dashboard");
       } else if (userRole === "salon_branch_admin") {
@@ -201,10 +171,15 @@ export default function LoginPage() {
       } else {
         router.replace("/dashboard");
       }
-    } catch (err: any) {
+    } catch (err: unknown) {
       console.error("Auth error:", err);
-      setError(friendlyAuthMessage(err?.code));
-      setAuthErrorCode(err?.code || null);
+      clearCommandCenterAndBlackTokens();
+      const code =
+        err && typeof err === "object" && "code" in err
+          ? String((err as { code?: string }).code)
+          : undefined;
+      setError(friendlyAuthMessage(code));
+      setAuthErrorCode(code ?? null);
     } finally {
       setLoading(false);
       }

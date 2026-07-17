@@ -1,6 +1,7 @@
 "use client";
 import React, { useState } from "react";
 import { auth } from "@/lib/firebase";
+import { clearCommandCenterAndBlackTokens } from "@/lib/agentSessionTokens";
 
 interface PaymentRequiredModalProps {
   isOpen: boolean;
@@ -79,6 +80,12 @@ export default function PaymentRequiredModal({
 
   const handleLogout = async () => {
     try {
+      if (typeof window !== "undefined") {
+        localStorage.removeItem("idToken");
+        localStorage.removeItem("role");
+        localStorage.removeItem("userName");
+      }
+      clearCommandCenterAndBlackTokens();
       await auth.signOut();
       window.location.href = "/login";
     } catch (err) {

@@ -1,33 +1,48 @@
-import "server-only";
+import { NextRequest } from "next/server";
+import { verifyAdminAuth } from "@/lib/authHelpers";
 
-import { adminAuth, adminDb } from "@/lib/firebaseAdmin";
-import { getFirebaseIdTokenFromRequest } from "@/lib/authHelpers";
+const BUSINESS_MEMBER_ROLES = [
+  "salon_owner",
+  "salon_branch_admin",
+  "salon_staff",
+  "salon_admin",
+];
 
-export async function requireSuperAdmin(req: Request): Promise<
+export async function requireSuperAdmin(req: NextRequest): Promise<
   | { ok: true; uid: string; email: string | undefined }
   | { ok: false; status: number; error: string }
 > {
-  const token = getFirebaseIdTokenFromRequest(
-    req as import("next/server").NextRequest,
-  );
-  if (!token) {
-    return { ok: false, status: 401, error: "Missing authorization header." };
+  const authResult = await verifyAdminAuth(req, ["super_admin"]);
+  if (!authResult.success) {
+    return {
+      ok: false,
+      status: authResult.status,
+      error: authResult.error,
+    };
   }
+  return {
+    ok: true,
+    uid: authResult.userData.uid,
+    email: authResult.userData.email,
+  };
+}
 
-  try {
-    const decoded = await adminAuth().verifyIdToken(token);
-    const isSuperAdmin =
-      decoded.superAdmin === true || decoded.role === "super_admin";
-
-    if (!isSuperAdmin) {
-      const snap = await adminDb().collection("super_admins").doc(decoded.uid).get();
-      if (!snap.exists) {
-        return { ok: false, status: 403, error: "Super admin access required." };
-      }
-    }
-
-    return { ok: true, uid: decoded.uid, email: decoded.email };
-  } catch {
-    return { ok: false, status: 401, error: "Invalid or expired session." };
+export async function requireBusinessMember(req: NextRequest): Promise<
+  | { ok: true; uid: string; role: string; email: string | undefined }
+  | { ok: false; status: number; error: string }
+> {
+  const authResult = await verifyAdminAuth(req, BUSINESS_MEMBER_ROLES);
+  if (!authResult.success) {
+    return {
+      ok: false,
+      status: authResult.status,
+      error: authResult.error,
+    };
   }
+  return {
+    ok: true,
+    uid: authResult.userData.uid,
+    role: authResult.userData.role,
+    email: authResult.userData.email,
+  };
 }
