@@ -82,19 +82,16 @@ export default function OwnerCustomMessagesPage() {
           )}
 
           <div className="mb-8">
-            <div className="relative rounded-2xl bg-neutral-900 text-white p-6 shadow-sm overflow-hidden">
-              <div className="absolute top-0 right-0 w-32 h-32 bg-white/5 rounded-full -translate-y-1/2 translate-x-1/2" />
-              <div className="absolute bottom-0 left-1/3 w-20 h-20 bg-white/5 rounded-full translate-y-1/2" />
-              <div className="absolute top-3 right-20 text-white/10 text-3xl">
-                <i className="fas fa-comment-sms" />
-              </div>
-              <div className="relative flex items-center gap-3">
-                <div className="w-11 h-11 rounded-xl bg-amber-500/20 flex items-center justify-center border border-amber-500/30">
-                  <i className="fas fa-comment-sms text-amber-400" />
-                </div>
+            <div className="rounded-2xl bg-gradient-to-r from-pink-500 via-fuchsia-600 to-indigo-600 text-white p-6 shadow-sm">
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                 <div>
-                  <h1 className="text-2xl font-bold">Custom Messages</h1>
-                  <p className="text-sm text-neutral-400 mt-1">
+                  <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 rounded-xl bg-white/20 flex items-center justify-center">
+                      <i className="fas fa-comment-sms" />
+                    </div>
+                    <h1 className="text-2xl font-bold">Custom Messages</h1>
+                  </div>
+                  <p className="text-sm text-white/80 mt-2">
                     Send SMS to your customers and staff
                   </p>
                 </div>

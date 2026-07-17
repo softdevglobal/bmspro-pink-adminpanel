@@ -88,10 +88,19 @@ export default function Sidebar({ mobile = false, onClose }: SidebarProps) {
           displayName = superAdminData?.displayName || user.displayName || "";
           email = superAdminData?.email || user.email || "";
         } else {
-          const agentSnap = await getDoc(
-            doc(db, "call_center_agents", user.uid)
-          );
-          if (agentSnap.exists()) {
+          // Salon owners may be denied call_center_agents reads — fall back to users.
+          let agentSnap: Awaited<ReturnType<typeof getDoc>> | null = null;
+          try {
+            agentSnap = await getDoc(doc(db, "call_center_agents", user.uid));
+          } catch (agentErr: unknown) {
+            const code =
+              agentErr && typeof agentErr === "object" && "code" in agentErr
+                ? String((agentErr as { code: unknown }).code)
+                : "";
+            if (code !== "permission-denied") throw agentErr;
+          }
+
+          if (agentSnap?.exists()) {
             const ad = agentSnap.data();
             r = (ad?.role || "agent").toString();
             displayName =

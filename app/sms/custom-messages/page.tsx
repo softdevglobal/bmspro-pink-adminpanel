@@ -71,14 +71,16 @@ export default function OwnerCustomMessagesPage() {
           )}
 
           <div className="mb-8">
-            <div className="rounded-2xl bg-gradient-to-r from-pink-500 via-fuchsia-600 to-purple-600 text-white p-6 shadow-lg">
-              <div className="flex items-center gap-4">
-                <div className="w-14 h-14 rounded-xl bg-white/20 flex items-center justify-center backdrop-blur-sm">
-                  <i className="fas fa-comment-sms text-2xl" />
-                </div>
+            <div className="rounded-2xl bg-gradient-to-r from-pink-500 via-fuchsia-600 to-indigo-600 text-white p-6 shadow-sm">
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                 <div>
-                  <h1 className="text-2xl font-bold">Custom messages</h1>
-                  <p className="text-sm text-white/80 mt-1">
+                  <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 rounded-xl bg-white/20 flex items-center justify-center">
+                      <i className="fas fa-comment-sms" />
+                    </div>
+                    <h1 className="text-2xl font-bold">Custom Messages</h1>
+                  </div>
+                  <p className="text-sm text-white/80 mt-2">
                     Send SMS to your customers, staff, or both — including seasonal greetings.
                   </p>
                 </div>

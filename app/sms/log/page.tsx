@@ -74,19 +74,16 @@ export default function OwnerSmsLogPage() {
           )}
 
           <div className="mb-8">
-            <div className="relative overflow-hidden rounded-2xl bg-neutral-900 p-6 text-white shadow-sm">
-              <div className="absolute top-0 right-0 h-32 w-32 translate-x-1/2 -translate-y-1/2 rounded-full bg-white/5" />
-              <div className="absolute bottom-0 left-1/3 h-20 w-20 translate-y-1/2 rounded-full bg-white/5" />
-              <div className="absolute right-20 top-3 text-3xl text-white/10">
-                <i className="fas fa-list" />
-              </div>
-              <div className="relative flex items-center gap-3">
-                <div className="flex h-11 w-11 items-center justify-center rounded-xl border border-amber-500/30 bg-amber-500/20">
-                  <i className="fas fa-list text-amber-400" />
-                </div>
+            <div className="rounded-2xl bg-gradient-to-r from-pink-500 via-fuchsia-600 to-indigo-600 text-white p-6 shadow-sm">
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                 <div>
-                  <h1 className="text-2xl font-bold">SMS Log</h1>
-                  <p className="mt-1 text-sm text-neutral-400">
+                  <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 rounded-xl bg-white/20 flex items-center justify-center">
+                      <i className="fas fa-list" />
+                    </div>
+                    <h1 className="text-2xl font-bold">SMS Log</h1>
+                  </div>
+                  <p className="text-sm text-white/80 mt-2">
                     Outbound SMS delivery history for your salon
                   </p>
                 </div>
