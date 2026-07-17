@@ -474,6 +474,8 @@ export default function SettingsPage() {
                   role: systemRole,
                   salonName: salonName,
                   branchName: branchRow?.name || "",
+                  staffPhone: mobile || null,
+                  ownerUid,
                 }),
               });
             } catch (emailError) {
@@ -675,6 +677,8 @@ export default function SettingsPage() {
                   role: systemRole,
                   salonName: salonName,
                   branchName: branchRow?.name || undefined,
+                  staffPhone: mobile || null,
+                  ownerUid,
                 }),
               });
             } catch (emailError) {

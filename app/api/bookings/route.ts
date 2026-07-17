@@ -926,6 +926,7 @@ export async function POST(req: NextRequest) {
             bookingCode: bookingCode || undefined,
             customerEmail: customerEmail,
             customerName: String(body.client),
+            customerPhone: body.clientPhone || null,
             status: emailStatus,
             ownerUid,
             branchName: branchName || null,
