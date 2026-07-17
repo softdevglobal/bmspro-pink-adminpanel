@@ -5,7 +5,7 @@ import { usePathname } from "next/navigation";
 import { useRouter } from "next/navigation";
 import { onAuthStateChanged, signOut } from "firebase/auth";
 import { auth, db } from "@/lib/firebase";
-import { doc, getDoc } from "firebase/firestore";
+import { doc, getDoc, DocumentData, DocumentSnapshot } from "firebase/firestore";
 import { logUserLogout, logSuperAdminLogout, createSuperAdminAuditLog } from "@/lib/auditLog";
 import { useSmsBalance } from "@/lib/sms/sms-balance-context";
 import { clearCommandCenterAndBlackTokens } from "@/lib/agentSessionTokens";
@@ -89,7 +89,7 @@ export default function Sidebar({ mobile = false, onClose }: SidebarProps) {
           email = superAdminData?.email || user.email || "";
         } else {
           // Salon owners may be denied call_center_agents reads — fall back to users.
-          let agentSnap: Awaited<ReturnType<typeof getDoc>> | null = null;
+          let agentSnap: DocumentSnapshot<DocumentData> | null = null;
           try {
             agentSnap = await getDoc(doc(db, "call_center_agents", user.uid));
           } catch (agentErr: unknown) {
