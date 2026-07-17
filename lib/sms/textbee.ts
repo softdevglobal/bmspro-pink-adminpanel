@@ -1,242 +1,351 @@
 import "server-only";
 
+import { adminDb } from "@/lib/firebaseAdmin";
+import { normalizePhoneDigits } from "@/lib/customerAccount";
+import { appendSmsLog } from "@/lib/sms/sms-log-server";
 import { releaseSmsCredits, tryConsumeSmsCredits } from "@/lib/sms/usage";
 
-const DEFAULT_API_BASE = "https://api.textbee.dev/api/v1";
+const TEXTBEE_API_KEY = process.env.TEXTBEE_API_KEY;
+const TEXTBEE_DEVICE_ID = process.env.TEXTBEE_DEVICE_ID;
+const TEXTBEE_API_BASE =
+  process.env.TEXTBEE_API_BASE || process.env.TEXTBEE_API_BASE_URL || "https://api.textbee.dev/api/v1";
+const TEXTBEE_DEFAULT_COUNTRY_CODE = process.env.TEXTBEE_DEFAULT_COUNTRY_CODE || "+61";
+const TEXTBEE_SUPPORTED_COUNTRY_CODES = process.env.TEXTBEE_SUPPORTED_COUNTRY_CODES || "+61,+94";
+const TEXTBEE_SIM_SUBSCRIPTION_ID = process.env.TEXTBEE_SIM_SUBSCRIPTION_ID;
 
-function readServerEnv(name: string): string {
-  return (process.env[name] ?? "").trim();
+export type SmsSendStatus = "sent" | "failed" | "skipped";
+
+export type SmsSendResult = {
+  ok: boolean;
+  status: SmsSendStatus;
+  statusDetail: string;
+  error?: string;
+};
+
+type SendSmsParams = {
+  to: string | null | undefined;
+  message: string;
+  ownerUid?: string | null;
+  businessId?: string | null;
+  source?: string;
+  senderName?: string;
+  receiverName?: string | null;
+};
+
+function normalizeCountryCode(countryCode: string): string {
+  const digits = normalizePhoneDigits(countryCode);
+  return digits ? `+${digits}` : "+61";
 }
 
-function config() {
-  return {
-    apiKey: readServerEnv("TEXTBEE_API_KEY"),
-    deviceId: readServerEnv("TEXTBEE_DEVICE_ID"),
-    apiBase: (readServerEnv("TEXTBEE_API_BASE") || DEFAULT_API_BASE).replace(
-      /\/+$/,
-      "",
-    ),
-    defaultCountryCode: readServerEnv("TEXTBEE_DEFAULT_COUNTRY_CODE") || "+61",
-    simSubscriptionId: readServerEnv("TEXTBEE_SIM_SUBSCRIPTION_ID") || null,
-  };
+function getSupportedCountryDigits(): string[] {
+  return TEXTBEE_SUPPORTED_COUNTRY_CODES.split(",")
+    .map((code) => normalizePhoneDigits(code))
+    .filter(Boolean);
 }
 
-export function toE164(
-  raw: string | null | undefined,
-  defaultCountryCode = "+61",
-): string | null {
+export function toE164(phone: string | null | undefined): string | null {
+  return normalizeSmsRecipient(phone);
+}
+
+function resolveLocalNumberCountryCode(localDigits: string): string | null {
+  const defaultCountryCode = normalizeCountryCode(TEXTBEE_DEFAULT_COUNTRY_CODE);
+  const supportedCountryDigits = getSupportedCountryDigits();
+
+  // Sri Lanka mobiles: 7XXXXXXXX (9 digits) after stripping a leading 0
+  if (
+    localDigits.startsWith("7") &&
+    localDigits.length === 9 &&
+    supportedCountryDigits.includes("94")
+  ) {
+    return "+94";
+  }
+
+  // Australian mobiles: 4XXXXXXXX (9 digits) after stripping a leading 0
+  if (
+    localDigits.startsWith("4") &&
+    localDigits.length === 9 &&
+    supportedCountryDigits.includes("61")
+  ) {
+    return "+61";
+  }
+
+  return defaultCountryCode;
+}
+
+export function normalizeSmsRecipient(phone: string | null | undefined): string | null {
+  const raw = String(phone ?? "").trim();
   if (!raw) return null;
-  let value = raw.trim();
-  if (!value) return null;
 
-  if (value.startsWith("+")) {
-    const digits = value.slice(1).replace(/\D/g, "");
-    return digits.length >= 6 ? `+${digits}` : null;
+  if (raw.startsWith("+")) {
+    const digits = normalizePhoneDigits(raw);
+    return digits.length >= 8 && digits.length <= 15 ? `+${digits}` : null;
   }
 
-  if (value.startsWith("00")) {
-    const digits = value.slice(2).replace(/\D/g, "");
-    return digits.length >= 6 ? `+${digits}` : null;
+  if (raw.startsWith("00")) {
+    const digits = normalizePhoneDigits(raw.slice(2));
+    return digits.length >= 8 && digits.length <= 15 ? `+${digits}` : null;
   }
 
-  const cc = defaultCountryCode.startsWith("+")
-    ? defaultCountryCode
-    : `+${defaultCountryCode}`;
-  const ccDigits = cc.slice(1).replace(/\D/g, "");
-  const digits = value.replace(/\D/g, "");
-  if (!digits) return null;
+  const digits = normalizePhoneDigits(raw);
+  if (digits.length < 8 || digits.length > 15) return null;
 
-  if (digits.startsWith("0")) {
-    const local = digits.replace(/^0+/, "");
-    if (local.length < 6) return null;
-    return `+${ccDigits}${local}`;
-  }
+  const defaultCountryCode = normalizeCountryCode(TEXTBEE_DEFAULT_COUNTRY_CODE);
+  const supportedCountryDigits = getSupportedCountryDigits();
 
-  if (digits.startsWith(ccDigits)) {
+  if (
+    supportedCountryDigits.some(
+      (countryDigits) => digits.startsWith(countryDigits) && digits.length > countryDigits.length,
+    )
+  ) {
     return `+${digits}`;
   }
 
-  if (digits.length < 6) return null;
-  return `+${ccDigits}${digits}`;
+  if (digits.startsWith("0")) {
+    const localDigits = digits.slice(1);
+    const countryCode = resolveLocalNumberCountryCode(localDigits);
+    return `${countryCode}${localDigits}`;
+  }
+
+  return `${defaultCountryCode}${digits}`;
 }
 
-type SmsLogContext = {
-  ownerUid: string | null;
-  senderName: string | null;
-  receiverName: string | null;
-  source: string | null;
-  message: string;
-  rawTo: string | null | undefined;
+export function isSmsConfigured(): boolean {
+  return !!TEXTBEE_API_KEY && !!TEXTBEE_DEVICE_ID;
+}
+
+async function resolveSenderName(ownerUid: string | null, override?: string): Promise<string> {
+  if (override?.trim()) return override.trim();
+  if (!ownerUid) return "System";
+
+  try {
+    const snap = await adminDb().collection("users").doc(ownerUid).get();
+    if (snap.exists) {
+      const data = snap.data();
+      return (
+        data?.SalonName ||
+        data?.salonName ||
+        data?.businessName ||
+        data?.name ||
+        data?.displayName ||
+        "Salon"
+      );
+    }
+  } catch (error) {
+    console.error("[SMS] Failed to resolve sender name:", error);
+  }
+  return "Salon";
+}
+
+type TextBeeSendResponse = {
+  data?: {
+    success?: boolean;
+    message?: string;
+    smsBatchId?: string;
+    recipientCount?: number;
+  };
+  success?: boolean;
+  message?: string;
+  error?: string;
 };
 
-async function recordSmsLog(
-  ctx: SmsLogContext,
-  receiverPhone: string,
-  status: "sent" | "failed" | "skipped",
-  statusDetail: string,
-): Promise<void> {
-  const { appendSmsLog } = await import("@/lib/sms/sms-log-server");
-  await appendSmsLog({
-    ownerUid: ctx.ownerUid,
-    senderName: ctx.senderName,
-    receiverPhone,
-    receiverName: ctx.receiverName,
-    message: ctx.message,
-    status,
-    statusDetail,
-    source: ctx.source,
-  });
+async function postToGateway(recipient: string, message: string): Promise<SmsSendResult> {
+  try {
+    const body: Record<string, unknown> = {
+      recipients: [recipient],
+      message,
+    };
+    if (TEXTBEE_SIM_SUBSCRIPTION_ID) {
+      body.simSubscriptionId = Number(TEXTBEE_SIM_SUBSCRIPTION_ID);
+    }
+
+    const apiBase = TEXTBEE_API_BASE.replace(/\/+$/, "");
+    const response = await fetch(
+      `${apiBase}/gateway/devices/${encodeURIComponent(TEXTBEE_DEVICE_ID as string)}/send-sms`,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-api-key": TEXTBEE_API_KEY as string,
+        },
+        body: JSON.stringify(body),
+      },
+    );
+
+    const responseText = await response.text();
+    let payload: TextBeeSendResponse | null = null;
+    try {
+      payload = responseText ? (JSON.parse(responseText) as TextBeeSendResponse) : null;
+    } catch {
+      payload = null;
+    }
+
+    if (!response.ok) {
+      console.error("[SMS] TextBee send failed:", response.status, responseText);
+      return {
+        ok: false,
+        status: "failed",
+        statusDetail: "gateway_rejected",
+        error: payload?.error || payload?.message || `Gateway rejected (${response.status})`,
+      };
+    }
+
+    const accepted =
+      payload?.data?.success === true ||
+      payload?.success === true ||
+      /queue/i.test(payload?.data?.message ?? payload?.message ?? "");
+
+    if (!accepted) {
+      console.error("[SMS] TextBee unexpected response:", responseText);
+      return {
+        ok: false,
+        status: "failed",
+        statusDetail: "gateway_rejected",
+        error: payload?.error || payload?.message || "Gateway did not accept the message",
+      };
+    }
+
+    const batchId = payload?.data?.smsBatchId;
+    const queueMessage = payload?.data?.message || payload?.message || "queued for device";
+    console.log("[SMS] TextBee accepted message (queued on Android device)", {
+      recipient,
+      smsBatchId: batchId ?? null,
+      queueMessage,
+    });
+
+    return {
+      ok: true,
+      status: "sent",
+      statusDetail: batchId ? `gateway_queued:${batchId}` : "gateway_queued",
+    };
+  } catch (error: unknown) {
+    console.error("[SMS] TextBee error:", error);
+    return {
+      ok: false,
+      status: "failed",
+      statusDetail: "gateway_error",
+      error: error instanceof Error ? error.message : "Gateway error",
+    };
+  }
 }
 
-async function postSmsToGateway(
-  recipients: string[],
-  message: string,
-): Promise<boolean> {
-  const cfg = config();
-  if (!cfg.apiKey || !cfg.deviceId || recipients.length === 0) {
-    return false;
+export async function sendSms(params: SendSmsParams): Promise<SmsSendResult> {
+  const ownerUid = params.ownerUid ?? params.businessId ?? null;
+  const source = params.source ?? "unknown";
+  const message = params.message.trim();
+  const recipient = normalizeSmsRecipient(params.to);
+  const senderName = await resolveSenderName(ownerUid, params.senderName);
+
+  const logBase = {
+    ownerUid,
+    businessId: ownerUid,
+    senderName,
+    receiverPhone: recipient ?? String(params.to ?? ""),
+    receiverName: params.receiverName ?? null,
+    message: message || params.message,
+    source,
+  };
+
+  if (!recipient) {
+    const result: SmsSendResult = {
+      ok: false,
+      status: "skipped",
+      statusDetail: "invalid_recipient",
+      error: "Invalid phone number",
+    };
+    console.warn(`[SMS] Skipped (${source}): invalid recipient`, { raw: params.to ?? null });
+    await appendSmsLog({ ...logBase, status: "skipped", statusDetail: result.statusDetail });
+    return result;
   }
 
-  const url = `${cfg.apiBase}/gateway/devices/${encodeURIComponent(
-    cfg.deviceId,
-  )}/send-sms`;
+  if (!message) {
+    const result: SmsSendResult = {
+      ok: false,
+      status: "skipped",
+      statusDetail: "empty_message",
+      error: "SMS message is empty",
+    };
+    console.warn(`[SMS] Skipped (${source}): empty message`);
+    await appendSmsLog({ ...logBase, receiverPhone: recipient, status: "skipped", statusDetail: result.statusDetail });
+    return result;
+  }
 
-  const response = await fetch(url, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "x-api-key": cfg.apiKey,
-    },
-    body: JSON.stringify({
-      recipients,
-      message,
-      ...(cfg.simSubscriptionId
-        ? { simSubscriptionId: Number(cfg.simSubscriptionId) }
-        : {}),
-    }),
+  if (!isSmsConfigured()) {
+    const result: SmsSendResult = {
+      ok: false,
+      status: "skipped",
+      statusDetail: "gateway_not_configured",
+      error: "TextBee is not configured",
+    };
+    console.warn(`[SMS] Skipped (${source}): TextBee not configured`);
+    await appendSmsLog({ ...logBase, receiverPhone: recipient, message, status: "skipped", statusDetail: result.statusDetail });
+    return result;
+  }
+
+  let creditsReserved = false;
+  if (ownerUid) {
+    const consume = await tryConsumeSmsCredits(ownerUid, 1);
+    if (!consume.ok) {
+      const result: SmsSendResult = {
+        ok: false,
+        status: "skipped",
+        statusDetail: "quota_exceeded",
+        error: "SMS quota exceeded",
+      };
+      console.warn(`[SMS] Skipped (${source}): quota exceeded for owner ${ownerUid}`);
+      await appendSmsLog({ ...logBase, receiverPhone: recipient, message, status: "skipped", statusDetail: result.statusDetail });
+      return result;
+    }
+    creditsReserved = !consume.unlimited;
+  }
+
+  console.log(`[SMS] Sending (${source}) to ${recipient}`, { ownerUid: ownerUid ?? null });
+
+  const gateway = await postToGateway(recipient, message);
+
+  if (gateway.ok) {
+    console.log(`[SMS] Queued on TextBee device (${source}) to ${recipient}`, {
+      statusDetail: gateway.statusDetail,
+    });
+  } else {
+    console.error(`[SMS] Failed (${source}) to ${recipient}:`, gateway.error);
+  }
+
+  if (!gateway.ok && creditsReserved && ownerUid) {
+    await releaseSmsCredits(ownerUid, 1);
+  }
+
+  await appendSmsLog({
+    ...logBase,
+    receiverPhone: recipient,
+    message,
+    status: gateway.status,
+    statusDetail: gateway.statusDetail,
   });
 
-  if (!response.ok) {
-    const detail = await response.text().catch(() => "");
-    console.error("[sms] send FAILED", {
-      count: recipients.length,
-      status: response.status,
-      detail: detail.slice(0, 300),
-    });
-    return false;
-  }
-
-  return true;
+  return gateway;
 }
 
 export async function sendBulkSms(
-  recipients: Array<string | null | undefined>,
+  phones: string[],
   message: string,
   ownerUid?: string | null,
-  meta?: {
-    senderName?: string | null;
-    source?: string | null;
-    receiverNamesByPhone?: Map<string, string>;
-  },
-): Promise<number> {
-  const cfg = config();
-  const text = message?.trim() ?? "";
-  const tenantId = ownerUid?.trim() || null;
-  const logBase = {
-    ownerUid: tenantId,
-    senderName: meta?.senderName ?? null,
-    receiverName: null as string | null,
-    source: meta?.source ?? "custom_message",
-    message: text,
-  };
-
-  if (!cfg.apiKey || !cfg.deviceId) {
-    console.warn("[sms] bulk skipped — TEXTBEE not configured.");
-    for (const raw of recipients) {
-      await recordSmsLog(
-        { ...logBase, rawTo: raw },
-        raw?.trim() || "—",
-        "skipped",
-        "gateway_not_configured",
-      );
-    }
-    return 0;
-  }
-  if (!text) return 0;
-
-  const normalized = Array.from(
-    new Set(
-      recipients
-        .map((r) => toE164(r, cfg.defaultCountryCode))
-        .filter((r): r is string => !!r),
+  source = "bulk_message",
+  senderName?: string,
+): Promise<{ sent: number; failed: number; skipped: number; total: number }> {
+  const uniquePhones = [
+    ...new Set(
+      phones.map((phone) => normalizeSmsRecipient(phone)).filter((phone): phone is string => !!phone),
     ),
-  );
-  if (normalized.length === 0) {
-    for (const raw of recipients) {
-      await recordSmsLog(
-        { ...logBase, rawTo: raw },
-        raw?.trim() || "—",
-        "skipped",
-        "invalid_recipient",
-      );
-    }
-    return 0;
+  ];
+
+  const result = { sent: 0, failed: 0, skipped: 0, total: uniquePhones.length };
+
+  for (const phone of uniquePhones) {
+    const single = await sendSms({ to: phone, message, ownerUid, source, senderName });
+    if (single.status === "sent") result.sent += 1;
+    else if (single.status === "skipped") result.skipped += 1;
+    else result.failed += 1;
   }
 
-  if (tenantId) {
-    const reserved = await tryConsumeSmsCredits(tenantId, normalized.length);
-    if (!reserved) {
-      for (const phone of normalized) {
-        await recordSmsLog(
-          { ...logBase, rawTo: phone },
-          phone,
-          "skipped",
-          "quota_exceeded",
-        );
-      }
-      return 0;
-    }
-  }
-
-  try {
-    const sent = await postSmsToGateway(normalized, text);
-    if (!sent) {
-      if (tenantId) await releaseSmsCredits(tenantId, normalized.length);
-      for (const phone of normalized) {
-        await recordSmsLog(
-          { ...logBase, rawTo: phone },
-          phone,
-          "failed",
-          "gateway_rejected",
-        );
-      }
-      return 0;
-    }
-
-    for (const phone of normalized) {
-      await recordSmsLog(
-        {
-          ...logBase,
-          rawTo: phone,
-          receiverName: meta?.receiverNamesByPhone?.get(phone) ?? null,
-        },
-        phone,
-        "sent",
-        "delivered",
-      );
-    }
-    return normalized.length;
-  } catch (error) {
-    if (tenantId) await releaseSmsCredits(tenantId, normalized.length);
-    console.error("[sms] bulk send FAILED", { error });
-    for (const phone of normalized) {
-      await recordSmsLog(
-        { ...logBase, rawTo: phone },
-        phone,
-        "failed",
-        "gateway_error",
-      );
-    }
-    return 0;
-  }
+  return result;
 }

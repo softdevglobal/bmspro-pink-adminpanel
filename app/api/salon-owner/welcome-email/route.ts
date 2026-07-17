@@ -40,7 +40,8 @@ export async function POST(req: NextRequest) {
       planPrice,
       paymentUrl,
       trialDays,
-      bookingEngineUrl
+      bookingEngineUrl,
+      phone || null
     );
     
     if (!result.success) {

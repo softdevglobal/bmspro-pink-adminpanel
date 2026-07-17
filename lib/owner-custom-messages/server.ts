@@ -188,22 +188,13 @@ export async function sendOwnerCustomSms(input: {
     return { sentCount: 0, requestedCount: 0 };
   }
 
-  const namesByPhone = new Map<string, string>();
-  for (const contact of selected) {
-    const e164 = toE164(contact.phone);
-    if (e164) namesByPhone.set(e164, contact.fullName);
-  }
-
-  const sentCount = await sendBulkSms(
+  const result = await sendBulkSms(
     selected.map((c) => c.phone),
     message,
     input.ownerUid,
-    {
-      senderName: input.salonName,
-      source: "owner_custom_message",
-      receiverNamesByPhone: namesByPhone,
-    },
+    "owner_custom_message",
+    input.salonName ?? undefined,
   );
 
-  return { sentCount, requestedCount: selected.length };
+  return { sentCount: result.sent, requestedCount: selected.length };
 }

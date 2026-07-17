@@ -2,70 +2,92 @@ import "server-only";
 
 import { FieldValue } from "firebase-admin/firestore";
 import { adminDb } from "@/lib/firebaseAdmin";
-import { parseOwnerSmsFields } from "@/lib/sms/types";
+import { parseBusinessSmsFields } from "@/lib/sms-packages/balance";
+
+export type ConsumeSmsCreditsResult =
+  | { ok: true; unlimited: boolean }
+  | { ok: false; reason: "quota_exceeded" | "tenant_not_found" };
+
+async function mirrorOwnerSmsFields(
+  ownerUid: string,
+  update: Record<string, unknown>,
+): Promise<void> {
+  const db = adminDb();
+  const ownerRef = db.collection("owners").doc(ownerUid);
+  const ownerDoc = await ownerRef.get();
+  if (ownerDoc.exists) {
+    await ownerRef.update(update);
+  }
+}
 
 export async function tryConsumeSmsCredits(
   ownerUid: string,
   count: number,
-): Promise<boolean> {
-  const trimmedId = ownerUid.trim();
-  if (!trimmedId || count <= 0) return false;
+): Promise<ConsumeSmsCreditsResult> {
+  if (!ownerUid || count <= 0) {
+    return { ok: true, unlimited: false };
+  }
 
-  const ref = adminDb().doc(`users/${trimmedId}`);
+  const db = adminDb();
+  const userRef = db.collection("users").doc(ownerUid);
 
-  try {
-    return await adminDb().runTransaction(async (tx) => {
-      const snap = await tx.get(ref);
-      if (!snap.exists) return false;
+  return db.runTransaction<ConsumeSmsCreditsResult>(async (tx) => {
+    const snap = await tx.get(userRef);
+    if (!snap.exists) {
+      return { ok: false, reason: "tenant_not_found" };
+    }
 
-      const balance = parseOwnerSmsFields(snap.data() ?? {});
-      if (balance.isUnlimited) return true;
+    const balance = parseBusinessSmsFields(ownerUid, snap.data());
+    if (balance.unlimited) {
+      return { ok: true, unlimited: true };
+    }
 
-      const remaining = balance.remaining ?? 0;
-      if (remaining < count) {
-        console.warn("[sms] skipped — quota exceeded.", {
-          ownerUid: trimmedId,
-          remaining,
-          requested: count,
-        });
-        return false;
-      }
+    const remaining = balance.remaining ?? 0;
+    if (remaining < count) {
+      return { ok: false, reason: "quota_exceeded" };
+    }
 
-      tx.update(ref, {
-        smsMessagesUsed: balance.used + count,
+    const update = {
+      smsMessagesUsed: FieldValue.increment(count),
+      updatedAt: FieldValue.serverTimestamp(),
+    };
+    tx.update(userRef, update);
+    return { ok: true, unlimited: false };
+  }).then(async (result) => {
+    if (result.ok) {
+      await mirrorOwnerSmsFields(ownerUid, {
+        smsMessagesUsed: FieldValue.increment(count),
         updatedAt: FieldValue.serverTimestamp(),
       });
-      return true;
-    });
-  } catch (error) {
-    console.error("[sms] quota reservation failed", { ownerUid: trimmedId, error });
-    return false;
-  }
+    }
+    return result;
+  });
 }
 
-export async function releaseSmsCredits(
-  ownerUid: string,
-  count: number,
-): Promise<void> {
-  const trimmedId = ownerUid.trim();
-  if (!trimmedId || count <= 0) return;
+export async function releaseSmsCredits(ownerUid: string, count: number): Promise<void> {
+  if (!ownerUid || count <= 0) return;
 
-  const ref = adminDb().doc(`users/${trimmedId}`);
+  const db = adminDb();
+  const userRef = db.collection("users").doc(ownerUid);
 
-  try {
-    await adminDb().runTransaction(async (tx) => {
-      const snap = await tx.get(ref);
-      if (!snap.exists) return;
+  await db.runTransaction(async (tx) => {
+    const snap = await tx.get(userRef);
+    if (!snap.exists) return;
 
-      const balance = parseOwnerSmsFields(snap.data() ?? {});
-      if (balance.isUnlimited) return;
-
-      tx.update(ref, {
-        smsMessagesUsed: Math.max(0, balance.used - count),
-        updatedAt: FieldValue.serverTimestamp(),
-      });
+    const used =
+      typeof snap.data()?.smsMessagesUsed === "number" ? snap.data()!.smsMessagesUsed : 0;
+    const nextUsed = Math.max(0, used - count);
+    tx.update(userRef, {
+      smsMessagesUsed: nextUsed,
+      updatedAt: FieldValue.serverTimestamp(),
     });
-  } catch (error) {
-    console.error("[sms] credit release failed", { ownerUid: trimmedId, error });
-  }
+  });
+
+  const snap = await userRef.get();
+  const used =
+    typeof snap.data()?.smsMessagesUsed === "number" ? snap.data()!.smsMessagesUsed : 0;
+  await mirrorOwnerSmsFields(ownerUid, {
+    smsMessagesUsed: used,
+    updatedAt: FieldValue.serverTimestamp(),
+  });
 }

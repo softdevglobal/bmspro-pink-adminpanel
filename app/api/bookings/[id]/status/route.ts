@@ -442,6 +442,7 @@ export async function PATCH(req: NextRequest, context: { params: Promise<{ id: s
             ownerUid,
             {
               bookingCode: data.bookingCode,
+              customerPhone: data.clientPhone,
               branchName: data.branchName,
               bookingDate: finalBookingDate,
               bookingTime: finalBookingTime,
@@ -457,9 +458,9 @@ export async function PATCH(req: NextRequest, context: { params: Promise<{ id: s
               staffName: finalStaffName,
             }
           );
-          console.log(`[EMAIL] ✅ Confirmation email sent successfully for booking ${id}`);
+          console.log(`[EMAIL] âœ… Confirmation email sent successfully for booking ${id}`);
         } catch (emailError) {
-          console.error(`[EMAIL] ❌ Failed to send booking confirmation email for ${id}:`, emailError);
+          console.error(`[EMAIL] âŒ Failed to send booking confirmation email for ${id}:`, emailError);
           // Don't fail the request if email sending fails
         }
       }
@@ -535,6 +536,7 @@ export async function PATCH(req: NextRequest, context: { params: Promise<{ id: s
             ownerUid,
             {
               bookingCode: data.bookingCode,
+              customerPhone: data.clientPhone,
               branchName: data.branchName,
               bookingDate: finalBookingDate,
               bookingTime: finalBookingTime,
@@ -550,9 +552,9 @@ export async function PATCH(req: NextRequest, context: { params: Promise<{ id: s
               staffName: finalStaffName,
             }
           );
-          console.log(`[EMAIL] ✅ Cancellation email sent successfully for booking ${id}`);
+          console.log(`[EMAIL] âœ… Cancellation email sent successfully for booking ${id}`);
         } catch (emailError) {
-          console.error(`[EMAIL] ❌ Failed to send booking cancellation email for ${id}:`, emailError);
+          console.error(`[EMAIL] âŒ Failed to send booking cancellation email for ${id}:`, emailError);
           // Don't fail the request if email sending fails
         }
       } else {
@@ -618,6 +620,7 @@ export async function PATCH(req: NextRequest, context: { params: Promise<{ id: s
             ownerUid,
             {
               bookingCode: data.bookingCode,
+              customerPhone: data.clientPhone,
               branchName: data.branchName,
               bookingDate: finalBookingDate,
               bookingTime: finalBookingTime,
@@ -633,9 +636,9 @@ export async function PATCH(req: NextRequest, context: { params: Promise<{ id: s
               staffName: finalStaffName,
             }
           );
-          console.log(`[EMAIL] ✅ Completion email sent successfully for booking ${id}`);
+          console.log(`[EMAIL] âœ… Completion email sent successfully for booking ${id}`);
         } catch (emailError) {
-          console.error(`[EMAIL] ❌ Failed to send booking completion email for ${id}:`, emailError);
+          console.error(`[EMAIL] âŒ Failed to send booking completion email for ${id}:`, emailError);
           // Don't fail the request if email sending fails
         }
       }

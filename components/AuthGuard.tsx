@@ -16,7 +16,16 @@ interface AuthGuardProps {
 }
 
 // Pages that super_admin is allowed to access
-const SUPER_ADMIN_ALLOWED_PAGES = ["/admin-dashboard", "/tenants", "/login", "/", "/packages", "/super-admin-audit-logs", "/custom-messages"];
+const SUPER_ADMIN_ALLOWED_PAGES = [
+  "/admin-dashboard",
+  "/tenants",
+  "/login",
+  "/",
+  "/packages",
+  "/sms-packages",
+  "/super-admin-audit-logs",
+  "/custom-messages",
+];
 
 // Pages that don't require payment check (allow access even if pending payment)
 const PAYMENT_EXEMPT_PAGES = ["/subscription", "/login", "/reset-password"];
@@ -78,16 +87,30 @@ export default function AuthGuard({ children }: AuthGuardProps) {
               return;
             }
           } else {
+            // Salon owners/branch admins are often denied read on call_center_agents
+            // by Firestore rules — treat permission-denied as "not an agent" and
+            // continue to users/{uid}.
             console.log("[AuthGuard] Looking up call_center_agents then users/" + user.uid);
-            const agentDoc = await getDoc(
-              doc(db, "call_center_agents", user.uid)
-            );
+            let agentDoc: Awaited<ReturnType<typeof getDoc>> | null = null;
+            try {
+              agentDoc = await getDoc(doc(db, "call_center_agents", user.uid));
+            } catch (agentErr: unknown) {
+              const code =
+                agentErr && typeof agentErr === "object" && "code" in agentErr
+                  ? String((agentErr as { code: unknown }).code)
+                  : "";
+              if (code !== "permission-denied") throw agentErr;
+              console.log(
+                "[AuthGuard] call_center_agents read denied — falling back to users/"
+              );
+            }
+
             console.log(
               "[AuthGuard] call_center_agents document exists:",
-              agentDoc.exists()
+              agentDoc?.exists() ?? false
             );
 
-            if (agentDoc.exists()) {
+            if (agentDoc?.exists()) {
               userData = agentDoc.data() ?? null;
               userRole = (userData?.role || "agent").toString().toLowerCase();
             } else {

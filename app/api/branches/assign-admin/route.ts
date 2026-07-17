@@ -119,9 +119,10 @@ export async function POST(req: NextRequest) {
       console.error("Failed to fetch salon name for branch admin email:", e);
     }
 
-    // Send branch admin assignment email
+    // Send branch admin assignment email (and SMS if a phone is on file)
     try {
-      await sendBranchAdminAssignmentEmail(staffEmail, staffName, finalBranchName, salonName);
+      const staffPhone = staffData?.mobile || staffData?.phone || null;
+      await sendBranchAdminAssignmentEmail(staffEmail, staffName, finalBranchName, salonName, staffPhone, ownerUid);
     } catch (emailError) {
       console.error("Failed to send branch admin assignment email:", emailError);
       // Don't fail the request if email fails

@@ -293,6 +293,7 @@ export async function POST(req: NextRequest, context: { params: Promise<{ id: st
             ownerUid,
             {
               bookingCode: bookingData.bookingCode,
+              customerPhone: bookingData.clientPhone,
               branchName: bookingData.branchName,
               bookingDate: finalBookingDate,
               bookingTime: finalBookingTime,
@@ -308,9 +309,9 @@ export async function POST(req: NextRequest, context: { params: Promise<{ id: st
               staffName: staffName,
             }
           );
-          console.log(`[EMAIL] ✅ Completion email sent successfully for booking ${id}`);
+          console.log(`[EMAIL] âœ… Completion email sent successfully for booking ${id}`);
         } catch (emailError) {
-          console.error(`[EMAIL] ❌ Failed to send booking completion email for ${id}:`, emailError);
+          console.error(`[EMAIL] âŒ Failed to send booking completion email for ${id}:`, emailError);
           console.error(`[EMAIL] Error stack:`, emailError instanceof Error ? emailError.stack : 'No stack trace');
           // Don't fail the request if email sending fails
         }
@@ -463,6 +464,7 @@ export async function POST(req: NextRequest, context: { params: Promise<{ id: st
           ownerUid,
           {
             bookingCode: bookingData.bookingCode,
+            customerPhone: bookingData.clientPhone,
             branchName: bookingData.branchName,
             bookingDate: finalBookingDate,
             bookingTime: finalBookingTime,
@@ -472,9 +474,9 @@ export async function POST(req: NextRequest, context: { params: Promise<{ id: st
             staffName: staffName,
           }
         );
-        console.log(`[EMAIL] ✅ Completion email sent successfully for booking ${id}`);
+        console.log(`[EMAIL] âœ… Completion email sent successfully for booking ${id}`);
       } catch (emailError) {
-        console.error(`[EMAIL] ❌ Failed to send booking completion email for ${id}:`, emailError);
+        console.error(`[EMAIL] âŒ Failed to send booking completion email for ${id}:`, emailError);
         console.error(`[EMAIL] Error stack:`, emailError instanceof Error ? emailError.stack : 'No stack trace');
         // Don't fail the request if email sending fails
       }

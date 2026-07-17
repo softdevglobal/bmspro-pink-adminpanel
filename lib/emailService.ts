@@ -2,6 +2,7 @@ import { adminDb } from "./firebaseAdmin";
 import { FieldValue } from "firebase-admin/firestore";
 import type { BookingStatus } from "./bookingTypes";
 import { dispatchMail, isZeptoMailConfigured } from "./zeptomail";
+import { normalizeSmsRecipient, sendSms } from "./smsService";
 
 const REQUEST_FROM_EMAIL =
   process.env.ZEPTOMAIL_REQUEST_FROM_ADDRESS || "request@bmspros.com.au";
@@ -29,6 +30,7 @@ interface BookingEmailData {
   bookingCode?: string | null;
   customerEmail: string;
   customerName: string;
+  customerPhone?: string | null;
   status: BookingStatus;
   branchName?: string | null;
   bookingDate?: string | null;
@@ -128,6 +130,79 @@ function formatDuration(duration?: number | null): string {
   const minutes = duration % 60;
   if (minutes === 0) return `${hours} hour${hours > 1 ? "s" : ""}`;
   return `${hours} hour${hours > 1 ? "s" : ""} ${minutes} minute${minutes > 1 ? "s" : ""}`;
+}
+
+async function sendCustomerSmsSafe(
+  to: string | null | undefined,
+  message: string,
+  context: string,
+  ownerUid?: string,
+): Promise<void> {
+  const normalized = normalizeSmsRecipient(to);
+  try {
+    const result = await sendSms({
+      to,
+      message,
+      context,
+      source: context,
+      ownerUid,
+    });
+    if (result.success) {
+      console.log(`[SMS] Customer notification queued (${context})`, {
+        to: normalized ?? to ?? null,
+      });
+      return;
+    }
+    if (result.skipped) {
+      console.warn(`[SMS] Customer notification skipped (${context})`, {
+        to: to ?? null,
+        reason: result.statusDetail ?? result.error ?? "unknown",
+      });
+      return;
+    }
+    console.error(`[SMS] Failed to send ${context}:`, result.error);
+  } catch (error) {
+    console.error(`[SMS] Unexpected error sending ${context}:`, error);
+  }
+}
+
+function bookingCodeSuffix(bookingCode?: string | null): string {
+  return bookingCode ? ` (${bookingCode})` : "";
+}
+
+function buildBookingSmsMessage(data: BookingEmailData, salonName: string): string {
+  const code = bookingCodeSuffix(data.bookingCode);
+  const when = data.bookingDate
+    ? ` on ${formatBookingDateTime(data.bookingDate, data.bookingTime)}`
+    : "";
+
+  switch (data.status) {
+    case "Pending":
+      return `${salonName}: We received your booking request${code}${when}. We will contact you once it is confirmed.`;
+    case "Confirmed":
+      return `${salonName}: Your booking${code}${when} is confirmed. We look forward to seeing you!`;
+    case "Completed":
+      return `${salonName}: Thank you! Your booking${code} is complete. We hope to see you again soon.`;
+    case "Canceled":
+      return `${salonName}: Your booking${code}${when} has been cancelled. Please contact us if you need help.`;
+    default:
+      return `${salonName}: Your booking${code} status is now ${data.status}.`;
+  }
+}
+
+async function sendBookingStatusSms(data: BookingEmailData, salonName: string): Promise<void> {
+  if (!data.customerPhone?.trim()) {
+    console.warn(
+      `[SMS] No customer phone for booking ${data.bookingId} (${data.status}) — skipping SMS`,
+    );
+    return;
+  }
+  await sendCustomerSmsSafe(
+    data.customerPhone,
+    buildBookingSmsMessage(data, salonName),
+    `booking ${data.status} notification for ${data.bookingId}`,
+    data.ownerUid,
+  );
 }
 
 /**
@@ -454,11 +529,20 @@ export async function sendBookingEmail(data: BookingEmailData): Promise<{ succes
     
     // Log that email was sent
     await logEmailSent(data.bookingId, data.status, email);
+
+    await sendBookingStatusSms(data, salonName);
     
     console.log(`[EMAIL] ✅ Booking email sent successfully: ${data.bookingId} - ${data.status} to ${email}`);
     return { success: true };
   } catch (error: any) {
     console.error(`[EMAIL] ❌ Error sending booking email for ${data.bookingId}:`, error);
+    // Still try SMS when email fails, if we have a phone number
+    try {
+      const salonName = data.salonName || (await getSalonName(data.ownerUid));
+      await sendBookingStatusSms(data, salonName);
+    } catch (smsError) {
+      console.error(`[SMS] Also failed after email error for ${data.bookingId}:`, smsError);
+    }
     console.error(`[EMAIL] Error details:`, {
       message: error?.message,
       code: error?.code,
@@ -483,6 +567,7 @@ export async function sendBookingRequestReceivedEmail(
     branchName?: string | null;
     bookingDate?: string | null;
     bookingTime?: string | null;
+    customerPhone?: string | null;
     duration?: number | null;
     price?: number | null;
     serviceName?: string | null;
@@ -499,21 +584,41 @@ export async function sendBookingRequestReceivedEmail(
     customerEmail,
     customerName,
     bookingCode,
+    customerPhone: bookingData.customerPhone ?? null,
   });
   
-  if (!customerEmail) {
-    console.log(`[EMAIL] No email provided for booking ${bookingId}, skipping email`);
+  if (!customerEmail && !bookingData.customerPhone) {
+    console.log(`[EMAIL] No email or phone provided for booking ${bookingId}, skipping notification`);
     return;
   }
   
   // Get salon name
   const salonName = await getSalonName(ownerUid);
+
+  if (!customerEmail) {
+    await sendBookingStatusSms(
+      {
+        bookingId,
+        bookingCode: bookingCode || undefined,
+        customerEmail: "",
+        customerName,
+        customerPhone: bookingData.customerPhone,
+        status: "Pending",
+        ownerUid,
+        salonName,
+        ...bookingData,
+      },
+      salonName,
+    );
+    return;
+  }
   
   const result = await sendBookingEmail({
     bookingId,
     bookingCode: bookingCode || undefined,
     customerEmail,
     customerName,
+    customerPhone: bookingData.customerPhone,
     status: "Pending",
     ownerUid,
     salonName,
@@ -539,6 +644,7 @@ export async function sendBookingStatusChangeEmail(
     branchName?: string | null;
     bookingDate?: string | null;
     bookingTime?: string | null;
+    customerPhone?: string | null;
     duration?: number | null;
     price?: number | null;
     serviceName?: string | null;
@@ -555,6 +661,7 @@ export async function sendBookingStatusChangeEmail(
     newStatus,
     customerEmail,
     customerName,
+    customerPhone: bookingData.customerPhone ?? null,
   });
   
   // Only send emails for specific statuses
@@ -564,19 +671,33 @@ export async function sendBookingStatusChangeEmail(
     return;
   }
   
-  if (!customerEmail) {
-    console.log(`[EMAIL] No email provided for booking ${bookingId}, skipping email`);
-    return;
-  }
-  
   // Get salon name
   const salonName = await getSalonName(ownerUid);
+
+  if (!customerEmail) {
+    await sendBookingStatusSms(
+      {
+        bookingId,
+        bookingCode: bookingData.bookingCode || undefined,
+        customerEmail: "",
+        customerName,
+        customerPhone: bookingData.customerPhone,
+        status: newStatus,
+        ownerUid,
+        salonName,
+        ...bookingData,
+      },
+      salonName,
+    );
+    return;
+  }
   
   const result = await sendBookingEmail({
     bookingId,
     bookingCode: bookingData.bookingCode || undefined,
     customerEmail,
     customerName,
+    customerPhone: bookingData.customerPhone,
     status: newStatus,
     ownerUid,
     salonName,
@@ -857,7 +978,8 @@ export async function sendSalonOwnerWelcomeEmail(
   planPrice?: string,
   paymentUrl?: string,
   trialDays?: number,
-  bookingEngineUrl?: string
+  bookingEngineUrl?: string,
+  ownerPhone?: string | null
 ): Promise<{ success: boolean; error?: string }> {
   console.log(`[EMAIL] Attempting to send welcome email to salon owner: ${salonOwnerEmail}`);
   
@@ -905,6 +1027,14 @@ export async function sendSalonOwnerWelcomeEmail(
     });
     
     await dispatchMail(msg);
+
+    const loginUrl = process.env.NEXT_PUBLIC_APP_URL || "https://pink.bmspros.com.au";
+    const bookingLink = bookingEngineUrl ? ` Booking page: ${bookingEngineUrl}` : "";
+    await sendCustomerSmsSafe(
+      ownerPhone,
+      `Welcome to BMS PRO PINK, ${businessName}. Your owner account is ready. Login: ${email}. Temporary password: ${password}. Login URL: ${loginUrl}.${bookingLink}`,
+      `salon owner welcome notification for ${email}`,
+    );
     
     console.log(`[EMAIL] ✅ Welcome email sent successfully to ${email}`);
     return { success: true };
@@ -1086,7 +1216,9 @@ export async function sendStaffWelcomeEmail(
   staffName: string,
   role: string, // 'salon_staff' or 'salon_branch_admin'
   salonName?: string,
-  branchName?: string
+  branchName?: string,
+  staffPhone?: string | null,
+  ownerUid?: string
 ): Promise<{ success: boolean; error?: string }> {
   console.log(`[EMAIL] Attempting to send welcome email to staff: ${staffEmail}`);
   
@@ -1131,6 +1263,14 @@ export async function sendStaffWelcomeEmail(
     });
     
     await dispatchMail(msg);
+
+    const loginUrl = process.env.NEXT_PUBLIC_APP_URL || "https://pink.bmspros.com.au";
+    await sendCustomerSmsSafe(
+      staffPhone,
+      `Welcome to BMS PRO PINK, ${staffName}. Your ${roleDisplayName} account${salonName ? ` for ${salonName}` : ""} is ready. Login: ${email}. Temporary password: ${password}. Login URL: ${loginUrl}`,
+      `staff welcome notification for ${email}`,
+      ownerUid,
+    );
     
     console.log(`[EMAIL] ✅ Staff welcome email sent successfully to ${email}`);
     return { success: true };
@@ -1257,7 +1397,9 @@ export async function sendBranchAdminAssignmentEmail(
   staffEmail: string,
   staffName: string,
   branchName: string,
-  salonName?: string
+  salonName?: string,
+  staffPhone?: string | null,
+  ownerUid?: string
 ): Promise<{ success: boolean; error?: string }> {
   console.log(`[EMAIL] Attempting to send branch admin assignment email to: ${staffEmail}`);
   
@@ -1300,6 +1442,14 @@ export async function sendBranchAdminAssignmentEmail(
     });
     
     await dispatchMail(msg);
+
+    const loginUrl = process.env.NEXT_PUBLIC_APP_URL || "https://pink.bmspros.com.au";
+    await sendCustomerSmsSafe(
+      staffPhone,
+      `${salonName || "BMS PRO PINK"}: Hi ${staffName}, you have been assigned as Branch Administrator for ${branchName}. Login: ${loginUrl}`,
+      `branch admin assignment notification for ${email}`,
+      ownerUid,
+    );
     
     console.log(`[EMAIL] ✅ Branch admin assignment email sent successfully to ${email}`);
     return { success: true };

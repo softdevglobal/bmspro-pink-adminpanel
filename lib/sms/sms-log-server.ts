@@ -1,47 +1,106 @@
 import "server-only";
 
-import { FieldValue } from "firebase-admin/firestore";
+import { FieldValue, Timestamp } from "firebase-admin/firestore";
 import { adminDb } from "@/lib/firebaseAdmin";
-import { SMS_LOGS_COLLECTION, type AppendSmsLogInput } from "@/lib/sms/types";
+import {
+  SMS_LOGS_COLLECTION,
+  type AppendSmsLogInput,
+  type SmsLogEntry,
+} from "@/lib/sms/sms-log-types";
 
-async function resolveSenderName(
-  ownerUid: string | null,
-  override: string | null | undefined,
-): Promise<string> {
-  if (override?.trim()) return override.trim();
-  if (!ownerUid) return "Salon";
-  try {
-    const snap = await adminDb().doc(`users/${ownerUid}`).get();
-    const data = snap.data() ?? {};
-    const name =
-      (typeof data.salonName === "string" && data.salonName.trim()) ||
-      (typeof data.businessName === "string" && data.businessName.trim()) ||
-      (typeof data.name === "string" && data.name.trim()) ||
-      "";
-    return name || ownerUid;
-  } catch {
-    return ownerUid;
-  }
+function toDate(value: unknown): Date | null {
+  if (value instanceof Timestamp) return value.toDate();
+  if (value instanceof Date) return value;
+  return null;
+}
+
+function mapLogDoc(id: string, data: FirebaseFirestore.DocumentData): SmsLogEntry {
+  const ownerUid =
+    typeof data.ownerUid === "string"
+      ? data.ownerUid
+      : typeof data.businessId === "string"
+        ? data.businessId
+        : null;
+
+  return {
+    id,
+    ownerUid,
+    businessId: ownerUid,
+    senderName: String(data.senderName ?? "System"),
+    receiverPhone: String(data.receiverPhone ?? ""),
+    receiverName: data.receiverName != null ? String(data.receiverName) : null,
+    message: String(data.message ?? ""),
+    status: data.status === "sent" || data.status === "failed" ? data.status : "skipped",
+    statusDetail: String(data.statusDetail ?? ""),
+    source: String(data.source ?? "unknown"),
+    createdAt: toDate(data.createdAt),
+  };
 }
 
 export async function appendSmsLog(input: AppendSmsLogInput): Promise<void> {
   try {
-    const ownerUid = input.ownerUid?.trim() || null;
-    const senderName = await resolveSenderName(ownerUid, input.senderName);
-
-    await adminDb().collection(SMS_LOGS_COLLECTION).add({
-      ownerUid,
-      businessId: ownerUid,
-      senderName,
-      receiverPhone: input.receiverPhone?.trim() || "—",
-      receiverName: input.receiverName?.trim() || null,
-      message: input.message?.trim() || "",
-      status: input.status,
-      statusDetail: input.statusDetail?.trim() || null,
-      source: input.source?.trim() || null,
-      createdAt: FieldValue.serverTimestamp(),
-    });
+    const ownerUid = input.ownerUid ?? input.businessId ?? null;
+    await adminDb()
+      .collection(SMS_LOGS_COLLECTION)
+      .add({
+        ownerUid,
+        businessId: ownerUid,
+        senderName: input.senderName ?? "System",
+        receiverPhone: input.receiverPhone,
+        receiverName: input.receiverName ?? null,
+        message: input.message,
+        status: input.status,
+        statusDetail: input.statusDetail,
+        source: input.source,
+        createdAt: FieldValue.serverTimestamp(),
+      });
   } catch (error) {
-    console.error("[sms-log] could not persist entry:", error);
+    console.error("[SMS] Failed to append sms log:", error);
+  }
+}
+
+export async function listSmsLogs(limit = 200): Promise<SmsLogEntry[]> {
+  try {
+    const snap = await adminDb()
+      .collection(SMS_LOGS_COLLECTION)
+      .orderBy("createdAt", "desc")
+      .limit(limit)
+      .get();
+
+    return snap.docs.map((doc) => mapLogDoc(doc.id, doc.data()));
+  } catch (error) {
+    console.warn("[SMS] listSmsLogs fallback (no index):", error);
+    const snap = await adminDb().collection(SMS_LOGS_COLLECTION).limit(limit * 3).get();
+    return snap.docs
+      .map((doc) => mapLogDoc(doc.id, doc.data()))
+      .sort((a, b) => (b.createdAt?.getTime() ?? 0) - (a.createdAt?.getTime() ?? 0))
+      .slice(0, limit);
+  }
+}
+
+export async function listSmsLogsForBusiness(
+  ownerUid: string,
+  limit = 100,
+): Promise<SmsLogEntry[]> {
+  try {
+    const snap = await adminDb()
+      .collection(SMS_LOGS_COLLECTION)
+      .where("ownerUid", "==", ownerUid)
+      .orderBy("createdAt", "desc")
+      .limit(limit)
+      .get();
+
+    return snap.docs.map((doc) => mapLogDoc(doc.id, doc.data()));
+  } catch (error) {
+    console.warn("[SMS] listSmsLogsForBusiness fallback (no index):", error);
+    const snap = await adminDb()
+      .collection(SMS_LOGS_COLLECTION)
+      .where("ownerUid", "==", ownerUid)
+      .limit(limit * 3)
+      .get();
+    return snap.docs
+      .map((doc) => mapLogDoc(doc.id, doc.data()))
+      .sort((a, b) => (b.createdAt?.getTime() ?? 0) - (a.createdAt?.getTime() ?? 0))
+      .slice(0, limit);
   }
 }

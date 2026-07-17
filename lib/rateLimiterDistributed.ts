@@ -14,6 +14,7 @@
  * Get these from: https://console.upstash.com/
  */
 
+
 export interface RateLimitConfig {
   /** Maximum number of requests allowed in the window */
   maxRequests: number;

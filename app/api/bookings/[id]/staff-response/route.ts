@@ -487,7 +487,7 @@ export async function POST(req: NextRequest, context: { params: Promise<{ id: st
       if (isTransitioningToConfirmed) {
         // Verify customer email exists before attempting to send
         if (!bookingData.clientEmail || !bookingData.clientEmail.trim()) {
-          console.error(`[EMAIL] ❌ Cannot send confirmation email - no customer email provided for booking ${id}`);
+          console.error(`[EMAIL] âŒ Cannot send confirmation email - no customer email provided for booking ${id}`);
           console.error(`[EMAIL] Booking data:`, {
             bookingId: id,
             bookingCode: bookingData.bookingCode,
@@ -516,6 +516,7 @@ export async function POST(req: NextRequest, context: { params: Promise<{ id: st
               ownerUid,
               {
                 bookingCode: bookingData.bookingCode,
+                customerPhone: bookingData.clientPhone,
                 branchName: bookingData.branchName,
                 bookingDate: finalBookingDate,
                 bookingTime: finalBookingTime,
@@ -531,9 +532,9 @@ export async function POST(req: NextRequest, context: { params: Promise<{ id: st
                 staffName: staffName,
               }
             );
-            console.log(`[EMAIL] ✅ Confirmation email sent successfully for booking ${id}`);
+            console.log(`[EMAIL] âœ… Confirmation email sent successfully for booking ${id}`);
           } catch (emailError) {
-            console.error(`[EMAIL] ❌ Failed to send booking confirmation email for ${id}:`, emailError);
+            console.error(`[EMAIL] âŒ Failed to send booking confirmation email for ${id}:`, emailError);
             console.error(`[EMAIL] Error details:`, {
               message: emailError instanceof Error ? emailError.message : String(emailError),
               stack: emailError instanceof Error ? emailError.stack : 'No stack trace',
@@ -544,7 +545,7 @@ export async function POST(req: NextRequest, context: { params: Promise<{ id: st
           }
         }
       } else if (newBookingStatus === "Confirmed") {
-        console.log(`[EMAIL] ⚠️ Skipping email - status already Confirmed or invalid transition`);
+        console.log(`[EMAIL] âš ï¸ Skipping email - status already Confirmed or invalid transition`);
         console.log(`[EMAIL] Current status: ${currentStatus}, New status: ${newBookingStatus}, Verified: ${verifiedStatus}`);
         console.log(`[EMAIL] Transition check:`, {
           newStatusIsConfirmed: newBookingStatus === "Confirmed",
@@ -827,6 +828,7 @@ export async function POST(req: NextRequest, context: { params: Promise<{ id: st
             ownerUid,
             {
               bookingCode: bookingData.bookingCode,
+              customerPhone: bookingData.clientPhone,
               branchName: bookingData.branchName,
               bookingDate: finalBookingDate,
               bookingTime: finalBookingTime,
@@ -836,9 +838,9 @@ export async function POST(req: NextRequest, context: { params: Promise<{ id: st
               staffName: staffName,
             }
           );
-          console.log(`[EMAIL] ✅ Confirmation email sent successfully for booking ${id}`);
+          console.log(`[EMAIL] âœ… Confirmation email sent successfully for booking ${id}`);
         } catch (emailError) {
-          console.error(`[EMAIL] ❌ Failed to send booking confirmation email for ${id}:`, emailError);
+          console.error(`[EMAIL] âŒ Failed to send booking confirmation email for ${id}:`, emailError);
           console.error(`[EMAIL] Error stack:`, emailError instanceof Error ? emailError.stack : 'No stack trace');
           // Don't fail the request if email sending fails
         }
