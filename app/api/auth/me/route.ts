@@ -50,9 +50,35 @@ export async function GET(req: NextRequest) {
       });
     }
 
-    // Check users collection
+    // Command-center agents (prefer over users/{uid} so auto-created "pending" rows don't win)
+    const ccAgentDoc = await db.doc(`call_center_agents/${uid}`).get();
+    if (ccAgentDoc.exists) {
+      const data = ccAgentDoc.data();
+      const role = (data?.role || "agent").toString().toLowerCase();
+      return NextResponse.json({
+        uid,
+        role,
+        email: data?.email || decodedToken.email || "",
+        displayName: data?.displayName || data?.name || "",
+        isSuperAdmin: false,
+        suspended: Boolean(data?.suspended),
+        status: data?.status || "",
+        ownerUid: uid,
+        accountStatus: "active",
+        subscriptionStatus: "active",
+        stripeSubscriptionId: null,
+        trial_end: null,
+        trialDays: 0,
+        plan: null,
+        price: null,
+        planId: null,
+        plan_key: null,
+        salonName: "",
+      });
+    }
+
     const userDoc = await db.doc(`users/${uid}`).get();
-    
+
     if (userDoc.exists) {
       const data = userDoc.data();
       return NextResponse.json({
@@ -64,7 +90,6 @@ export async function GET(req: NextRequest) {
         suspended: Boolean(data?.suspended),
         status: data?.status || "",
         ownerUid: data?.ownerUid || uid,
-        // Payment/billing fields for AuthGuard
         accountStatus: data?.accountStatus || "active",
         subscriptionStatus: data?.subscriptionStatus || "active",
         stripeSubscriptionId: data?.stripeSubscriptionId || null,

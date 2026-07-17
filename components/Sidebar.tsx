@@ -7,6 +7,7 @@ import { onAuthStateChanged, signOut } from "firebase/auth";
 import { auth, db } from "@/lib/firebase";
 import { doc, getDoc } from "firebase/firestore";
 import { logUserLogout, logSuperAdminLogout, createSuperAdminAuditLog } from "@/lib/auditLog";
+import { clearCommandCenterAndBlackTokens } from "@/lib/agentSessionTokens";
 
 type SidebarProps = {
   mobile?: boolean;
@@ -58,6 +59,8 @@ export default function Sidebar({ mobile = false, onClose }: SidebarProps) {
         if (typeof window !== "undefined") {
           localStorage.removeItem("role");
           localStorage.removeItem("userName");
+          clearCommandCenterAndBlackTokens();
+          localStorage.removeItem("idToken");
         }
         return;
       }
@@ -75,12 +78,32 @@ export default function Sidebar({ mobile = false, onClose }: SidebarProps) {
           displayName = superAdminData?.displayName || user.displayName || "";
           email = superAdminData?.email || user.email || "";
         } else {
-          // Check users collection
-          const snap = await getDoc(doc(db, "users", user.uid));
-          const userData = snap.data();
-          r = (userData?.role || "").toString();
-          displayName = userData?.displayName || userData?.name || user.displayName || "";
-          email = userData?.email || user.email || "";
+          const agentSnap = await getDoc(
+            doc(db, "call_center_agents", user.uid)
+          );
+          if (agentSnap.exists()) {
+            const ad = agentSnap.data();
+            r = (ad?.role || "agent").toString();
+            displayName =
+              ad?.displayName || ad?.name || user.displayName || "";
+            email = ad?.email || user.email || "";
+          } else {
+            const snap = await getDoc(doc(db, "users", user.uid));
+            if (snap.exists()) {
+              const userData = snap.data();
+              r = (userData?.role || "").toString();
+              displayName =
+                userData?.displayName ||
+                userData?.name ||
+                user.displayName ||
+                "";
+              email = userData?.email || user.email || "";
+            } else {
+              r = "";
+              displayName = user.displayName || "";
+              email = user.email || "";
+            }
+          }
         }
         
         setRole(r || null);
@@ -247,6 +270,7 @@ export default function Sidebar({ mobile = false, onClose }: SidebarProps) {
         localStorage.removeItem("idToken");
         localStorage.removeItem("role");
         localStorage.removeItem("userName");
+        clearCommandCenterAndBlackTokens();
       }
       await signOut(auth);
     } catch (e) {

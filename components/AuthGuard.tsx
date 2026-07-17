@@ -4,11 +4,12 @@ import { useEffect, useState } from "react";
 import { useRouter, usePathname } from "next/navigation";
 import { onAuthStateChanged, signOut } from "firebase/auth";
 import { auth, db } from "@/lib/firebase";
-import { doc, getDoc } from "firebase/firestore";
+import { doc, getDoc, type DocumentData } from "firebase/firestore";
 import PaymentRequiredModal from "./PaymentRequiredModal";
 import OwnerAccountInactiveModal from "./OwnerAccountInactiveModal";
 import TrialWarningBanner from "./TrialWarningBanner";
 import SupportChatWidget from "./SupportChatWidget";
+import { clearCommandCenterAndBlackTokens } from "@/lib/agentSessionTokens";
 
 interface AuthGuardProps {
   children: React.ReactNode;
@@ -58,7 +59,7 @@ export default function AuthGuard({ children }: AuthGuardProps) {
           // Check super_admins collection first
           const superAdminDoc = await getDoc(doc(db, "super_admins", user.uid));
           let userRole: string;
-          let userData: any = null;
+          let userData: DocumentData | null = null;
           
           if (superAdminDoc.exists()) {
             userRole = "super_admin";
@@ -77,21 +78,43 @@ export default function AuthGuard({ children }: AuthGuardProps) {
               return;
             }
           } else {
-            // Get user role from users collection
-            console.log("[AuthGuard] Looking up user document at: users/" + user.uid);
-            const userDoc = await getDoc(doc(db, "users", user.uid));
-            console.log("[AuthGuard] User document exists:", userDoc.exists());
-            userData = userDoc.data();
-            console.log("[AuthGuard] User data:", userData);
-            userRole = (userData?.role || "").toString().toLowerCase();
+            console.log("[AuthGuard] Looking up call_center_agents then users/" + user.uid);
+            const agentDoc = await getDoc(
+              doc(db, "call_center_agents", user.uid)
+            );
+            console.log(
+              "[AuthGuard] call_center_agents document exists:",
+              agentDoc.exists()
+            );
+
+            if (agentDoc.exists()) {
+              userData = agentDoc.data() ?? null;
+              userRole = (userData?.role || "agent").toString().toLowerCase();
+            } else {
+              const userDoc = await getDoc(doc(db, "users", user.uid));
+              console.log("[AuthGuard] User document exists:", userDoc.exists());
+              userData = userDoc.exists() ? userDoc.data() ?? null : null;
+              console.log("[AuthGuard] User data:", userData);
+              userRole = userDoc.exists()
+                ? (userData?.role || "").toString().toLowerCase()
+                : "";
+            }
             console.log("[AuthGuard] User role:", userRole);
           }
           
-          // Check if user has admin role
-          const allowedRoles = ["salon_owner", "salon_branch_admin", "super_admin"];
+          // Check if user has admin / call-center agent role
+          const allowedRoles = [
+            "salon_owner",
+            "salon_branch_admin",
+            "super_admin",
+            "agent",
+            "call_center_agent",
+            "call_center_admin",
+          ];
           
           if (!allowedRoles.includes(userRole)) {
             // User is not an admin (probably a customer)
+            clearCommandCenterAndBlackTokens();
             await auth.signOut();
             router.replace("/login");
             setLoading(false);
@@ -324,6 +347,7 @@ export default function AuthGuard({ children }: AuthGuardProps) {
         reason={ownerBlocked.reason}
         ownerName={ownerBlocked.ownerName}
         onLogout={async () => {
+          clearCommandCenterAndBlackTokens();
           await signOut(auth);
           router.replace("/login");
         }}
