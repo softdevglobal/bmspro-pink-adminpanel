@@ -120,6 +120,19 @@ export default function SubscriptionPage() {
   const [showCancelModal, setShowCancelModal] = useState(false);
   const [cancelReason, setCancelReason] = useState("");
   const [customReason, setCustomReason] = useState("");
+
+  const [alertModal, setAlertModal] = useState<{
+    title: string;
+    message: string;
+    variant: "error" | "success" | "warning";
+  } | null>(null);
+  const showAlert = (message: string, variant: "error" | "success" | "warning" = "error", title?: string) => {
+    setAlertModal({
+      message,
+      variant,
+      title: title || (variant === "success" ? "Success" : variant === "warning" ? "Heads up" : "Something went wrong"),
+    });
+  };
   
   const cancellationReasons = [
     { id: "too_expensive", label: "Too expensive", icon: "fa-dollar-sign" },
@@ -296,7 +309,7 @@ export default function SubscriptionPage() {
     
     // Check if package has a valid price
     if (!selectedPackage.price || selectedPackage.price <= 0) {
-      alert("This package is not configured for payments yet. Please contact support.");
+      showAlert("This package is not configured for payments yet. Please contact support.", "warning", "Payment Not Configured");
       return;
     }
     
@@ -333,7 +346,7 @@ export default function SubscriptionPage() {
       
     } catch (error: any) {
       console.error("Error creating checkout:", error);
-      alert(error.message || "Failed to start checkout. Please try again.");
+      showAlert(error.message || "Failed to start checkout. Please try again.", "error", "Checkout Failed");
       setCheckoutLoading(false);
       setUpdating(false);
     }
@@ -370,7 +383,7 @@ export default function SubscriptionPage() {
       
     } catch (error: any) {
       console.error("Error opening billing portal:", error);
-      alert(error.message || "Failed to open billing portal. Please try again.");
+      showAlert(error.message || "Failed to open billing portal. Please try again.", "error", "Billing Portal Unavailable");
     } finally {
       setPortalLoading(false);
     }
@@ -436,7 +449,7 @@ export default function SubscriptionPage() {
       window.location.reload();
     } catch (error: any) {
       console.error("Error upgrading:", error);
-      alert(error.message || "Failed to upgrade subscription. Please try again.");
+      showAlert(error.message || "Failed to upgrade subscription. Please try again.", "error", "Upgrade Failed");
     } finally {
       setUpgradeLoading(false);
     }
@@ -484,7 +497,7 @@ export default function SubscriptionPage() {
       window.location.reload();
     } catch (error: any) {
       console.error("Error downgrading:", error);
-      alert(error.message || "Failed to schedule downgrade. Please try again.");
+      showAlert(error.message || "Failed to schedule downgrade. Please try again.", "error", "Downgrade Failed");
     } finally {
       setDowngradeLoading(false);
     }
@@ -504,7 +517,7 @@ export default function SubscriptionPage() {
     const reason = cancelReason === "other" ? customReason : cancellationReasons.find(r => r.id === cancelReason)?.label || "";
     
     if (!reason.trim()) {
-      alert("Please select or enter a reason for cancellation.");
+      showAlert("Please select or enter a reason for cancellation.", "warning", "Reason Required");
       return;
     }
     
@@ -530,10 +543,10 @@ export default function SubscriptionPage() {
       setShowCancelModal(false);
       fetchBillingStatus();
       // Show success message
-      alert("Subscription cancelled. You'll continue to have access until the end of your current billing period.");
+      showAlert("You'll continue to have access until the end of your current billing period.", "success", "Subscription Cancelled");
     } catch (error: any) {
       console.error("Error cancelling:", error);
-      alert(error.message || "Failed to cancel subscription. Please try again.");
+      showAlert(error.message || "Failed to cancel subscription. Please try again.", "error", "Cancellation Failed");
     } finally {
       setCancelLoading(false);
     }
@@ -1508,6 +1521,56 @@ export default function SubscriptionPage() {
                   className="w-full py-3 px-4 rounded-xl border border-slate-200 text-slate-700 font-medium hover:bg-slate-50 transition-colors"
                 >
                   Close
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Alert Modal (replaces window.alert) */}
+      {alertModal && (
+        <div className="fixed inset-0 z-50">
+          <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" onClick={() => setAlertModal(null)} />
+          <div className="relative flex items-center justify-center min-h-screen p-4">
+            <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden">
+              <div
+                className={`px-6 py-5 text-white relative bg-gradient-to-r ${
+                  alertModal.variant === "success"
+                    ? "from-emerald-500 to-teal-500"
+                    : alertModal.variant === "warning"
+                    ? "from-amber-500 to-orange-500"
+                    : "from-rose-500 to-pink-500"
+                }`}
+              >
+                <button
+                  onClick={() => setAlertModal(null)}
+                  className="absolute top-4 right-4 w-8 h-8 rounded-full bg-white/20 hover:bg-white/30 flex items-center justify-center transition-colors"
+                >
+                  <i className="fas fa-times text-sm" />
+                </button>
+                <div className="flex items-center gap-4">
+                  <div className="w-12 h-12 rounded-xl bg-white/20 flex items-center justify-center">
+                    <i
+                      className={`fas text-xl ${
+                        alertModal.variant === "success"
+                          ? "fa-circle-check"
+                          : alertModal.variant === "warning"
+                          ? "fa-triangle-exclamation"
+                          : "fa-circle-exclamation"
+                      }`}
+                    />
+                  </div>
+                  <h3 className="text-xl font-bold">{alertModal.title}</h3>
+                </div>
+              </div>
+              <div className="p-6">
+                <p className="text-sm text-slate-700 leading-relaxed">{alertModal.message}</p>
+                <button
+                  onClick={() => setAlertModal(null)}
+                  className="mt-6 w-full py-3 px-4 rounded-xl bg-gradient-to-r from-pink-500 to-fuchsia-600 text-white font-semibold hover:from-pink-600 hover:to-fuchsia-700 transition-all"
+                >
+                  OK
                 </button>
               </div>
             </div>
