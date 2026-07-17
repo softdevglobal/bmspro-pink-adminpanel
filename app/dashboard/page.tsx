@@ -2927,19 +2927,29 @@ export default function DashboardPage() {
                         <div 
                           onClick={() => {
                             markAsRead(notif.id);
+                            if (notif.type === "system_message") {
+                              setNotificationPanelOpen(false);
+                              return;
+                            }
                             router.push('/bookings/pending');
                             setNotificationPanelOpen(false);
                           }}
-                          className="cursor-pointer"
+                          className={notif.type === "system_message" ? "" : "cursor-pointer"}
                         >
                           <div className="flex items-start gap-3">
                             <div className={`w-11 h-11 rounded-xl flex items-center justify-center flex-shrink-0 ${
-                              notif.type === 'booking_request' 
+                              notif.type === 'system_message'
+                                ? 'bg-gradient-to-br from-indigo-400 to-violet-600 text-white'
+                                : notif.type === 'booking_request' 
                                 ? 'bg-gradient-to-br from-amber-400 to-orange-500 text-white'
                                 : 'bg-gradient-to-br from-pink-400 to-pink-600 text-white'
                             }`}>
                               <i className={`fas ${
-                                notif.type === 'booking_request' ? 'fa-calendar-plus' : 'fa-bell'
+                                notif.type === 'system_message'
+                                  ? 'fa-bullhorn'
+                                  : notif.type === 'booking_request'
+                                    ? 'fa-calendar-plus'
+                                    : 'fa-bell'
                               } text-lg`} />
                             </div>
                             <div className="flex-1 min-w-0">
@@ -2952,7 +2962,8 @@ export default function DashboardPage() {
                                 </div>
                                 <span className="text-xs text-slate-400 flex-shrink-0">{timeAgo}</span>
                               </div>
-                              <p className="text-sm text-slate-600 mt-1">{notif.message}</p>
+                              <p className="text-sm text-slate-600 mt-1 whitespace-pre-wrap">{notif.message}</p>
+                              {notif.type !== "system_message" && (
                               <div className="flex items-center flex-wrap gap-2 mt-3">
                                 <span className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-slate-100 rounded-lg text-xs text-slate-600">
                                   <i className="fas fa-tag text-pink-500" />
@@ -2971,6 +2982,7 @@ export default function DashboardPage() {
                                   </span>
                                 )}
                               </div>
+                              )}
                             </div>
                           </div>
                         </div>

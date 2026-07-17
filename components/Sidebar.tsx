@@ -19,6 +19,8 @@ export default function Sidebar({ mobile = false, onClose }: SidebarProps) {
   const router = useRouter();
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const isDashboard = pathname === "/dashboard" || pathname === "/admin-dashboard" || pathname === "/";
+  const isCustomMessages = pathname?.startsWith("/custom-messages");
+  const isOwnerCustomSms = pathname?.startsWith("/sms/custom-messages");
   const isBookings = pathname?.startsWith("/bookings");
   const isBookingsDashboard = pathname === "/bookings/dashboard";
   const isBookingsAll = pathname === "/bookings/all";
@@ -337,6 +339,12 @@ export default function Sidebar({ mobile = false, onClose }: SidebarProps) {
           </Link>
         )}
         {mounted && role === "super_admin" && (
+          <Link href="/custom-messages" className={`flex items-center space-x-3 px-4 py-3 rounded-xl text-sm transition ${isCustomMessages ? "bg-pink-500 text-white shadow-lg" : "hover:bg-slate-800 text-slate-400 hover:text-white"}`}>
+            <i className="fas fa-bullhorn w-5" />
+            <span>Custom notification</span>
+          </Link>
+        )}
+        {mounted && role === "super_admin" && (
           <Link href="/super-admin-audit-logs" className={`flex items-center space-x-3 px-4 py-3 rounded-xl text-sm transition ${isSuperAdminAuditLogs ? "bg-pink-500 text-white shadow-lg" : "hover:bg-slate-800 text-slate-400 hover:text-white"}`}>
             <i className="fas fa-shield-halved w-5" />
             <span>Audit Logs</span>
@@ -437,6 +445,17 @@ export default function Sidebar({ mobile = false, onClose }: SidebarProps) {
         >
           <i className="fas fa-user-group w-5" />
           <span>Customers</span>
+        </Link>
+      )}
+      {mounted && role === "salon_owner" && (
+        <Link
+          href="/sms/custom-messages"
+          className={`flex items-center space-x-3 px-4 py-3 rounded-xl text-sm transition ${
+            isOwnerCustomSms ? "bg-pink-500 text-white shadow-lg" : "hover:bg-slate-800 text-slate-400 hover:text-white"
+          }`}
+        >
+          <i className="fas fa-comment-sms w-5" />
+          <span>Custom messages</span>
         </Link>
       )}
       {mounted && role === "salon_owner" && (
