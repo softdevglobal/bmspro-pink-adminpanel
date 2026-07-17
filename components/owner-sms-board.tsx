@@ -222,6 +222,20 @@ export function OwnerSmsBoard() {
     setBalance(next);
   }, []);
 
+  useEffect(() => {
+    // Navigating to Stripe checkout leaves purchasingId/confirmPackage set.
+    // Returning here via the browser back button restores that exact state
+    // from bfcache, which locks the modal open (its buttons are disabled
+    // while purchasingId is set). Reset on bfcache restore so it's usable.
+    const onPageShow = (event: PageTransitionEvent) => {
+      if (!event.persisted) return;
+      setPurchasingId(null);
+      setConfirmPackage(null);
+    };
+    window.addEventListener("pageshow", onPageShow);
+    return () => window.removeEventListener("pageshow", onPageShow);
+  }, []);
+
   const load = useCallback(async (options?: { silent?: boolean }) => {
     if (!options?.silent) {
       setLoading(true);

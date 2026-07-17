@@ -129,6 +129,21 @@ export default function SubscriptionPage() {
     { id: "other", label: "Other", icon: "fa-comment-dots" },
   ];
 
+  useEffect(() => {
+    // Navigating to Stripe checkout/portal leaves checkoutLoading/updating/
+    // portalLoading set. Returning via the browser back button restores that
+    // exact state from bfcache, which locks the button in "Redirecting..."
+    // forever. Reset on bfcache restore so it's usable again.
+    const onPageShow = (event: PageTransitionEvent) => {
+      if (!event.persisted) return;
+      setCheckoutLoading(false);
+      setUpdating(false);
+      setPortalLoading(false);
+    };
+    window.addEventListener("pageshow", onPageShow);
+    return () => window.removeEventListener("pageshow", onPageShow);
+  }, []);
+
   // Fetch billing status
   const fetchBillingStatus = useCallback(async () => {
     try {
